@@ -15,15 +15,21 @@
       systems = [ "x86_64-linux" ];
       perSystem = { config, self', pkgs, lib, system, ... }:
         let
-          runtimeDeps = with pkgs; [
+          diesel-cli = pkgs.diesel-cli.override {
+            sqliteSupport = true;
+            mysqlSupport = false;
+          };
+
+
+          runtimeDeps = [
           ];
-          buildDeps = with pkgs; [
+          buildDeps = [
           ];
-          devDeps = with pkgs; [
-            
+          devDeps = [
+            diesel-cli
           ];
 
-          mkDevShell = rustc: pkgs.mkShell rec {
+          mkDevShell = rustc: pkgs.mkShell {
             RUST_SRC_PATH = "${pkgs.rustPlatform.rustLibSrc}";
 
             buildInputs = runtimeDeps;

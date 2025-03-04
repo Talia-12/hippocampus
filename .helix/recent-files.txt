@@ -1,1 +1,5 @@
+"/home/tyrab/Programming/Rust/hippocampus/.gitignore"
+"/home/tyrab/Programming/Rust/hippocampus/migrations/2025-03-04-200553_create_items/up.sql"
+"/home/tyrab/Programming/Rust/hippocampus/migrations/2025-03-04-200553_create_items/down.sql"
+"/home/tyrab/Programming/Rust/hippocampus/flake.nix"
 "/home/tyrab/Programming/Rust/hippocampus/Cargo.toml"
