@@ -1,3 +1,5 @@
+cargo-features = ["edition2024"]
+
 [package]
 name = "hippocampus"
 version = "0.1.0"
@@ -6,7 +8,7 @@ edition = "2024"
 [dependencies]
 # Web framework (Axum or Warp; example uses Axum)
 axum = "0.8.1"
-tokio = { version = "1.43.0", feautres = ["macros"] }
+tokio = { version = "1.43.0", features = ["macros"] }
 hyper = "1.6.0" # for lower-level HTTP support if needed
 
 # Database
