@@ -1,9 +1,10 @@
+use diesel::IntoSql;
 use hippocampus::{
     db::init_pool,
     models::{Item, Review},
 };
 use axum::{
-    body::Body,
+    body::{to_bytes, Body},
     http::{Request, StatusCode},
     Router,
 };
@@ -17,7 +18,7 @@ fn create_test_app() -> Router {
     
     // Run migrations on the in-memory database
     let conn = &mut pool.get().unwrap();
-    diesel_migrations::run_pending_migrations(conn).unwrap();
+    hippocampus::run_migrations(conn);
     
     hippocampus::create_app(pool)
 }
@@ -47,7 +48,7 @@ async fn test_create_item() {
     assert_eq!(response.status(), StatusCode::OK);
     
     // Convert the response body into bytes
-    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     
     // Parse the body as JSON
     let item: Item = serde_json::from_slice(&body).unwrap();
@@ -75,7 +76,7 @@ async fn test_get_item() {
         .unwrap();
     
     let response = app.clone().oneshot(request).await.unwrap();
-    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
     let created_item: Item = serde_json::from_slice(&body).unwrap();
     
     // Now, get the item
@@ -91,7 +92,7 @@ async fn test_get_item() {
     assert_eq!(response.status(), StatusCode::OK);
     
     // Convert the response body into bytes
-    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
     
     // Parse the body as JSON
     let item: Option<Item> = serde_json::from_slice(&body).unwrap();
@@ -136,7 +137,7 @@ async fn test_list_items() {
     assert_eq!(response.status(), StatusCode::OK);
     
     // Convert the response body into bytes
-    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
     
     // Parse the body as JSON
     let items: Vec<Item> = serde_json::from_slice(&body).unwrap();
@@ -164,7 +165,7 @@ async fn test_create_review() {
         .unwrap();
     
     let response = app.clone().oneshot(request).await.unwrap();
-    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
     let created_item: Item = serde_json::from_slice(&body).unwrap();
     
     // Now, create a review for the item
@@ -187,7 +188,7 @@ async fn test_create_review() {
     assert_eq!(response.status(), StatusCode::OK);
     
     // Convert the response body into bytes
-    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
     
     // Parse the body as JSON
     let review: Review = serde_json::from_slice(&body).unwrap();
@@ -204,7 +205,7 @@ async fn test_create_review() {
         .unwrap();
     
     let response = app.oneshot(request).await.unwrap();
-    let body = hyper::body::to_bytes(response.into_body()).await.unwrap();
+    let body = response.into_body().collect().await.unwrap().to_bytes();
     let updated_item: Option<Item> = serde_json::from_slice(&body).unwrap();
     
     // Check that the item exists and has a next_review date
