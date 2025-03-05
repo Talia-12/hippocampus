@@ -39,10 +39,39 @@ use axum::{
     Router,
     Json,
     extract::{State, Path},
+    response::{IntoResponse, Response},
+    http::StatusCode,
 };
 use models::{Item, Review};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum ApiError {
+    #[error("Database error: {0}")]
+    Database(#[from] anyhow::Error),
+    #[error("Item not found")]
+    NotFound,
+    #[error("Invalid rating: {0}")]
+    InvalidRating(String),
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let (status, message) = match self {
+            ApiError::Database(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
+            ApiError::NotFound => (StatusCode::NOT_FOUND, "Item not found".to_string()),
+            ApiError::InvalidRating(msg) => (StatusCode::BAD_REQUEST, msg),
+        };
+
+        let body = Json(serde_json::json!({
+            "error": message
+        }));
+
+        (status, body).into_response()
+    }
+}
 
 /// Data transfer object for creating a new item
 ///
@@ -82,13 +111,13 @@ async fn create_item_handler(
     State(pool): State<Arc<db::DbPool>>,
     // Extract and deserialize the JSON request body
     Json(payload): Json<CreateItemDto>,
-) -> Json<Item> {
+) -> Result<Json<Item>, ApiError> {
     // Call the repository function to create the item
     let item = repo::create_item(&pool, payload.title)
-        .expect("Failed to create item");
-    
+        .map_err(ApiError::Database)?;
+
     // Return the created item as JSON
-    Json(item)
+    Ok(Json(item))
 }
 
 /// Handler for retrieving a specific item
@@ -108,13 +137,12 @@ async fn get_item_handler(
     State(pool): State<Arc<db::DbPool>>,
     // Extract the item ID from the URL path
     Path(item_id): Path<String>,
-) -> Json<Option<Item>> {
+) -> Result<Json<Option<Item>>, ApiError> {
     // Call the repository function to get the item
     let item = repo::get_item(&pool, &item_id)
-        .expect("Failed to retrieve item");
-    
+        .map_err(ApiError::Database)?;
     // Return the item (or None) as JSON
-    Json(item)
+    Ok(Json(item))
 }
 
 /// Handler for listing all items
@@ -131,14 +159,14 @@ async fn get_item_handler(
 async fn list_items_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<db::DbPool>>,
-) -> Json<Vec<Item>> {
+) -> Result<Json<Vec<Item>>, ApiError> {
     // Call the repository function to list all items
     let all_items = repo::list_items(&pool)
-        .expect("Failed to list items");
-    
+        .map_err(ApiError::Database)?;
     // Return the list of items as JSON
-    Json(all_items)
+    Ok(Json(all_items))
 }
+
 
 /// Handler for recording a review
 ///
@@ -157,13 +185,27 @@ async fn create_review_handler(
     State(pool): State<Arc<db::DbPool>>,
     // Extract and deserialize the JSON request body
     Json(payload): Json<CreateReviewDto>,
-) -> Json<Review> {
-    // Call the repository function to record the review
-    let review = repo::record_review(&pool, &payload.item_id, payload.rating)
-        .expect("Failed to record review");
+) -> Result<Json<Review>, ApiError> {
+    // Validate rating range
+    if !(1..=3).contains(&payload.rating) {
+        return Err(ApiError::InvalidRating(
+            "Rating must be between 1 and 3".to_string()
+        ));
+    }
     
+    // First check if the item exists
+    let item_exists = repo::get_item(&pool, &payload.item_id)
+        .map_err(ApiError::Database)?
+        .is_some();
+    
+    if !item_exists {
+        return Err(ApiError::NotFound);
+    }
+    
+    let review = repo::record_review(&pool, &payload.item_id, payload.rating)
+        .map_err(ApiError::Database)?;
     // Return the created review as JSON
-    Json(review)
+    Ok(Json(review))
 }
 
 /// Creates the application router with all routes

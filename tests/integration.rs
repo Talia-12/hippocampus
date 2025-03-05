@@ -24,7 +24,7 @@ use axum::{
     http::{Request, StatusCode},
     Router,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tower::ServiceExt;
 
@@ -292,10 +292,106 @@ async fn test_create_review() {
     // Get the unwrapped item
     let updated_item = updated_item.unwrap();
     
-    // Check that the item has been updated with review information
-    assert!(updated_item.next_review.is_some(), "Item should have a next review date");
-    assert!(updated_item.last_review.is_some(), "Item should have a last review date");
-    
     // For a rating of 3 (easy), the next review should be scheduled 7 days after the last review
     // We could check this more precisely, but it would require more complex time calculations
-} 
+    assert!(updated_item.next_review.is_some(), "Item should have a next review date");
+    assert!(updated_item.last_review.is_some(), "Item should have a last review date");
+}
+
+#[tokio::test]
+async fn test_get_nonexistent_item() {
+    let app = create_test_app();
+    
+    // Try to get a non-existent item
+    let request = Request::builder()
+        .uri("/items/nonexistent-id")
+        .method("GET")
+        .body(Body::empty())
+        .unwrap();
+    
+    let response = app.oneshot(request).await.unwrap();
+    
+    // Should return 200 OK with null data since this is a valid case
+    assert_eq!(response.status(), StatusCode::OK);
+    
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let item: Option<Item> = serde_json::from_slice(&body).unwrap();
+    assert!(item.is_none());
+}
+
+#[tokio::test]
+async fn test_create_review_for_nonexistent_item() {
+    let app = create_test_app();
+    
+    // Try to create a review for a non-existent item
+    let request = Request::builder()
+        .uri("/reviews")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "item_id": "nonexistent-id",
+                "rating": 3
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    
+    let response = app.oneshot(request).await.unwrap();
+    
+    // Should return 404 Not Found
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    
+    // Verify error message
+    assert_eq!(error["error"], "Item not found");
+}
+
+#[tokio::test]
+async fn test_create_review_with_invalid_rating() {
+    let app = create_test_app();
+    
+    // First create an item
+    let request = Request::builder()
+        .uri("/items")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "title": "Test Item"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    
+    let response = app.clone().oneshot(request).await.unwrap();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let created_item: Item = serde_json::from_slice(&body).unwrap();
+    
+    // Try to create a review with an invalid rating
+    let request = Request::builder()
+        .uri("/reviews")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "item_id": created_item.id,
+                "rating": 5 // Invalid rating (should be 1-3)
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    
+    let response = app.oneshot(request).await.unwrap();
+    
+    // Should return 400 Bad Request
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let error: Value = serde_json::from_slice(&body).unwrap();
+    
+    // Verify error message
+    assert_eq!(error["error"], "Rating must be between 1 and 3");
+}
