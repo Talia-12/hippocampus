@@ -38,3 +38,5 @@ tracing-subscriber = "0.3.19"
 # For testing
 tokio-test = "0.4.4"
 reqwest = { version = "0.12.12", features = ["json"] }
+dotenv = "0.15.0"
+tower = "0.5.2"
