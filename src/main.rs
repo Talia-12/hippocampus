@@ -9,14 +9,19 @@ use axum::{
 	Json,
 	extract::{State, Path},
 };
-use dotenv::dotenv;
-use models::Item;
+use models::{Item, Review};
 use serde::Deserialize;
 use std::{env, sync::Arc, net::SocketAddr};
 
 #[derive(Deserialize)]
 struct CreateItemDto {
 	title: String,
+}
+
+#[derive(Deserialize)]
+struct CreateReviewDto {
+	item_id: String,
+	rating: i32,
 }
 
 async fn create_item_handler(
@@ -45,13 +50,27 @@ async fn list_items_handler(
 	Json(all_items)
 }
 
+async fn create_review_handler(
+	State(pool): State<Arc<db::DbPool>>,
+	Json(payload): Json<CreateReviewDto>,
+) -> Json<Review> {
+	let review = repo::record_review(&pool, &payload.item_id, payload.rating)
+		.expect("Failed to record review");
+	Json(review)
+}
+
 #[tokio::main]
 async fn main() {
 	// Initialize logging
 	tracing_subscriber::fmt::init();
 
 	// Load environment variables
-	dotenv().ok();
+	if std::fs::metadata(".env").is_ok() {
+		println!("Loading .env file");
+		#[cfg(feature = "dotenv")]
+		dotenv::dotenv().ok();
+	}
+	
 	let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 	
 	// Initialize the database pool
@@ -61,13 +80,14 @@ async fn main() {
 	let app = Router::new()
 		.route("/items", post(create_item_handler).get(list_items_handler))
 		.route("/items/:id", get(get_item_handler))
+		.route("/reviews", post(create_review_handler))
 		.with_state(pool);
 
 	// Run it
 	let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
 	println!("Listening on {}", addr);
-	axum::Server::bind(&addr)
-		.serve(app.into_make_service())
-		.await
-		.unwrap();
+	
+	println!("Starting server, press Ctrl+C to stop");
+	let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+	axum::serve(listener, app).await.unwrap();
 }

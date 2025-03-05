@@ -1,5 +1,6 @@
-use crate::schema::items;
+use crate::schema::{items, reviews};
 use chrono::{DateTime, Utc};
+use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -24,6 +25,26 @@ impl Item {
             last_review: None,
             created_at: now,
             updated_at: now,
+        }
+    }
+}
+
+#[derive(Queryable, Insertable, Debug, Serialize, Deserialize)]
+#[diesel(table_name = reviews)]
+pub struct Review {
+    pub id: String,
+    pub item_id: String,
+    pub rating: i32,
+    pub review_timestamp: DateTime<Utc>,
+}
+
+impl Review {
+    pub fn new(item_id: &str, rating: i32) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            item_id: item_id.to_string(),
+            rating,
+            review_timestamp: Utc::now(),
         }
     }
 } 
