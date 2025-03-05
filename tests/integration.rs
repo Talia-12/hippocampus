@@ -22,7 +22,6 @@ fn create_test_app() -> Router {
     hippocampus::create_app(pool)
 }
 
-#[allow(unexpected_cfgs)]
 #[tokio::test]
 async fn test_create_item() {
     // Create our test app
@@ -57,7 +56,6 @@ async fn test_create_item() {
     assert_eq!(item.title, "Test Item");
 }
 
-#[allow(unexpected_cfgs)]
 #[tokio::test]
 async fn test_get_item() {
     // Create our test app
@@ -103,7 +101,6 @@ async fn test_get_item() {
     assert_eq!(item.unwrap().title, "Test Item for Get");
 }
 
-#[allow(unexpected_cfgs)]
 #[tokio::test]
 async fn test_list_items() {
     // Create our test app
@@ -148,7 +145,6 @@ async fn test_list_items() {
     assert!(items.len() >= 3);
 }
 
-#[allow(unexpected_cfgs)]
 #[tokio::test]
 async fn test_create_review() {
     // Create our test app

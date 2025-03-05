@@ -8,6 +8,9 @@ edition = "2024"
 [features]
 test = []
 
+[lints.rust]
+ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(test)'] }
+
 
 [dependencies]
 # Web framework (Axum or Warp; example uses Axum)

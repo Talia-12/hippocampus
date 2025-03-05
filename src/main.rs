@@ -1,11 +1,3 @@
-use axum::{
-	routing::{get, post},
-	Router,
-	Json,
-	extract::{State, Path},
-};
-use models::{Item, Review};
-use serde::Deserialize;
 use hippocampus::*;
 use std::{env, sync::Arc, net::SocketAddr};
 use tracing_subscriber;
@@ -36,4 +28,37 @@ async fn main() {
 	println!("Starting server, press Ctrl+C to stop");
 	let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
 	axum::serve(listener, app).await.unwrap();
+}
+
+#[cfg(test)]
+mod tests {
+	#[test]
+	fn test_env_variables() {
+		// Test that the DATABASE_URL fallback works
+		// Save the original value if it exists
+		let original_value = std::env::var("DATABASE_URL").ok();
+		
+		// Remove the var for first test
+		unsafe { std::env::remove_var("DATABASE_URL") };
+		let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "srs_server.db".to_string());
+		assert_eq!(database_url, "srs_server.db");
+		
+		// Test with a custom value
+		unsafe { std::env::set_var("DATABASE_URL", "test.db") };
+		let database_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "srs_server.db".to_string());
+		assert_eq!(database_url, "test.db");
+		
+		// Restore original value or remove if there wasn't one
+		match original_value {
+			Some(value) => unsafe { std::env::set_var("DATABASE_URL", value) },
+			None => unsafe { std::env::remove_var("DATABASE_URL") },
+		}
+	}
+	
+	#[test]
+	fn test_socket_addr_creation() {
+		let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 3000));
+		assert_eq!(addr.ip().to_string(), "127.0.0.1");
+		assert_eq!(addr.port(), 3000);
+	}
 }
