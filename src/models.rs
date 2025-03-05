@@ -39,11 +39,11 @@ pub struct Item {
 impl Item {
     /// Creates a new item with the given title
     ///
-    /// # Arguments
+    /// ### Arguments
     ///
     /// * `title` - The title or content of the item to be remembered
     ///
-    /// # Returns
+    /// ### Returns
     ///
     /// A new `Item` instance with:
     /// - A randomly generated UUID
@@ -73,7 +73,7 @@ impl Item {
     
     /// Gets the item's creation timestamp
     ///
-    /// # Returns
+    /// ### Returns
     ///
     /// The timestamp when this item was created
     pub fn get_created_at(&self) -> NaiveDateTime {
@@ -82,7 +82,7 @@ impl Item {
     
     /// Gets the item's last update timestamp
     ///
-    /// # Returns
+    /// ### Returns
     ///
     /// The timestamp when this item was last updated
     pub fn get_updated_at(&self) -> NaiveDateTime {
@@ -91,7 +91,7 @@ impl Item {
     
     /// Gets the item's next scheduled review time
     ///
-    /// # Returns
+    /// ### Returns
     ///
     /// An Option containing the timestamp for the next review,
     /// or None if the item has never been reviewed
@@ -101,7 +101,7 @@ impl Item {
     
     /// Gets the item's last review timestamp
     ///
-    /// # Returns
+    /// ### Returns
     ///
     /// An Option containing the timestamp of the last review,
     /// or None if the item has never been reviewed
@@ -109,7 +109,6 @@ impl Item {
         self.last_review
     }
 }
-
 
 /// Represents a review record in the spaced repetition system
 ///
@@ -136,12 +135,12 @@ pub struct Review {
 impl Review {
     /// Creates a new review for an item
     ///
-    /// # Arguments
+    /// ### Arguments
     ///
     /// * `item_id` - The ID of the item being reviewed
     /// * `rating` - The rating given during the review (typically 1-3)
     ///
-    /// # Returns
+    /// ### Returns
     ///
     /// A new `Review` instance with:
     /// - A randomly generated UUID
@@ -165,7 +164,7 @@ impl Review {
     
     /// Gets the review timestamp
     ///
-    /// # Returns
+    /// ### Returns
     ///
     /// The timestamp when this review occurred
     pub fn get_review_timestamp(&self) -> NaiveDateTime {

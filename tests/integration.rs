@@ -40,7 +40,7 @@ use tower::ServiceExt;
 /// - Tests are isolated from each other
 /// - No cleanup is needed after tests
 ///
-/// # Returns
+/// ### Returns
 ///
 /// An Axum Router configured with all routes and connected to an in-memory database
 fn create_test_app() -> Router {

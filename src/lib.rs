@@ -6,14 +6,14 @@
 /// The name "Hippocampus" refers to the part of the brain involved in memory formation,
 /// which is fitting for a spaced repetition system designed to help with memorization.
 ///
-/// # Modules
+/// ### Modules
 ///
 /// - `db`: Database connection management
 /// - `models`: Data structures representing items and reviews
 /// - `repo`: Repository layer for database operations
 /// - `schema`: Database schema definitions
 ///
-/// # Web API
+/// ### Web API
 ///
 /// The library exposes a RESTful API using Axum with the following endpoints:
 ///
@@ -98,12 +98,12 @@ pub struct CreateReviewDto {
 ///
 /// This function handles POST requests to `/items`.
 ///
-/// # Arguments
+/// ### Arguments
 ///
 /// * `pool` - The database connection pool
 /// * `payload` - The request payload containing the item title
 ///
-/// # Returns
+/// ### Returns
 ///
 /// The newly created item as JSON
 async fn create_item_handler(
@@ -124,12 +124,12 @@ async fn create_item_handler(
 ///
 /// This function handles GET requests to `/items/{id}`.
 ///
-/// # Arguments
+/// ### Arguments
 ///
 /// * `pool` - The database connection pool
 /// * `item_id` - The ID of the item to retrieve, extracted from the URL path
 ///
-/// # Returns
+/// ### Returns
 ///
 /// The requested item as JSON, or null if not found
 async fn get_item_handler(
@@ -149,11 +149,11 @@ async fn get_item_handler(
 ///
 /// This function handles GET requests to `/items`.
 ///
-/// # Arguments
+/// ### Arguments
 ///
 /// * `pool` - The database connection pool
 ///
-/// # Returns
+/// ### Returns
 ///
 /// A list of all items as JSON
 async fn list_items_handler(
@@ -172,12 +172,12 @@ async fn list_items_handler(
 ///
 /// This function handles POST requests to `/reviews`.
 ///
-/// # Arguments
+/// ### Arguments
 ///
 /// * `pool` - The database connection pool
 /// * `payload` - The request payload containing the item ID and rating
 ///
-/// # Returns
+/// ### Returns
 ///
 /// The newly created review as JSON
 async fn create_review_handler(
@@ -212,11 +212,11 @@ async fn create_review_handler(
 ///
 /// This function sets up the Axum router with all the API endpoints.
 ///
-/// # Arguments
+/// ### Arguments
 ///
 /// * `pool` - The database connection pool to be shared with all handlers
 ///
-/// # Returns
+/// ### Returns
 ///
 /// An Axum Router configured with all routes and the database pool as state
 pub fn create_app(pool: Arc<db::DbPool>) -> Router {
@@ -233,13 +233,13 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
 
 /// Runs the embedded migrations
 ///
-/// This function applies all database migrations to set up the schema.
+/// This function applies all database migrations to set up the schema. Note that this is currently only used in tests.
 ///
-/// # Arguments
+/// ### Arguments
 ///
 /// * `conn` - A mutable reference to a SQLite connection
 ///
-/// # Panics
+/// ### Panics
 ///
 /// This function will panic if the migrations fail to run
 pub fn run_migrations(conn: &mut diesel::SqliteConnection) {
@@ -275,7 +275,7 @@ mod tests {
     /// 2. Enables foreign key constraints
     /// 3. Runs all migrations to set up the schema
     ///
-    /// # Returns
+    /// ### Returns
     ///
     /// An Arc-wrapped database connection pool connected to the in-memory database
     fn setup_test_db() -> Arc<db::DbPool> {

@@ -3,7 +3,6 @@
 /// This module provides functionality for creating and managing database connections
 /// using Diesel's r2d2 connection pooling. It abstracts away the details of
 /// connection management to provide a simple interface for the rest of the application.
-use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
 use diesel::r2d2::{Pool, ConnectionManager};
 
@@ -16,19 +15,19 @@ pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 
 /// Initializes a new database connection pool
 ///
-/// # Arguments
+/// ### Arguments
 ///
 /// * `database_url` - A string slice containing the database connection URL
 ///
-/// # Returns
+/// ### Returns
 ///
 /// A new connection pool configured with the provided database URL
 ///
-/// # Panics
+/// ### Panics
 ///
 /// This function will panic if the connection pool cannot be created
 ///
-/// # Examples
+/// ### Examples
 ///
 /// ```
 /// use hippocampus::db;
@@ -50,6 +49,8 @@ pub fn init_pool(database_url: &str) -> DbPool {
 
 #[cfg(test)]
 mod tests {
+    use diesel::prelude::*;
+
     use super::*;
     
     /// Tests the initialization of a database connection pool

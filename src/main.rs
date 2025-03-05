@@ -58,8 +58,6 @@ async fn main() {
 
 #[cfg(test)]
 mod tests {
-	use super::*;
-	use std::net::TcpListener;
 	
 	/// Tests environment variable handling
 	///

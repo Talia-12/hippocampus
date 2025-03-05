@@ -16,16 +16,16 @@ use chrono::Duration;
 
 /// Creates a new item in the database
 ///
-/// # Arguments
+/// ### Arguments
 ///
 /// * `pool` - A reference to the database connection pool
 /// * `new_title` - The title for the new item
 ///
-/// # Returns
+/// ### Returns
 ///
 /// A Result containing the newly created Item if successful
 ///
-/// # Errors
+/// ### Errors
 ///
 /// Returns an error if:
 /// - Unable to get a connection from the pool
@@ -48,16 +48,16 @@ pub fn create_item(pool: &DbPool, new_title: String) -> Result<Item> {
 
 /// Retrieves an item from the database by its ID
 ///
-/// # Arguments
+/// ### Arguments
 ///
 /// * `pool` - A reference to the database connection pool
 /// * `item_id` - The ID of the item to retrieve
 ///
-/// # Returns
+/// ### Returns
 ///
 /// A Result containing an Option with the Item if found, or None if not found
 ///
-/// # Errors
+/// ### Errors
 ///
 /// Returns an error if:
 /// - Unable to get a connection from the pool
@@ -78,15 +78,15 @@ pub fn get_item(pool: &DbPool, item_id: &str) -> Result<Option<Item>> {
 
 /// Retrieves all items from the database
 ///
-/// # Arguments
+/// ### Arguments
 ///
 /// * `pool` - A reference to the database connection pool
 ///
-/// # Returns
+/// ### Returns
 ///
 /// A Result containing a vector of all Items in the database
 ///
-/// # Errors
+/// ### Errors
 ///
 /// Returns an error if:
 /// - Unable to get a connection from the pool
@@ -113,17 +113,17 @@ pub fn list_items(pool: &DbPool) -> Result<Vec<Item>> {
 /// - Rating 2 (medium): Review again in 3 days
 /// - Rating 3 (easy): Review again in 7 days
 ///
-/// # Arguments
+/// ### Arguments
 ///
 /// * `pool` - A reference to the database connection pool
 /// * `item_id_val` - The ID of the item being reviewed
 /// * `rating_val` - The rating given during the review (1-3)
 ///
-/// # Returns
+/// ### Returns
 ///
 /// A Result containing the newly created Review if successful
 ///
-/// # Errors
+/// ### Errors
 ///
 /// Returns an error if:
 /// - Unable to get a connection from the pool
@@ -203,7 +203,7 @@ mod tests {
     /// 2. Enables foreign key constraints
     /// 3. Runs all migrations to set up the schema
     ///
-    /// # Returns
+    /// ### Returns
     ///
     /// A database connection pool connected to the in-memory database
     fn setup_test_db() -> DbPool {
