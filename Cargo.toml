@@ -5,6 +5,10 @@ name = "hippocampus"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+test = []
+
+
 [dependencies]
 # Web framework (Axum or Warp; example uses Axum)
 axum = "0.8.1"

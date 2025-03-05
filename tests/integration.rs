@@ -1,4 +1,3 @@
-use diesel::IntoSql;
 use hippocampus::{
     db::init_pool,
     models::{Item, Review},
@@ -8,7 +7,7 @@ use axum::{
     http::{Request, StatusCode},
     Router,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use std::sync::Arc;
 use tower::ServiceExt;
 
@@ -23,6 +22,7 @@ fn create_test_app() -> Router {
     hippocampus::create_app(pool)
 }
 
+#[allow(unexpected_cfgs)]
 #[tokio::test]
 async fn test_create_item() {
     // Create our test app
@@ -57,6 +57,7 @@ async fn test_create_item() {
     assert_eq!(item.title, "Test Item");
 }
 
+#[allow(unexpected_cfgs)]
 #[tokio::test]
 async fn test_get_item() {
     // Create our test app
@@ -76,7 +77,7 @@ async fn test_get_item() {
         .unwrap();
     
     let response = app.clone().oneshot(request).await.unwrap();
-    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let created_item: Item = serde_json::from_slice(&body).unwrap();
     
     // Now, get the item
@@ -92,7 +93,7 @@ async fn test_get_item() {
     assert_eq!(response.status(), StatusCode::OK);
     
     // Convert the response body into bytes
-    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     
     // Parse the body as JSON
     let item: Option<Item> = serde_json::from_slice(&body).unwrap();
@@ -102,6 +103,7 @@ async fn test_get_item() {
     assert_eq!(item.unwrap().title, "Test Item for Get");
 }
 
+#[allow(unexpected_cfgs)]
 #[tokio::test]
 async fn test_list_items() {
     // Create our test app
@@ -137,7 +139,7 @@ async fn test_list_items() {
     assert_eq!(response.status(), StatusCode::OK);
     
     // Convert the response body into bytes
-    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     
     // Parse the body as JSON
     let items: Vec<Item> = serde_json::from_slice(&body).unwrap();
@@ -146,6 +148,7 @@ async fn test_list_items() {
     assert!(items.len() >= 3);
 }
 
+#[allow(unexpected_cfgs)]
 #[tokio::test]
 async fn test_create_review() {
     // Create our test app
@@ -165,7 +168,7 @@ async fn test_create_review() {
         .unwrap();
     
     let response = app.clone().oneshot(request).await.unwrap();
-    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let created_item: Item = serde_json::from_slice(&body).unwrap();
     
     // Now, create a review for the item
@@ -188,7 +191,7 @@ async fn test_create_review() {
     assert_eq!(response.status(), StatusCode::OK);
     
     // Convert the response body into bytes
-    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     
     // Parse the body as JSON
     let review: Review = serde_json::from_slice(&body).unwrap();
@@ -205,7 +208,7 @@ async fn test_create_review() {
         .unwrap();
     
     let response = app.oneshot(request).await.unwrap();
-    let body = response.into_body().collect().await.unwrap().to_bytes();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let updated_item: Option<Item> = serde_json::from_slice(&body).unwrap();
     
     // Check that the item exists and has a next_review date

@@ -63,7 +63,7 @@ async fn create_review_handler(
 pub fn create_app(pool: Arc<db::DbPool>) -> Router {
     Router::new()
         .route("/items", post(create_item_handler).get(list_items_handler))
-        .route("/items/:id", get(get_item_handler))
+        .route("/items/{id}", get(get_item_handler))
         .route("/reviews", post(create_review_handler))
         .with_state(pool)
 }
