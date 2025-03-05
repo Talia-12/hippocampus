@@ -1,7 +1,6 @@
 use diesel::prelude::*;
 use diesel::sqlite::SqliteConnection;
-use r2d2::{ Pool, PooledConnection };
-use r2d2_diesel::ConnectionManager;
+use diesel::r2d2::{Pool, ConnectionManager};
 
 pub type DbPool = Pool<ConnectionManager<SqliteConnection>>;
 

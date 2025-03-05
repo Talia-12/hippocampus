@@ -2,7 +2,7 @@
 
 diesel::table! {
     items (id) {
-        id -> Nullable<Text>,
+        id -> Text,
         title -> Text,
         next_review -> Nullable<Timestamp>,
         last_review -> Nullable<Timestamp>,
@@ -13,7 +13,7 @@ diesel::table! {
 
 diesel::table! {
     reviews (id) {
-        id -> Nullable<Text>,
+        id -> Text,
         item_id -> Text,
         rating -> Integer,
         review_timestamp -> Timestamp,

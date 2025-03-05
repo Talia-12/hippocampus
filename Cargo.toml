@@ -12,18 +12,17 @@ tokio = { version = "1.43.0", features = ["full"] }
 hyper = "1.6.0" # for lower-level HTTP support if needed
 
 # Database
-diesel = { version = "2.2.8", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+diesel = { version = "2.2.8", features = ["sqlite", "r2d2", "returning_clauses_for_sqlite_3_35", "chrono", "uuid", "time"] }
 diesel_migrations = "2.2.0"
 libsqlite3-sys = { version = "0.31.0", features = ["bundled"] }
 r2d2 = "0.8.10"
-r2d2-diesel = "1.0.0"
 
 # Serde for serialization
 serde = { version = "1.0.218", features = ["derive"] }
 serde_json = "1.0.140"
 
 # UUID generation
-uuid = "1.15.1"
+uuid = { version = "1.15.1", features = ["v4", "serde"] }
 
 # Time management
 chrono = { version = "0.4.40", features = ["serde"] }

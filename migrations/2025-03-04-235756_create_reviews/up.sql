@@ -1,8 +1,7 @@
--- Your SQL goes here
-
 CREATE TABLE reviews (
-    id TEXT PRIMARY KEY,
+    id TEXT NOT NULL PRIMARY KEY,
     item_id TEXT NOT NULL,
     rating INTEGER NOT NULL,
-    review_timestamp DATETIME NOT NULL
+    -- Store as Unix timestamp (seconds since epoch)
+    review_timestamp TIMESTAMP NOT NULL
 );
