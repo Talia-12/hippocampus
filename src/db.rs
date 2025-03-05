@@ -44,7 +44,7 @@ pub fn init_pool(database_url: &str) -> DbPool {
     
     // Build a connection pool with default configuration
     // This will panic if the pool cannot be created
-    Pool::builder().build(manager).expect("Failed to create pool.")
+    Pool::builder().build(manager).expect("Failed to create DB pool.")
 } 
 
 #[cfg(test)]

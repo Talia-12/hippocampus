@@ -19,7 +19,7 @@ CREATE TABLE items (
 CREATE TABLE cards (
     id TEXT NOT NULL PRIMARY KEY,
     item_id TEXT NOT NULL,
-    card_index TINYINT NOT NULL,
+    card_index INTEGER NOT NULL,
     next_review TIMESTAMP,
     last_review TIMESTAMP,
     -- This data will be stored as JSON

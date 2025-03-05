@@ -4,7 +4,7 @@ diesel::table! {
     cards (id) {
         id -> Text,
         item_id -> Text,
-        card_index -> Bool,
+        card_index -> Integer,
         next_review -> Nullable<Timestamp>,
         last_review -> Nullable<Timestamp>,
         scheduler_data -> Nullable<Text>,
