@@ -19,7 +19,7 @@ tokio = { version = "1.43.0", features = ["full"] }
 hyper = "1.6.0" # for lower-level HTTP support if needed
 
 # Database
-diesel = { version = "2.2.8", features = ["sqlite", "r2d2", "returning_clauses_for_sqlite_3_35", "chrono", "uuid", "time"] }
+diesel = { version = "2.2.8", features = ["sqlite", "r2d2", "returning_clauses_for_sqlite_3_35", "serde_json", "chrono", "uuid", "time"] }
 diesel_migrations = "2.2.0"
 libsqlite3-sys = { version = "0.31.0", features = ["bundled"] }
 r2d2 = "0.8.10"
