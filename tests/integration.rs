@@ -17,7 +17,7 @@
 
 use hippocampus::{
     db::init_pool,
-    models::{Item, Review, Card},
+    models::{Card, Item, ItemType, Review},
 };
 use axum::{
     body::{to_bytes, Body},
@@ -28,6 +28,7 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 use tower::ServiceExt;
 use uuid;
+
 
 /// Creates a test application with an in-memory SQLite database
 ///
@@ -56,6 +57,59 @@ fn create_test_app() -> Router {
     hippocampus::create_app(pool)
 }
 
+
+/// Creates an item type via the API
+///
+/// This helper function:
+/// 1. Sends a POST request to /item_types with the provided name
+/// 2. Verifies the response has a 200 OK status
+/// 3. Parses and returns the created ItemType
+///
+/// ### Arguments
+///
+/// * `app` - The test application
+/// * `name` - The name for the new item type
+///
+/// ### Returns
+///
+/// The created ItemType with its ID and creation timestamp
+async fn create_item_type(app: &Router, name: String) -> ItemType {
+    // Create a request to create an item type
+    let request = Request::builder()
+        .uri("/item_types")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "name": name
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    
+    // Send the request and get the response
+    let response = app.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    
+    // Parse the response body
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let item_type: Value = serde_json::from_slice(&body).unwrap();
+    
+    // Extract the fields and construct an ItemType
+    let item_type_id = item_type["id"].as_str().unwrap();
+    let created_at = chrono::NaiveDateTime::parse_from_str(
+        item_type["created_at"].as_str().unwrap(),
+        "%Y-%m-%dT%H:%M:%S%.f"
+    ).unwrap();
+    
+    ItemType {
+        id: item_type_id.to_string(),
+        name: name,
+        created_at: created_at,
+    }
+}
+
+
 /// Tests creating a new item via the API
 ///
 /// This test verifies that:
@@ -69,24 +123,7 @@ async fn test_create_item() {
     let app = create_test_app();
     
     // First create an item type
-    let item_type_request = Request::builder()
-        .uri("/item_types")
-        .method("POST")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            serde_json::to_string(&json!({
-                "name": "Test Item Type"
-            }))
-            .unwrap(),
-        ))
-        .unwrap();
-    
-    let item_type_response = app.clone().oneshot(item_type_request).await.unwrap();
-    assert_eq!(item_type_response.status(), StatusCode::OK);
-    
-    let item_type_body = to_bytes(item_type_response.into_body(), usize::MAX).await.unwrap();
-    let item_type: Value = serde_json::from_slice(&item_type_body).unwrap();
-    let item_type_id = item_type["id"].as_str().unwrap();
+    let item_type = create_item_type(&app, "Test Item Type".to_string()).await;
     
     // Create a request to create an item with a JSON payload
     let request = Request::builder()
@@ -95,7 +132,7 @@ async fn test_create_item() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "item_type_id": item_type_id,
+                "item_type_id": item_type.id,
                 "title": "Test Item",
                 "item_data": null
             }))
@@ -123,6 +160,7 @@ async fn test_create_item() {
     assert!(!item.id.is_empty());
 }
 
+
 /// Tests retrieving an item by ID via the API
 ///
 /// This test verifies that:
@@ -136,24 +174,7 @@ async fn test_get_item() {
     let app = create_test_app();
     
     // First create an item type
-    let item_type_request = Request::builder()
-        .uri("/item_types")
-        .method("POST")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            serde_json::to_string(&json!({
-                "name": "Test Item Type"
-            }))
-            .unwrap(),
-        ))
-        .unwrap();
-    
-    let item_type_response = app.clone().oneshot(item_type_request).await.unwrap();
-    assert_eq!(item_type_response.status(), StatusCode::OK);
-    
-    let item_type_body = to_bytes(item_type_response.into_body(), usize::MAX).await.unwrap();
-    let item_type: Value = serde_json::from_slice(&item_type_body).unwrap();
-    let item_type_id = item_type["id"].as_str().unwrap();
+    let item_type = create_item_type(&app, "Test Item Type".to_string()).await;
     
     // First, create an item that we can later retrieve
     let request = Request::builder()
@@ -162,7 +183,7 @@ async fn test_get_item() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "item_type_id": item_type_id,
+                "item_type_id": item_type.id,
                 "title": "Test Item for Get",
                 "item_data": null
             }))
@@ -202,6 +223,7 @@ async fn test_get_item() {
     assert_eq!(item.unwrap().title, "Test Item for Get");
 }
 
+
 /// Tests listing all items via the API
 ///
 /// This test verifies that:
@@ -215,24 +237,7 @@ async fn test_list_items() {
     let app = create_test_app();
     
     // First create an item type
-    let item_type_request = Request::builder()
-        .uri("/item_types")
-        .method("POST")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            serde_json::to_string(&json!({
-                "name": "Test Item Type"
-            }))
-            .unwrap(),
-        ))
-        .unwrap();
-    
-    let item_type_response = app.clone().oneshot(item_type_request).await.unwrap();
-    assert_eq!(item_type_response.status(), StatusCode::OK);
-    
-    let item_type_body = to_bytes(item_type_response.into_body(), usize::MAX).await.unwrap();
-    let item_type: Value = serde_json::from_slice(&item_type_body).unwrap();
-    let item_type_id = item_type["id"].as_str().unwrap();
+    let item_type = create_item_type(&app, "Test Item Type".to_string()).await;
     
     // Create several items to populate the database
     for i in 1..=3 {
@@ -242,7 +247,7 @@ async fn test_list_items() {
             .header("Content-Type", "application/json")
             .body(Body::from(
                 serde_json::to_string(&json!({
-                    "item_type_id": item_type_id,
+                    "item_type_id": item_type.id,
                     "title": format!("Test Item {}", i),
                     "item_data": null
                 }))
@@ -282,6 +287,7 @@ async fn test_list_items() {
     // but that would require tracking their IDs
 }
 
+
 /// Tests creating a review for an item via the API
 ///
 /// This test verifies that:
@@ -295,24 +301,7 @@ async fn test_create_review() {
     let app = create_test_app();
     
     // First create an item type
-    let item_type_request = Request::builder()
-        .uri("/item_types")
-        .method("POST")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            serde_json::to_string(&json!({
-                "name": "Test Item Type"
-            }))
-            .unwrap(),
-        ))
-        .unwrap();
-    
-    let item_type_response = app.clone().oneshot(item_type_request).await.unwrap();
-    assert_eq!(item_type_response.status(), StatusCode::OK);
-    
-    let item_type_body = to_bytes(item_type_response.into_body(), usize::MAX).await.unwrap();
-    let item_type: Value = serde_json::from_slice(&item_type_body).unwrap();
-    let item_type_id = item_type["id"].as_str().unwrap();
+    let item_type = create_item_type(&app, "Test Item Type".to_string()).await;
     
     // First, create an item that we can review
     let request = Request::builder()
@@ -321,7 +310,7 @@ async fn test_create_review() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "item_type_id": item_type_id,
+                "item_type_id": item_type.id,
                 "title": "Item to Review",
                 "item_data": null
             }))
@@ -404,27 +393,50 @@ async fn test_create_review() {
     assert!(updated_card.last_review.is_some(), "Card should have a last review date");
 }
 
+
+/// Tests retrieving a non-existent item via the API
+///
+/// This test verifies that:
+/// 1. A GET request to /items/{id} with a non-existent ID returns null
+/// 2. The response has a 200 OK status (not 404, as the endpoint returns null for non-existent items)
+/// 3. The response body can be correctly deserialized as a null Option<Item>
 #[tokio::test]
 async fn test_get_nonexistent_item() {
+    // Create our test app with an in-memory database
     let app = create_test_app();
     
-    // Try to get a non-existent item
+    // Generate a random UUID for a non-existent item
+    let non_existent_id = uuid::Uuid::new_v4().to_string();
+    
+    // Create a request to get a non-existent item
     let request = Request::builder()
-        .uri("/items/nonexistent-id")
+        .uri(format!("/items/{}", non_existent_id))
         .method("GET")
         .body(Body::empty())
         .unwrap();
     
+    // Send the request to the application and get the response
     let response = app.oneshot(request).await.unwrap();
     
-    // Should return 200 OK with null data since this is a valid case
+    // Check that the response has a 200 OK status
     assert_eq!(response.status(), StatusCode::OK);
     
+    // Convert the response body into bytes for parsing
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    
+    // Parse the body as JSON into an Option<Item>
     let item: Option<Item> = serde_json::from_slice(&body).unwrap();
-    assert!(item.is_none());
+    
+    // Check that the item is None (null in JSON)
+    assert!(item.is_none(), "Non-existent item should return null");
 }
 
+
+/// Tests creating a review for a non-existent card via the API
+///
+/// This test verifies that:
+/// 1. A POST request to /reviews with a non-existent card_id returns a 404 Not Found
+/// 2. The API correctly validates that the card exists before creating a review
 #[tokio::test]
 async fn test_create_review_for_nonexistent_item() {
     // Create our test app with an in-memory database
@@ -454,30 +466,20 @@ async fn test_create_review_for_nonexistent_item() {
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
+
+/// Tests creating a review with an invalid rating via the API
+///
+/// This test verifies that:
+/// 1. A POST request to /reviews with a rating outside the valid range (1-3) returns a 400 Bad Request
+/// 2. The API correctly validates the rating before creating a review
+/// 3. The error message mentions the rating issue
 #[tokio::test]
 async fn test_create_review_with_invalid_rating() {
     // Create our test app with an in-memory database
     let app = create_test_app();
     
     // First create an item type
-    let item_type_request = Request::builder()
-        .uri("/item_types")
-        .method("POST")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            serde_json::to_string(&json!({
-                "name": "Test Item Type"
-            }))
-            .unwrap(),
-        ))
-        .unwrap();
-    
-    let item_type_response = app.clone().oneshot(item_type_request).await.unwrap();
-    assert_eq!(item_type_response.status(), StatusCode::OK);
-    
-    let item_type_body = to_bytes(item_type_response.into_body(), usize::MAX).await.unwrap();
-    let item_type: Value = serde_json::from_slice(&item_type_body).unwrap();
-    let item_type_id = item_type["id"].as_str().unwrap();
+    let item_type = create_item_type(&app, "Test Item Type".to_string()).await;
     
     // Create an item first
     let item_request = Request::builder()
@@ -486,7 +488,7 @@ async fn test_create_review_with_invalid_rating() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "item_type_id": item_type_id,
+                "item_type_id": item_type.id,
                 "title": "Item for Invalid Review",
                 "item_data": null
             }))
