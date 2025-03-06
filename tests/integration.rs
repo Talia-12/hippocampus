@@ -17,7 +17,7 @@
 
 use hippocampus::{
     db::init_pool,
-    models::{Item, Review},
+    models::{Item, Review, Card},
 };
 use axum::{
     body::{to_bytes, Body},
@@ -245,7 +245,20 @@ async fn test_create_review() {
     let created_item: Item = serde_json::from_slice(&body).unwrap();
 
     let request = Request::builder()
-        .uri()
+        .uri(format!("/items/{}/cards", created_item.id))
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "card_index": 0
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+
+    let response = app.clone().oneshot(request).await.unwrap();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let created_card: Card = serde_json::from_slice(&body).unwrap();
     
     // Now, create a request to create a review for the item
     let request = Request::builder()
@@ -254,7 +267,7 @@ async fn test_create_review() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "item_id": created_item.id,
+                "card_id": created_card.id,
                 "rating": 3  // "Easy" rating
             }))
             .unwrap(),
@@ -273,32 +286,32 @@ async fn test_create_review() {
     // Parse the body as JSON into a Review struct
     let review: Review = serde_json::from_slice(&body).unwrap();
     
-    // Check that the review has the correct item_id and rating
-    assert_eq!(review.card_id, created_item.id, "Review should reference the correct item");
+    // Check that the review has the correct card_id and rating
+    assert_eq!(review.card_id, created_card.id, "Review should reference the correct card");
     assert_eq!(review.rating, 3, "Review should have the correct rating");
     
-    // Now, get the item to check if it was updated with review information
+    // Now, get the card to check if it was updated with review information
     let request = Request::builder()
-        .uri(format!("/items/{}", created_item.id))
+        .uri(format!("/cards/{}", created_card.id))
         .method("GET")
         .body(Body::empty())
         .unwrap();
     
-    // Send the get item request and parse the response
+    // Send the get card request and parse the response
     let response = app.oneshot(request).await.unwrap();
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let updated_item: Option<Item> = serde_json::from_slice(&body).unwrap();
+    let updated_card: Option<Card> = serde_json::from_slice(&body).unwrap();
     
-    // Check that the item exists
-    assert!(updated_item.is_some(), "Item should exist after review");
+    // Check that the card exists
+    assert!(updated_card.is_some(), "Card should exist after review");
     
-    // Get the unwrapped item
-    let updated_item = updated_item.unwrap();
+    // Get the unwrapped card
+    let updated_card = updated_card.unwrap();
     
     // For a rating of 3 (easy), the next review should be scheduled 7 days after the last review
     // We could check this more precisely, but it would require more complex time calculations
-    assert!(updated_item.next_review.is_some(), "Item should have a next review date");
-    assert!(updated_item.last_review.is_some(), "Item should have a last review date");
+    assert!(updated_card.next_review.is_some(), "Card should have a next review date");
+    assert!(updated_card.last_review.is_some(), "Card should have a last review date");
 }
 
 #[tokio::test]

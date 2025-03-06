@@ -479,7 +479,7 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         // Route for creating a card for an item
         .route("/items/{id}/cards", post(create_card_handler).get(list_cards_by_item_handler))
         // Route for getting a specific card by ID
-        .route("/cards/{id}", get(get_card_handler).get(list_cards_handler))
+        .route("/cards/{id}", get(get_card_handler))
         // Route for recording reviews
         .route("/reviews", post(create_review_handler))
         // Add the database pool to the application state
