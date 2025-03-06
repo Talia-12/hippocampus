@@ -79,7 +79,9 @@ impl IntoResponse for ApiError {
 #[derive(Deserialize)]
 pub struct CreateItemDto {
     /// The title or content of the item to be remembered
+    pub item_type_id: String,
     pub title: String,
+    pub item_data: serde_json::Value,
 }
 
 /// Data transfer object for creating a new review
@@ -87,8 +89,8 @@ pub struct CreateItemDto {
 /// This struct is used to deserialize JSON requests for recording reviews.
 #[derive(Deserialize)]
 pub struct CreateReviewDto {
-    /// The ID of the item being reviewed
-    pub item_id: String,
+    /// The ID of the card being reviewed
+    pub card_id: String,
     
     /// The rating given during the review (typically 1-3)
     pub rating: i32,
@@ -113,7 +115,7 @@ async fn create_item_handler(
     Json(payload): Json<CreateItemDto>,
 ) -> Result<Json<Item>, ApiError> {
     // Call the repository function to create the item
-    let item = repo::create_item(&pool, payload.title)
+    let item = repo::create_item(&pool, &payload.item_type_id, payload.title, payload.item_data)
         .map_err(ApiError::Database)?;
 
     // Return the created item as JSON
@@ -194,7 +196,7 @@ async fn create_review_handler(
     }
     
     // First check if the item exists
-    let item_exists = repo::get_item(&pool, &payload.item_id)
+    let item_exists = repo::get_card(&pool, &payload.card_id)
         .map_err(ApiError::Database)?
         .is_some();
     
@@ -202,7 +204,7 @@ async fn create_review_handler(
         return Err(ApiError::NotFound);
     }
     
-    let review = repo::record_review(&pool, &payload.item_id, payload.rating)
+    let review = repo::record_review(&pool, &payload.card_id, payload.rating)
         .map_err(ApiError::Database)?;
     // Return the created review as JSON
     Ok(Json(review))
@@ -341,11 +343,13 @@ mod tests {
     async fn test_list_items_handler() {
         // Set up a test database
         let pool = setup_test_db();
+
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
         
         // Create a few items first
         let titles = vec!["Item 1", "Item 2", "Item 3"];
         for title in &titles {
-            repo::create_item(&pool, title.to_string()).unwrap();
+            repo::create_item(&pool, &item_type.id, title.to_string(), serde_json::Value::Null).unwrap();
         }
         
         // Create the application
@@ -394,7 +398,8 @@ mod tests {
         
         // Create an item first
         let title = "Item to Get".to_string();
-        let item = repo::create_item(&pool, title.clone()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(&pool, &item_type.id, title.clone(), serde_json::Value::Null).unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
@@ -435,7 +440,9 @@ mod tests {
         
         // Create an item first
         let title = "Item to Review".to_string();
-        let item = repo::create_item(&pool, title).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(&pool, &item_type.id, title.clone(), serde_json::Value::Null).unwrap();
+        let card = repo::create_card(&pool, &item.id, 0).unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
@@ -445,7 +452,7 @@ mod tests {
             .uri("/reviews")
             .method("POST")
             .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{{"item_id":"{}","rating":3}}"#, item.id)))
+            .body(Body::from(format!(r#"{{"card_id":"{}","rating":3}}"#, card.id)))
             .unwrap();
         
         // Send the request to the app
@@ -459,14 +466,14 @@ mod tests {
         let review: Value = serde_json::from_slice(&body).unwrap();
         
         // Verify the response contains the correct review
-        assert_eq!(review["item_id"], item.id);
+        assert_eq!(review["card_id"], item.id);
         assert_eq!(review["rating"], 3);
         assert!(review["id"].is_string());
         
         // Check that the item was updated with review information
-        let updated_item = repo::get_item(&pool, &item.id).unwrap().unwrap();
-        assert!(updated_item.last_review.is_some());
-        assert!(updated_item.next_review.is_some());
+        let updated_card = repo::get_card(&pool, &card.id).unwrap().unwrap();
+        assert!(updated_card.last_review.is_some());
+        assert!(updated_card.next_review.is_some());
     }
     
     /// Tests the run_migrations function

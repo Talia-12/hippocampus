@@ -122,12 +122,12 @@ pub fn list_item_types(pool: &DbPool) -> Result<Vec<ItemType>> {
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
-pub fn create_item(pool: &DbPool, item_type: &ItemType, new_title: String, item_data: serde_json::Value) -> Result<Item> {
+pub fn create_item(pool: &DbPool, item_type_id: &str, new_title: String, item_data: serde_json::Value) -> Result<Item> {
     // Get a connection from the pool
     let conn = &mut pool.get()?;
     
     // Create a new item with the provided title
-    let new_item = Item::new(item_type.id.clone(), new_title, JsonValue(item_data));
+    let new_item = Item::new(item_type_id.to_string(), new_title, JsonValue(item_data));
     
     // Insert the new item into the database
     diesel::insert_into(items::table)
@@ -376,13 +376,13 @@ pub fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
 /// - Unable to get a connection from the pool
 /// - The item does not exist
 /// - The database insert or update operations fail
-pub fn record_review(pool: &DbPool, card: &Card, rating_val: i32) -> Result<Review> {
+pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Review> {
     // Get a connection from the pool
     let conn = &mut pool.get()?;
     
     // 1) Insert the review record
     // Create a new review with the provided item ID and rating
-    let new_review = Review::new(&card.id, rating_val);
+    let new_review = Review::new(card_id, rating_val);
     
     // Insert the new review into the database
     diesel::insert_into(reviews::table)
@@ -392,7 +392,7 @@ pub fn record_review(pool: &DbPool, card: &Card, rating_val: i32) -> Result<Revi
     // 2) Retrieve the item and update next_review
     // Get the item from the database
     let mut card = cards::table
-        .filter(cards::id.eq(&card.id))
+        .filter(cards::id.eq(card_id))
         .first::<Card>(conn)?;
     
     // Get the current time for updating timestamps
@@ -535,7 +535,7 @@ mod tests {
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
         
         // Create a new item
-        let result = create_item(&pool, &item_type, title.clone(), serde_json::Value::Null);
+        let result = create_item(&pool, &item_type.id, title.clone(), serde_json::Value::Null);
         assert!(result.is_ok(), "Should create an item successfully");
         
         // Verify the created item
@@ -559,7 +559,7 @@ mod tests {
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
         
         // First create an item
-        let created_item = create_item(&pool, &item_type, title.clone(), serde_json::Value::Null).unwrap();
+        let created_item = create_item(&pool, &item_type.id, title.clone(), serde_json::Value::Null).unwrap();
         
         // Then try to get it
         let result = get_item(&pool, &created_item.id);
@@ -612,7 +612,7 @@ mod tests {
         // Create a few items
         let titles = vec!["Item 1", "Item 2", "Item 3"];
         for title in &titles {
-            create_item(&pool, &item_type, title.to_string(), serde_json::Value::Null).unwrap();
+            create_item(&pool, &item_type.id, title.to_string(), serde_json::Value::Null).unwrap();
         }
         
         // List all items
@@ -645,12 +645,12 @@ mod tests {
         
         // First create an item
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = create_item(&pool, &item_type, "Item to Review".to_string(), serde_json::Value::Null).unwrap();
+        let item = create_item(&pool, &item_type.id, "Item to Review".to_string(), serde_json::Value::Null).unwrap();
         let card = create_card(&pool, &item.id, 0).unwrap();
         
         // Record a review
         let rating = 2;
-        let result = record_review(&pool, &card, rating);
+        let result = record_review(&pool, &card.id, rating);
         assert!(result.is_ok(), "Should record a review successfully");
         
         // Verify the review properties
@@ -684,7 +684,7 @@ mod tests {
         
         // First create an item
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = create_item(&pool, &item_type, "Item with Card".to_string(), serde_json::Value::Null).unwrap();
+        let item = create_item(&pool, &item_type.id, "Item with Card".to_string(), serde_json::Value::Null).unwrap();
         
         // Create a card for the item
         let card_index = 0;
@@ -718,7 +718,7 @@ mod tests {
         
         // Create an item and a card
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = create_item(&pool, &item_type, "Item with Card".to_string(), serde_json::Value::Null).unwrap();
+        let item = create_item(&pool, &item_type.id, "Item with Card".to_string(), serde_json::Value::Null).unwrap();
         let card = create_card(&pool, &item.id, 0).unwrap();
         
         // Retrieve the card
@@ -751,8 +751,8 @@ mod tests {
         
         // Create two items
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item1 = create_item(&pool, &item_type, "Item 1".to_string(), serde_json::Value::Null).unwrap();
-        let item2 = create_item(&pool, &item_type, "Item 2".to_string(), serde_json::Value::Null).unwrap();
+        let item1 = create_item(&pool, &item_type.id, "Item 1".to_string(), serde_json::Value::Null).unwrap();
+        let item2 = create_item(&pool, &item_type.id, "Item 2".to_string(), serde_json::Value::Null).unwrap();
         
         // Create multiple cards for each item
         let card1_1 = create_card(&pool, &item1.id, 0).unwrap();
@@ -791,8 +791,8 @@ mod tests {
         
         // Create items and cards
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item1 = create_item(&pool, &item_type, "Item 1".to_string(), serde_json::Value::Null).unwrap();
-        let item2 = create_item(&pool, &item_type, "Item 2".to_string(), serde_json::Value::Null).unwrap();
+        let item1 = create_item(&pool, &item_type.id, "Item 1".to_string(), serde_json::Value::Null).unwrap();
+        let item2 = create_item(&pool, &item_type.id, "Item 2".to_string(), serde_json::Value::Null).unwrap();
         
         let card1 = create_card(&pool, &item1.id, 0).unwrap();
         let card2 = create_card(&pool, &item1.id, 1).unwrap();
@@ -899,11 +899,11 @@ mod tests {
         let type2_titles = vec!["Type2 Item 1", "Type2 Item 2"];
         
         for title in &type1_titles {
-            create_item(&pool, &type1, title.to_string(), serde_json::Value::Null).unwrap();
+            create_item(&pool, &type1.id, title.to_string(), serde_json::Value::Null).unwrap();
         }
         
         for title in &type2_titles {
-            create_item(&pool, &type2, title.to_string(), serde_json::Value::Null).unwrap();
+            create_item(&pool, &type2.id, title.to_string(), serde_json::Value::Null).unwrap();
         }
         
         // Get items of type1
@@ -946,7 +946,7 @@ mod tests {
         
         // Create an item type and item
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = create_item(&pool, &item_type, "Item with Cards".to_string(), serde_json::Value::Null).unwrap();
+        let item = create_item(&pool, &item_type.id, "Item with Cards".to_string(), serde_json::Value::Null).unwrap();
         
         // Create multiple cards for the item
         let card_indices = vec![0, 1, 2];
@@ -983,8 +983,8 @@ mod tests {
         
         // Create two items
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item1 = create_item(&pool, &item_type, "Item 1".to_string(), serde_json::Value::Null).unwrap();
-        let item2 = create_item(&pool, &item_type, "Item 2".to_string(), serde_json::Value::Null).unwrap();
+        let item1 = create_item(&pool, &item_type.id, "Item 1".to_string(), serde_json::Value::Null).unwrap();
+        let item2 = create_item(&pool, &item_type.id, "Item 2".to_string(), serde_json::Value::Null).unwrap();
         
         // Create cards for item1
         let item1_indices = vec![0, 1, 2];
@@ -1038,20 +1038,20 @@ mod tests {
         
         // Create an item and two cards
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = create_item(&pool, &item_type, "Item with Cards".to_string(), serde_json::Value::Null).unwrap();
+        let item = create_item(&pool, &item_type.id, "Item with Cards".to_string(), serde_json::Value::Null).unwrap();
         let card1 = create_card(&pool, &item.id, 0).unwrap();
         let card2 = create_card(&pool, &item.id, 1).unwrap();
         
         // Create multiple reviews for card1
         let ratings = vec![1, 2, 3];
         for rating in &ratings {
-            record_review(&pool, &card1, *rating).unwrap();
+            record_review(&pool, &card1.id, *rating).unwrap();
             // Add a small delay to ensure different timestamps
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
         
         // Create a review for card2
-        record_review(&pool, &card2, 2).unwrap();
+        record_review(&pool, &card2.id, 2).unwrap();
         
         // Get reviews for card1
         let result = get_reviews_for_card(&pool, &card1.id);
@@ -1093,11 +1093,11 @@ mod tests {
         
         // Create an item and card
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = create_item(&pool, &item_type, "Item to Review".to_string(), serde_json::Value::Null).unwrap();
+        let item = create_item(&pool, &item_type.id, "Item to Review".to_string(), serde_json::Value::Null).unwrap();
         let card = create_card(&pool, &item.id, 0).unwrap();
         
         // Test rating 1 (difficult)
-        let result = record_review(&pool, &card, 1);
+        let result = record_review(&pool, &card.id, 1);
         assert!(result.is_ok(), "Should record review with rating 1");
         
         let updated_card = get_card(&pool, &card.id).unwrap().unwrap();
@@ -1107,7 +1107,7 @@ mod tests {
         assert_eq!(days_diff, 1, "For rating 1, next review should be 1 day later");
         
         // Test rating 3 (easy)
-        let result = record_review(&pool, &card, 3);
+        let result = record_review(&pool, &card.id, 3);
         assert!(result.is_ok(), "Should record review with rating 3");
         
         let updated_card = get_card(&pool, &card.id).unwrap().unwrap();
@@ -1117,7 +1117,7 @@ mod tests {
         assert_eq!(days_diff, 7, "For rating 3, next review should be 7 days later");
         
         // Test invalid rating (should default to 1 day)
-        let result = record_review(&pool, &card, 5);
+        let result = record_review(&pool, &card.id, 5);
         assert!(result.is_ok(), "Should handle invalid rating gracefully");
         
         let updated_card = get_card(&pool, &card.id).unwrap().unwrap();
@@ -1144,7 +1144,7 @@ mod tests {
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
         
         // Test with null data
-        let item1 = create_item(&pool, &item_type, "Item with null".to_string(), serde_json::Value::Null).unwrap();
+        let item1 = create_item(&pool, &item_type.id, "Item with null".to_string(), serde_json::Value::Null).unwrap();
         let retrieved_item1 = get_item(&pool, &item1.id).unwrap().unwrap();
         assert_eq!(retrieved_item1.item_data.0, serde_json::Value::Null);
         
@@ -1154,13 +1154,13 @@ mod tests {
         obj.insert("key2".to_string(), serde_json::Value::Number(serde_json::Number::from(42)));
         let obj_value = serde_json::Value::Object(obj);
         
-        let item2 = create_item(&pool, &item_type, "Item with object".to_string(), obj_value.clone()).unwrap();
+        let item2 = create_item(&pool, &item_type.id, "Item with object".to_string(), obj_value.clone()).unwrap();
         let retrieved_item2 = get_item(&pool, &item2.id).unwrap().unwrap();
         assert_eq!(retrieved_item2.item_data.0, obj_value);
         
         // Test with array data
         let arr_value = serde_json::json!(["value1", "value2", "value3"]);
-        let item3 = create_item(&pool, &item_type, "Item with array".to_string(), arr_value.clone()).unwrap();
+        let item3 = create_item(&pool, &item_type.id, "Item with array".to_string(), arr_value.clone()).unwrap();
         let retrieved_item3 = get_item(&pool, &item3.id).unwrap().unwrap();
         assert_eq!(retrieved_item3.item_data.0, arr_value);
     }
@@ -1183,7 +1183,7 @@ mod tests {
         
         // Create a valid item and card
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = create_item(&pool, &item_type, "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        let item = create_item(&pool, &item_type.id, "Test Item".to_string(), serde_json::Value::Null).unwrap();
         
         // Create a non-existent card for testing
         let non_existent_card = Card {
@@ -1196,7 +1196,7 @@ mod tests {
         };
         
         // Try to record a review for a non-existent card
-        let result = record_review(&pool, &non_existent_card, 2);
+        let result = record_review(&pool, &non_existent_card.id, 2);
         assert!(result.is_err(), "Should error when recording review for non-existent card");
     }
 } 
