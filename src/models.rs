@@ -3,7 +3,7 @@
 /// This module defines the core data structures used throughout the application.
 /// It includes database models that map to database tables, as well as methods
 /// for creating and manipulating these models.
-use chrono::{NaiveDateTime, Utc};
+use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::deserialize::{FromSql, FromSqlRow};
 use diesel::expression::AsExpression;
 use diesel::{prelude::*, serialize};
@@ -40,13 +40,13 @@ impl ToSql<Text, Sqlite> for JsonValue {
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ItemType {
     /// Unique identifier for the item type (UUID v4 as string)
-    pub id: String,
+    id: String,
     
     /// The name of this item type
-    pub name: String,
+    name: String,
     
     /// When this item type was created
-    pub created_at: NaiveDateTime,
+    created_at: NaiveDateTime,
 }
 
 /// Represents an item in the spaced repetition system
@@ -59,22 +59,22 @@ pub struct ItemType {
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Item {
     /// Unique identifier for the item (UUID v4 as string)
-    pub id: String,
+    id: String,
     
     /// The type of this item
-    pub item_type: String,
+    item_type: String,
     
     /// The title of the item
-    pub title: String,
+    title: String,
     
     /// JSON data specific to this item type, stored as TEXT
-    pub item_data: JsonValue,
+    item_data: JsonValue,
     
     /// When this item was created
-    pub created_at: NaiveDateTime,
+    created_at: NaiveDateTime,
     
     /// When this item was last updated
-    pub updated_at: NaiveDateTime,
+    updated_at: NaiveDateTime,
 }
 
 /// Represents a card in the spaced repetition system
@@ -83,39 +83,58 @@ pub struct Item {
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Card {
     /// Unique identifier for the card (UUID v4 as string)
-    pub id: String,
+    id: String,
     
     /// The ID of the item this card belongs to
-    pub item_id: String,
+    item_id: String,
     
     /// The index of this card within its item
-    pub card_index: i32,
+    card_index: i32,
     
     /// When this card should next be reviewed
-    pub next_review: Option<NaiveDateTime>,
+    next_review: Option<NaiveDateTime>,
     
     /// When this card was last reviewed
-    pub last_review: Option<NaiveDateTime>,
+    last_review: Option<NaiveDateTime>,
     
     /// JSON data for the scheduler, stored as TEXT
-    pub scheduler_data: Option<JsonValue>,
+    scheduler_data: Option<JsonValue>,
 }
+
+/// Represents a tag in the system
+#[derive(Queryable, Selectable, Insertable, Debug, Serialize, Deserialize)]
+#[diesel(table_name = crate::schema::tags)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct Tag {
+    /// Unique identifier for the tag (UUID v4 as string)
+    id: String,
+
+    /// The name of the tag
+    name: String,
+    
+    /// Whether the tag is visible to the user
+    visible: bool,
+    
+    /// When this tag was created
+    created_at: NaiveDateTime,
+}
+
 
 #[derive(Queryable, Selectable, Insertable, Debug, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::reviews)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Review { 
     /// Unique identifier for the review (UUID v4 as string)
-    pub id: String,
+    id: String,
     
     /// The ID of the card this review belongs to
-    pub card_id: String,
+    card_id: String,
     
     /// The rating given during this review
-    pub rating: i32,
+    rating: i32,
     
     /// When this review occurred
-    pub review_timestamp: NaiveDateTime,
+    review_timestamp: NaiveDateTime,
 }
 
 impl ItemType {
@@ -126,6 +145,33 @@ impl ItemType {
             name,
             created_at: Utc::now().naive_utc(),
         }
+    }
+    
+    /// Gets the item type's name
+    ///
+    /// ### Returns
+    ///
+    /// The name of the item type
+    pub fn get_name(&self) -> String {
+        self.name.clone()
+    }
+    
+    /// Sets the item type's name
+    ///
+    /// ### Arguments
+    ///
+    /// * `name` - The new name for the item type
+    pub fn set_name(&mut self, name: String) {
+        self.name = name;
+    }
+    
+    /// Gets the item type's creation timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The timestamp when this item type was created
+    pub fn get_created_at(&self) -> DateTime<Utc> {
+        DateTime::from_naive_utc_and_offset(self.created_at, Utc)
     }
 }
 
@@ -156,6 +202,44 @@ impl Item {
         }
     }
     
+    /// Gets the item's type
+    ///
+    /// ### Returns
+    ///
+    /// The type of the item
+    pub fn get_item_type(&self) -> String {
+        self.item_type.clone()
+    }
+    
+    /// Sets the item's type
+    ///
+    /// ### Arguments
+    ///
+    /// * `item_type` - The new type for the item
+    pub fn set_item_type(&mut self, item_type: String) {
+        self.item_type = item_type;
+        self.updated_at = Utc::now().naive_utc();
+    }
+    
+    /// Gets the item's title
+    ///
+    /// ### Returns
+    ///
+    /// The title of the item
+    pub fn get_title(&self) -> String {
+        self.title.clone()
+    }
+    
+    /// Sets the item's title
+    ///
+    /// ### Arguments
+    ///
+    /// * `title` - The new title for the item
+    pub fn set_title(&mut self, title: String) {
+        self.title = title;
+        self.updated_at = Utc::now().naive_utc();
+    }
+    
     /// Gets the item's data as a JSON value
     ///
     /// ### Returns
@@ -173,6 +257,24 @@ impl Item {
     pub fn set_data(&mut self, data: JsonValue) {
         self.item_data = data;
         self.updated_at = Utc::now().naive_utc();
+    }
+    
+    /// Gets the item's creation timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The timestamp when this item was created
+    pub fn get_created_at(&self) -> DateTime<Utc> {
+        DateTime::from_naive_utc_and_offset(self.created_at, Utc)
+    }
+    
+    /// Gets the item's last update timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The timestamp when this item was last updated
+    pub fn get_updated_at(&self) -> DateTime<Utc> {
+        DateTime::from_naive_utc_and_offset(self.updated_at, Utc)
     }
 }
 
@@ -200,6 +302,78 @@ impl Card {
         }
     }
     
+    /// Gets the item ID this card belongs to
+    ///
+    /// ### Returns
+    ///
+    /// The ID of the item this card belongs to
+    pub fn get_item_id(&self) -> String {
+        self.item_id.clone()
+    }
+    
+    /// Sets the item ID this card belongs to
+    ///
+    /// ### Arguments
+    ///
+    /// * `item_id` - The new item ID for the card
+    pub fn set_item_id(&mut self, item_id: String) {
+        self.item_id = item_id;
+    }
+    
+    /// Gets the card's index within its item
+    ///
+    /// ### Returns
+    ///
+    /// The index of this card within its item
+    pub fn get_card_index(&self) -> i32 {
+        self.card_index
+    }
+    
+    /// Sets the card's index within its item
+    ///
+    /// ### Arguments
+    ///
+    /// * `card_index` - The new index for the card
+    pub fn set_card_index(&mut self, card_index: i32) {
+        self.card_index = card_index;
+    }
+    
+    /// Gets the card's next review timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The timestamp when this card should next be reviewed
+    pub fn get_next_review(&self) -> Option<DateTime<Utc>> {
+        self.next_review.map(|dt| DateTime::from_naive_utc_and_offset(dt, Utc))
+    }
+    
+    /// Sets the card's next review timestamp
+    ///
+    /// ### Arguments
+    ///
+    /// * `next_review` - The new next review timestamp for the card
+    pub fn set_next_review(&mut self, next_review: Option<DateTime<Utc>>) {
+        self.next_review = next_review.map(|dt| dt.naive_utc());
+    }
+    
+    /// Gets the card's last review timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The timestamp when this card was last reviewed
+    pub fn get_last_review(&self) -> Option<DateTime<Utc>> {
+        self.last_review.map(|dt| DateTime::from_naive_utc_and_offset(dt, Utc))
+    }
+    
+    /// Sets the card's last review timestamp
+    ///
+    /// ### Arguments
+    ///
+    /// * `last_review` - The new last review timestamp for the card
+    pub fn set_last_review(&mut self, last_review: Option<DateTime<Utc>>) {
+        self.last_review = last_review.map(|dt| dt.naive_utc());
+    }
+    
     /// Gets the card's scheduler data as a JSON value
     ///
     /// ### Returns
@@ -216,6 +390,77 @@ impl Card {
     /// * `data` - The new scheduler data to set for the card
     pub fn set_scheduler_data(&mut self, data: Option<JsonValue>) {
         self.scheduler_data = data;
+    }
+}
+
+
+impl Tag {
+    /// Creates a new tag
+    /// 
+    /// ### Arguments
+    /// 
+    /// * `name` - The name of the tag
+    /// * `visible` - Whether the tag is visible to the user
+    ///
+    /// ### Returns
+    ///
+    /// A new `Tag` instance with:
+    /// - A randomly generated UUID
+    /// - The provided name
+    /// - The provided visibility
+    /// - Creation timestamp set to the current time
+    pub fn new(name: String, visible: bool) -> Self {
+        Self {
+            id: Uuid::new_v4().to_string(),
+            name,
+            visible,
+            created_at: Utc::now().naive_utc(),
+        }
+    }
+
+    /// Gets the tag's name
+    ///
+    /// ### Returns
+    ///
+    /// The name of the tag
+    pub fn get_name(&self) -> String {
+        self.name.clone()
+    }
+    
+    /// Sets the tag's name
+    ///
+    /// ### Arguments
+    ///
+    /// * `name` - The new name for the tag
+    pub fn set_name(&mut self, name: String) {
+        self.name = name;
+    }
+
+    /// Gets the tag's visibility
+    ///
+    /// ### Returns
+    ///
+    /// The visibility of the tag
+    pub fn get_visible(&self) -> bool {
+        self.visible
+    }
+
+    /// Sets the tag's visibility
+    ///
+    /// ### Arguments
+    ///
+    /// * `visible` - The new visibility of the tag
+    pub fn set_visible(&mut self, visible: bool) {
+        self.visible = visible;
+    }
+
+    /// Gets the tag's creation timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The timestamp when this tag was created
+    pub fn get_created_at(&self) -> DateTime<Utc> {
+        DateTime::from_naive_utc_and_offset(self.created_at, Utc)
     }
 }
 
@@ -254,8 +499,17 @@ impl Review {
     /// ### Returns
     ///
     /// The timestamp when this review occurred
-    pub fn get_review_timestamp(&self) -> NaiveDateTime {
-        self.review_timestamp
+    pub fn get_review_timestamp(&self) -> DateTime<Utc> {
+        DateTime::from_naive_utc_and_offset(self.review_timestamp, Utc)
+    }
+    
+    /// Sets the review timestamp
+    ///
+    /// ### Arguments
+    ///
+    /// * `review_timestamp` - The new timestamp for the review
+    pub fn set_review_timestamp(&mut self, review_timestamp: DateTime<Utc>) {
+        self.review_timestamp = review_timestamp.naive_utc();
     }
 
     /// Gets the ID of the card this review belongs to
@@ -266,6 +520,15 @@ impl Review {
     pub fn get_card_id(&self) -> String {
         self.card_id.clone()
     }
+    
+    /// Sets the ID of the card this review belongs to
+    ///
+    /// ### Arguments
+    ///
+    /// * `card_id` - The new card ID for the review
+    pub fn set_card_id(&mut self, card_id: String) {
+        self.card_id = card_id;
+    }
 
     /// Gets the rating given during this review
     ///
@@ -274,6 +537,15 @@ impl Review {
     /// The rating given during this review
     pub fn get_rating(&self) -> i32 {
         self.rating
+    }
+    
+    /// Sets the rating given during this review
+    ///
+    /// ### Arguments
+    ///
+    /// * `rating` - The new rating for the review
+    pub fn set_rating(&mut self, rating: i32) {
+        self.rating = rating;
     }
 }
 
@@ -354,7 +626,24 @@ mod tests {
         
         card.set_scheduler_data(None);
         assert!(card.get_scheduler_data().is_none());
-        }
+    }
+
+    /// Tests the creation of a new tag
+    /// 
+    /// This test verifies that a new tag can be created with the correct name and visibility.
+    /// It also checks that the creation timestamp is set correctly.
+    #[test]
+    fn test_tag_new() { 
+        let name = "Test Tag".to_string();
+        let visible = true;
+        
+        let tag = Tag::new(name.clone(), visible);
+        
+        assert_eq!(tag.name, name);
+        assert_eq!(tag.visible, visible);
+        assert_eq!(tag.id.len(), 36);
+        assert!(tag.created_at <= Utc::now().naive_utc());
+    }
 
     /// Tests the creation of a new review
     /// 
