@@ -751,4 +751,576 @@ mod tests {
             .execute(&mut conn);
         assert!(result.is_ok());
     }
+
+    
+    /// Tests the create item type handler
+    ///
+    /// This test verifies that:
+    /// 1. A POST request to /item_types creates a new item type
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains the created item type with the correct name
+    #[tokio::test]
+    async fn test_create_item_type_handler() {
+        // Set up a test database and application
+        let pool = setup_test_db();
+        let app = create_app(pool.clone());
+        
+        // Create a request with a JSON body
+        let request = Request::builder()
+            .uri("/item_types")
+            .method("POST")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"name":"Test Item Type"}"#))
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let item_type: Value = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains the correct item type
+        assert_eq!(item_type["name"], "Test Item Type");
+        assert!(item_type["id"].is_string());
+    }
+    
+    /// Tests the get item type handler
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /item_types/{id} returns the specific item type
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains the expected item type
+    #[tokio::test]
+    async fn test_get_item_type_handler() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type first
+        let name = "Item Type to Get".to_string();
+        let item_type = repo::create_item_type(&pool, name.clone()).unwrap();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request with the item type ID in the path
+        let request = Request::builder()
+            .uri(format!("/item_types/{}", item_type.id))
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response_item_type: Value = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains the correct item type
+        assert_eq!(response_item_type["id"], item_type.id);
+        assert_eq!(response_item_type["name"], name);
+    }
+    
+    /// Tests the get item type handler with a non-existent ID
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /item_types/{id} with a non-existent ID returns null
+    /// 2. The response has a 200 OK status
+    #[tokio::test]
+    async fn test_get_item_type_handler_not_found() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request with a non-existent ID
+        let request = Request::builder()
+            .uri("/item_types/non-existent-id")
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response_item_type: Option<Value> = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response is null
+        assert!(response_item_type.is_none());
+    }
+    
+    /// Tests the list item types handler
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /item_types returns all item types
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains all the expected item types
+    #[tokio::test]
+    async fn test_list_item_types_handler() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create a few item types first
+        let names = vec!["Item Type 1", "Item Type 2", "Item Type 3"];
+        for name in &names {
+            repo::create_item_type(&pool, name.to_string()).unwrap();
+        }
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request
+        let request = Request::builder()
+            .uri("/item_types")
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let item_types: Vec<Value> = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains the correct number of item types
+        assert_eq!(item_types.len(), names.len());
+        
+        // Check that all names are present in the response
+        let item_type_names: Vec<String> = item_types.iter()
+            .map(|item_type| item_type["name"].as_str().unwrap().to_string())
+            .collect();
+        
+        for name in names {
+            assert!(item_type_names.contains(&name.to_string()));
+        }
+    }
+    
+    /// Tests the list items by item type handler
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /item_types/{id}/items returns all items of that type
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains all the expected items
+    #[tokio::test]
+    async fn test_list_items_by_item_type_handler() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create two item types
+        let item_type1 = repo::create_item_type(&pool, "Item Type 1".to_string()).unwrap();
+        let item_type2 = repo::create_item_type(&pool, "Item Type 2".to_string()).unwrap();
+        
+        // Create items for the first item type
+        let titles1 = vec!["Item 1-1", "Item 1-2", "Item 1-3"];
+        for title in &titles1 {
+            repo::create_item(&pool, &item_type1.id, title.to_string(), serde_json::Value::Null).unwrap();
+        }
+        
+        // Create items for the second item type
+        let titles2 = vec!["Item 2-1", "Item 2-2"];
+        for title in &titles2 {
+            repo::create_item(&pool, &item_type2.id, title.to_string(), serde_json::Value::Null).unwrap();
+        }
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request for the first item type
+        let request = Request::builder()
+            .uri(format!("/item_types/{}/items", item_type1.id))
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let items: Vec<Value> = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains the correct number of items
+        assert_eq!(items.len(), titles1.len());
+        
+        // Check that all titles for the first item type are present in the response
+        let item_titles: Vec<String> = items.iter()
+            .map(|item| item["title"].as_str().unwrap().to_string())
+            .collect();
+        
+        for title in titles1 {
+            assert!(item_titles.contains(&title.to_string()));
+        }
+        
+        // Verify that none of the titles from the second item type are present
+        for title in titles2 {
+            assert!(!item_titles.contains(&title.to_string()));
+        }
+    }
+    
+    /// Tests the list items by item type handler with a non-existent ID
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /item_types/{id}/items with a non-existent ID returns a 404 Not Found
+    /// 2. The response body contains an error message
+    #[tokio::test]
+    async fn test_list_items_by_item_type_handler_not_found() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request with a non-existent ID
+        let request = Request::builder()
+            .uri("/item_types/non-existent-id/items")
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let error: Value = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains an error message
+        assert!(error["error"].is_string());
+    }
+    
+    /// Tests the create card handler
+    ///
+    /// This test verifies that:
+    /// 1. A POST request to /items/{id}/cards creates a new card
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains the created card with the correct item ID and card index
+    #[tokio::test]
+    async fn test_create_card_handler() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and item first
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(&pool, &item_type.id, "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a request with a JSON body
+        let request = Request::builder()
+            .uri(format!("/items/{}/cards", item.id))
+            .method("POST")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"card_index":1}"#))
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let card: Value = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains the correct card
+        assert_eq!(card["item_id"], item.id);
+        assert_eq!(card["card_index"], 1);
+        assert!(card["id"].is_string());
+    }
+    
+    /// Tests the create card handler with a non-existent item ID
+    ///
+    /// This test verifies that:
+    /// 1. A POST request to /items/{id}/cards with a non-existent item ID returns a 404 Not Found
+    /// 2. The response body contains an error message
+    #[tokio::test]
+    async fn test_create_card_handler_not_found() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a request with a JSON body and a non-existent item ID
+        let request = Request::builder()
+            .uri("/items/non-existent-id/cards")
+            .method("POST")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"card_index":1}"#))
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let error: Value = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains an error message
+        assert!(error["error"].is_string());
+    }
+    
+    /// Tests the get card handler
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /cards/{id} returns the specific card
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains the expected card
+    #[tokio::test]
+    async fn test_get_card_handler() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type, item, and card first
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(&pool, &item_type.id, "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        let card = repo::create_card(&pool, &item.id, 2).unwrap();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request with the card ID in the path
+        let request = Request::builder()
+            .uri(format!("/cards/{}", card.id))
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response_card: Value = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains the correct card
+        assert_eq!(response_card["id"], card.id);
+        assert_eq!(response_card["item_id"], item.id);
+        assert_eq!(response_card["card_index"], 2);
+    }
+    
+    /// Tests the get card handler with a non-existent ID
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /cards/{id} with a non-existent ID returns null
+    /// 2. The response has a 200 OK status
+    #[tokio::test]
+    async fn test_get_card_handler_not_found() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request with a non-existent ID
+        let request = Request::builder()
+            .uri("/cards/non-existent-id")
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response_card: Option<Value> = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response is null
+        assert!(response_card.is_none());
+    }
+    
+    /// Tests the list cards handler
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /cards returns all cards
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains all the expected cards
+    #[tokio::test]
+    async fn test_list_cards_handler() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and item first
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(&pool, &item_type.id, "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create a few cards
+        let indices = vec![0, 1, 2];
+        let mut cards = Vec::new();
+        for index in &indices {
+            let card = repo::create_card(&pool, &item.id, *index).unwrap();
+            cards.push(card);
+        }
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request
+        let request = Request::builder()
+            .uri("/cards")
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains the correct number of cards
+        assert_eq!(response_cards.len(), indices.len());
+        
+        // Check that all card IDs are present in the response
+        let card_ids: Vec<String> = response_cards.iter()
+            .map(|card| card["id"].as_str().unwrap().to_string())
+            .collect();
+        
+        for card in cards {
+            assert!(card_ids.contains(&card.id));
+        }
+    }
+    
+    /// Tests the list cards by item handler
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /items/{id}/cards returns all cards for that item
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains all the expected cards
+    #[tokio::test]
+    async fn test_list_cards_by_item_handler() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create two item types and items
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item1 = repo::create_item(&pool, &item_type.id, "Item 1".to_string(), serde_json::Value::Null).unwrap();
+        let item2 = repo::create_item(&pool, &item_type.id, "Item 2".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create cards for the first item
+        let indices1 = vec![0, 1, 2];
+        let mut cards1 = Vec::new();
+        for index in &indices1 {
+            let card = repo::create_card(&pool, &item1.id, *index).unwrap();
+            cards1.push(card);
+        }
+        
+        // Create cards for the second item
+        let indices2 = vec![0, 1];
+        let mut cards2 = Vec::new();
+        for index in &indices2 {
+            let card = repo::create_card(&pool, &item2.id, *index).unwrap();
+            cards2.push(card);
+        }
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request for the first item
+        let request = Request::builder()
+            .uri(format!("/items/{}/cards", item1.id))
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains the correct number of cards
+        assert_eq!(response_cards.len(), indices1.len());
+        
+        // Check that all card IDs for the first item are present in the response
+        let card_ids: Vec<String> = response_cards.iter()
+            .map(|card| card["id"].as_str().unwrap().to_string())
+            .collect();
+        
+        for card in &cards1 {
+            assert!(card_ids.contains(&card.id));
+        }
+        
+        // Verify that none of the card IDs from the second item are present
+        for card in &cards2 {
+            assert!(!card_ids.contains(&card.id));
+        }
+    }
+    
+    /// Tests the list cards by item handler with a non-existent item ID
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /items/{id}/cards with a non-existent item ID returns a 404 Not Found
+    /// 2. The response body contains an error message
+    #[tokio::test]
+    async fn test_list_cards_by_item_handler_not_found() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request with a non-existent item ID
+        let request = Request::builder()
+            .uri("/items/non-existent-id/cards")
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let error: Value = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains an error message
+        assert!(error["error"].is_string());
+    }
 }
