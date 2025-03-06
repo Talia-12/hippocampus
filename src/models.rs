@@ -16,7 +16,7 @@ use uuid::Uuid;
 /// Represents a JSON value in the database
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, AsExpression, FromSqlRow)]
 #[diesel(sql_type = Text)]
-struct JsonValue(serde_json::Value);
+pub struct JsonValue(pub serde_json::Value);
 
 impl FromSql<Text, Sqlite> for JsonValue {
     fn from_sql(value: SqliteValue<'_, '_, '_>) -> diesel::deserialize::Result<Self> {
