@@ -52,6 +52,7 @@ diesel::table! {
         id -> Text,
         name -> Text,
         created_at -> Timestamp,
+        visible -> Bool,
     }
 }
 
