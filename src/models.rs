@@ -201,6 +201,15 @@ impl ItemType {
     pub fn get_created_at(&self) -> DateTime<Utc> {
         DateTime::from_naive_utc_and_offset(self.created_at, Utc)
     }
+    
+    /// Gets the item type's raw creation timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The raw NaiveDateTime when this item type was created
+    pub fn get_created_at_raw(&self) -> NaiveDateTime {
+        self.created_at
+    }
 }
 
 impl Item {
@@ -337,6 +346,15 @@ impl Item {
         DateTime::from_naive_utc_and_offset(self.created_at, Utc)
     }
     
+    /// Gets the item's raw creation timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The raw NaiveDateTime when this item was created
+    pub fn get_created_at_raw(&self) -> NaiveDateTime {
+        self.created_at
+    }
+    
     /// Gets the item's last update timestamp
     ///
     /// ### Returns
@@ -344,6 +362,15 @@ impl Item {
     /// The timestamp when this item was last updated
     pub fn get_updated_at(&self) -> DateTime<Utc> {
         DateTime::from_naive_utc_and_offset(self.updated_at, Utc)
+    }
+    
+    /// Gets the item's raw last update timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The raw NaiveDateTime when this item was last updated
+    pub fn get_updated_at_raw(&self) -> NaiveDateTime {
+        self.updated_at
     }
 }
 
@@ -457,6 +484,15 @@ impl Card {
         self.next_review.map(|dt| DateTime::from_naive_utc_and_offset(dt, Utc))
     }
     
+    /// Gets the card's raw next review timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The raw NaiveDateTime when this card should next be reviewed
+    pub fn get_next_review_raw(&self) -> Option<NaiveDateTime> {
+        self.next_review
+    }
+    
     /// Sets the card's next review timestamp
     ///
     /// ### Arguments
@@ -473,6 +509,15 @@ impl Card {
     /// The timestamp when this card was last reviewed
     pub fn get_last_review(&self) -> Option<DateTime<Utc>> {
         self.last_review.map(|dt| DateTime::from_naive_utc_and_offset(dt, Utc))
+    }
+    
+    /// Gets the card's raw last review timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The raw NaiveDateTime when this card was last reviewed
+    pub fn get_last_review_raw(&self) -> Option<NaiveDateTime> {
+        self.last_review
     }
     
     /// Sets the card's last review timestamp
@@ -607,6 +652,15 @@ impl Tag {
     pub fn get_created_at(&self) -> DateTime<Utc> {
         DateTime::from_naive_utc_and_offset(self.created_at, Utc)
     }
+    
+    /// Gets the tag's raw creation timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The raw NaiveDateTime when this tag was created
+    pub fn get_created_at_raw(&self) -> NaiveDateTime {
+        self.created_at
+    }
 }
 
 impl Review {
@@ -681,6 +735,15 @@ impl Review {
     /// The timestamp when this review occurred
     pub fn get_review_timestamp(&self) -> DateTime<Utc> {
         DateTime::from_naive_utc_and_offset(self.review_timestamp, Utc)
+    }
+    
+    /// Gets the raw review timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The raw NaiveDateTime when this review occurred
+    pub fn get_review_timestamp_raw(&self) -> NaiveDateTime {
+        self.review_timestamp
     }
     
     /// Sets the review timestamp
@@ -817,7 +880,7 @@ mod tests {
         let name = "Test Tag".to_string();
         let visible = true;
         
-        let tag = Tag::new(name.clone());
+        let tag = Tag::new(name.clone(), visible);
         
         assert_eq!(tag.name, name);
         assert_eq!(tag.visible, visible);

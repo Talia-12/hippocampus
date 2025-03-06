@@ -100,13 +100,13 @@ async fn create_item_type(app: &Router, name: String) -> ItemType {
     let created_at = chrono::NaiveDateTime::parse_from_str(
         item_type["created_at"].as_str().unwrap(),
         "%Y-%m-%dT%H:%M:%S%.f"
-    ).unwrap();
+    ).unwrap().and_utc();
     
-    ItemType {
-        id: item_type_id.to_string(),
-        name: name,
-        created_at: created_at,
-    }
+    ItemType::new_with_fields(
+        item_type_id.to_string(),
+        name,
+        created_at,
+    )
 }
 
 
@@ -132,7 +132,7 @@ async fn test_create_item() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "item_type_id": item_type.id,
+                "item_type_id": item_type.get_id(),
                 "title": "Test Item",
                 "item_data": null
             }))
@@ -153,11 +153,11 @@ async fn test_create_item() {
     let item: Item = serde_json::from_slice(&body).unwrap();
     
     // Check that the item has the correct title
-    assert_eq!(item.title, "Test Item");
+    assert_eq!(item.get_title(), "Test Item");
     
     // The ID should be a non-empty string (we don't check the exact value
     // since it's randomly generated)
-    assert!(!item.id.is_empty());
+    assert!(!item.get_id().is_empty());
 }
 
 
@@ -183,7 +183,7 @@ async fn test_get_item() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "item_type_id": item_type.id,
+                "item_type_id": item_type.get_id(),
                 "title": "Test Item for Get",
                 "item_data": null
             }))
@@ -198,7 +198,7 @@ async fn test_get_item() {
     
     // Now, create a request to get the item by its ID
     let request = Request::builder()
-        .uri(format!("/items/{}", created_item.id))
+        .uri(format!("/items/{}", created_item.get_id()))
         .method("GET")
         .body(Body::empty())
         .unwrap();
@@ -220,7 +220,7 @@ async fn test_get_item() {
     assert!(item.is_some(), "Item should exist");
     
     // Check that the retrieved item has the correct title
-    assert_eq!(item.unwrap().title, "Test Item for Get");
+    assert_eq!(item.unwrap().get_title(), "Test Item for Get");
 }
 
 
@@ -247,7 +247,7 @@ async fn test_list_items() {
             .header("Content-Type", "application/json")
             .body(Body::from(
                 serde_json::to_string(&json!({
-                    "item_type_id": item_type.id,
+                    "item_type_id": item_type.get_id(),
                     "title": format!("Test Item {}", i),
                     "item_data": null
                 }))
@@ -310,7 +310,7 @@ async fn test_create_review() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "item_type_id": item_type.id,
+                "item_type_id": item_type.get_id(),
                 "title": "Item to Review",
                 "item_data": null
             }))
@@ -324,7 +324,7 @@ async fn test_create_review() {
     let created_item: Item = serde_json::from_slice(&body).unwrap();
 
     let request = Request::builder()
-        .uri(format!("/items/{}/cards", created_item.id))
+        .uri(format!("/items/{}/cards", created_item.get_id()))
         .method("POST")
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -346,7 +346,7 @@ async fn test_create_review() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "card_id": created_card.id,
+                "card_id": created_card.get_id(),
                 "rating": 3  // "Easy" rating
             }))
             .unwrap(),
@@ -366,12 +366,12 @@ async fn test_create_review() {
     let review: Review = serde_json::from_slice(&body).unwrap();
     
     // Check that the review has the correct card_id and rating
-    assert_eq!(review.card_id, created_card.id, "Review should reference the correct card");
-    assert_eq!(review.rating, 3, "Review should have the correct rating");
+    assert_eq!(review.get_card_id(), created_card.get_id(), "Review should reference the correct card");
+    assert_eq!(review.get_rating(), 3, "Review should have the correct rating");
     
     // Now, get the card to check if it was updated with review information
     let request = Request::builder()
-        .uri(format!("/cards/{}", created_card.id))
+        .uri(format!("/cards/{}", created_card.get_id()))
         .method("GET")
         .body(Body::empty())
         .unwrap();
@@ -389,8 +389,8 @@ async fn test_create_review() {
     
     // For a rating of 3 (easy), the next review should be scheduled 7 days after the last review
     // We could check this more precisely, but it would require more complex time calculations
-    assert!(updated_card.next_review.is_some(), "Card should have a next review date");
-    assert!(updated_card.last_review.is_some(), "Card should have a last review date");
+    assert!(updated_card.get_next_review().is_some(), "Card should have a next review date");
+    assert!(updated_card.get_last_review().is_some(), "Card should have a last review date");
 }
 
 
@@ -488,7 +488,7 @@ async fn test_create_review_with_invalid_rating() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "item_type_id": item_type.id,
+                "item_type_id": item_type.get_id(),
                 "title": "Item for Invalid Review",
                 "item_data": null
             }))
@@ -502,7 +502,7 @@ async fn test_create_review_with_invalid_rating() {
     
     // Create a card for the item
     let card_request = Request::builder()
-        .uri(format!("/items/{}/cards", item.id))
+        .uri(format!("/items/{}/cards", item.get_id()))
         .method("POST")
         .header("Content-Type", "application/json")
         .body(Body::from(
@@ -524,7 +524,7 @@ async fn test_create_review_with_invalid_rating() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "card_id": card.id,
+                "card_id": card.get_id(),
                 "rating": 5  // Invalid rating (should be 1-3)
             }))
             .unwrap(),

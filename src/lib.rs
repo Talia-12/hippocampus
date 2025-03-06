@@ -573,7 +573,7 @@ mod tests {
             .uri("/items")
             .method("POST")
             .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{{"item_type_id":"{}","title":"Test Item","item_data":null}}"#, item_type.id)))
+            .body(Body::from(format!(r#"{{"item_type_id":"{}","title":"Test Item","item_data":null}}"#, item_type.get_id())))
             .unwrap();
         
         // Send the request to the app
@@ -607,7 +607,7 @@ mod tests {
         // Create a few items first
         let titles = vec!["Item 1", "Item 2", "Item 3"];
         for title in &titles {
-            repo::create_item(&pool, &item_type.id, title.to_string(), serde_json::Value::Null).unwrap();
+            repo::create_item(&pool, &item_type.get_id(), title.to_string(), serde_json::Value::Null).unwrap();
         }
         
         // Create the application
@@ -657,14 +657,14 @@ mod tests {
         // Create an item first
         let title = "Item to Get".to_string();
         let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.id, title.clone(), serde_json::Value::Null).unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), title.clone(), serde_json::Value::Null).unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
         
         // Create a GET request with the item ID in the path
         let request = Request::builder()
-            .uri(format!("/items/{}", item.id))
+            .uri(format!("/items/{}", item.get_id()))
             .method("GET")
             .body(Body::empty())
             .unwrap();
@@ -680,7 +680,7 @@ mod tests {
         let response_item: Value = serde_json::from_slice(&body).unwrap();
         
         // Verify the response contains the correct item
-        assert_eq!(response_item["id"], item.id);
+        assert_eq!(response_item["id"], item.get_id());
         assert_eq!(response_item["title"], title);
     }
     
@@ -699,8 +699,8 @@ mod tests {
         // Create an item first
         let title = "Item to Review".to_string();
         let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.id, title.clone(), serde_json::Value::Null).unwrap();
-        let card = repo::create_card(&pool, &item.id, 0).unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), title.clone(), serde_json::Value::Null).unwrap();
+        let card = repo::create_card(&pool, &item.get_id(), 0).unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
@@ -710,7 +710,7 @@ mod tests {
             .uri("/reviews")
             .method("POST")
             .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{{"card_id":"{}","rating":3}}"#, card.id)))
+            .body(Body::from(format!(r#"{{"card_id":"{}","rating":3}}"#, card.get_id())))
             .unwrap();
         
         // Send the request to the app
@@ -724,14 +724,14 @@ mod tests {
         let review: Value = serde_json::from_slice(&body).unwrap();
         
         // Verify the response contains the correct review
-        assert_eq!(review["card_id"], card.id);
+        assert_eq!(review["card_id"], card.get_id());
         assert_eq!(review["rating"], 3);
         assert!(review["id"].is_string());
         
         // Check that the item was updated with review information
-        let updated_card = repo::get_card(&pool, &card.id).unwrap().unwrap();
-        assert!(updated_card.last_review.is_some());
-        assert!(updated_card.next_review.is_some());
+        let updated_card = repo::get_card(&pool, &card.get_id()).unwrap().unwrap();
+        assert!(updated_card.get_last_review().is_some());
+        assert!(updated_card.get_next_review().is_some());
     }
     
     /// Tests the run_migrations function
@@ -813,7 +813,7 @@ mod tests {
         
         // Create a GET request with the item type ID in the path
         let request = Request::builder()
-            .uri(format!("/item_types/{}", item_type.id))
+            .uri(format!("/item_types/{}", item_type.get_id()))
             .method("GET")
             .body(Body::empty())
             .unwrap();
@@ -829,7 +829,7 @@ mod tests {
         let response_item_type: Value = serde_json::from_slice(&body).unwrap();
         
         // Verify the response contains the correct item type
-        assert_eq!(response_item_type["id"], item_type.id);
+        assert_eq!(response_item_type["id"], item_type.get_id());
         assert_eq!(response_item_type["name"], name);
     }
     
@@ -935,13 +935,13 @@ mod tests {
         // Create items for the first item type
         let titles1 = vec!["Item 1-1", "Item 1-2", "Item 1-3"];
         for title in &titles1 {
-            repo::create_item(&pool, &item_type1.id, title.to_string(), serde_json::Value::Null).unwrap();
+            repo::create_item(&pool, &item_type1.get_id(), title.to_string(), serde_json::Value::Null).unwrap();
         }
         
         // Create items for the second item type
         let titles2 = vec!["Item 2-1", "Item 2-2"];
         for title in &titles2 {
-            repo::create_item(&pool, &item_type2.id, title.to_string(), serde_json::Value::Null).unwrap();
+            repo::create_item(&pool, &item_type2.get_id(), title.to_string(), serde_json::Value::Null).unwrap();
         }
         
         // Create the application
@@ -949,7 +949,7 @@ mod tests {
         
         // Create a GET request for the first item type
         let request = Request::builder()
-            .uri(format!("/item_types/{}/items", item_type1.id))
+            .uri(format!("/item_types/{}/items", item_type1.get_id()))
             .method("GET")
             .body(Body::empty())
             .unwrap();
@@ -1029,14 +1029,14 @@ mod tests {
         
         // Create an item type and item first
         let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.id, "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
         
         // Create a request with a JSON body
         let request = Request::builder()
-            .uri(format!("/items/{}/cards", item.id))
+            .uri(format!("/items/{}/cards", item.get_id()))
             .method("POST")
             .header("Content-Type", "application/json")
             .body(Body::from(r#"{"card_index":1}"#))
@@ -1053,7 +1053,7 @@ mod tests {
         let card: Value = serde_json::from_slice(&body).unwrap();
         
         // Verify the response contains the correct card
-        assert_eq!(card["item_id"], item.id);
+        assert_eq!(card["item_id"], item.get_id());
         assert_eq!(card["card_index"], 1);
         assert!(card["id"].is_string());
     }
@@ -1106,15 +1106,15 @@ mod tests {
         
         // Create an item type, item, and card first
         let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.id, "Test Item".to_string(), serde_json::Value::Null).unwrap();
-        let card = repo::create_card(&pool, &item.id, 2).unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        let card = repo::create_card(&pool, &item.get_id(), 2).unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
         
         // Create a GET request with the card ID in the path
         let request = Request::builder()
-            .uri(format!("/cards/{}", card.id))
+            .uri(format!("/cards/{}", card.get_id()))
             .method("GET")
             .body(Body::empty())
             .unwrap();
@@ -1130,8 +1130,8 @@ mod tests {
         let response_card: Value = serde_json::from_slice(&body).unwrap();
         
         // Verify the response contains the correct card
-        assert_eq!(response_card["id"], card.id);
-        assert_eq!(response_card["item_id"], item.id);
+        assert_eq!(response_card["id"], card.get_id());
+        assert_eq!(response_card["item_id"], item.get_id());
         assert_eq!(response_card["card_index"], 2);
     }
     
@@ -1182,13 +1182,13 @@ mod tests {
         
         // Create an item type and item first
         let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.id, "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
         
         // Create a few cards
         let indices = vec![0, 1, 2];
         let mut cards = Vec::new();
         for index in &indices {
-            let card = repo::create_card(&pool, &item.id, *index).unwrap();
+            let card = repo::create_card(&pool, &item.get_id(), *index).unwrap();
             cards.push(card);
         }
         
@@ -1221,7 +1221,7 @@ mod tests {
             .collect();
         
         for card in cards {
-            assert!(card_ids.contains(&card.id));
+            assert!(card_ids.contains(&card.get_id()));
         }
     }
     
@@ -1238,14 +1238,14 @@ mod tests {
         
         // Create two item types and items
         let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item1 = repo::create_item(&pool, &item_type.id, "Item 1".to_string(), serde_json::Value::Null).unwrap();
-        let item2 = repo::create_item(&pool, &item_type.id, "Item 2".to_string(), serde_json::Value::Null).unwrap();
+        let item1 = repo::create_item(&pool, &item_type.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
+        let item2 = repo::create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
         
         // Create cards for the first item
         let indices1 = vec![0, 1, 2];
         let mut cards1 = Vec::new();
         for index in &indices1 {
-            let card = repo::create_card(&pool, &item1.id, *index).unwrap();
+            let card = repo::create_card(&pool, &item1.get_id(), *index).unwrap();
             cards1.push(card);
         }
         
@@ -1253,7 +1253,7 @@ mod tests {
         let indices2 = vec![0, 1];
         let mut cards2 = Vec::new();
         for index in &indices2 {
-            let card = repo::create_card(&pool, &item2.id, *index).unwrap();
+            let card = repo::create_card(&pool, &item2.get_id(), *index).unwrap();
             cards2.push(card);
         }
         
@@ -1262,7 +1262,7 @@ mod tests {
         
         // Create a GET request for the first item
         let request = Request::builder()
-            .uri(format!("/items/{}/cards", item1.id))
+            .uri(format!("/items/{}/cards", item1.get_id()))
             .method("GET")
             .body(Body::empty())
             .unwrap();
@@ -1286,12 +1286,12 @@ mod tests {
             .collect();
         
         for card in &cards1 {
-            assert!(card_ids.contains(&card.id));
+            assert!(card_ids.contains(&card.get_id()));
         }
         
         // Verify that none of the card IDs from the second item are present
         for card in &cards2 {
-            assert!(!card_ids.contains(&card.id));
+            assert!(!card_ids.contains(&card.get_id()));
         }
     }
     
