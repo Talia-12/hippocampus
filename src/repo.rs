@@ -655,11 +655,11 @@ mod tests {
         
         // Verify the review properties
         let review = result.unwrap();
-        assert_eq!(review.card_id, item.id);
+        assert_eq!(review.card_id, card.id);
         assert_eq!(review.rating, rating);
         
         // Check that the item was updated with review information
-        let updated_card = get_card(&pool, &item.id).unwrap().unwrap();
+        let updated_card = get_card(&pool, &card.id).unwrap().unwrap();
         assert!(updated_card.last_review.is_some(), "Last review should be set");
         assert!(updated_card.next_review.is_some(), "Next review should be set");
         

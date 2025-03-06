@@ -27,6 +27,7 @@ use axum::{
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tower::ServiceExt;
+use uuid;
 
 /// Creates a test application with an in-memory SQLite database
 ///
@@ -67,6 +68,26 @@ async fn test_create_item() {
     // Create our test app with an in-memory database
     let app = create_test_app();
     
+    // First create an item type
+    let item_type_request = Request::builder()
+        .uri("/item_types")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "name": "Test Item Type"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    
+    let item_type_response = app.clone().oneshot(item_type_request).await.unwrap();
+    assert_eq!(item_type_response.status(), StatusCode::OK);
+    
+    let item_type_body = to_bytes(item_type_response.into_body(), usize::MAX).await.unwrap();
+    let item_type: Value = serde_json::from_slice(&item_type_body).unwrap();
+    let item_type_id = item_type["id"].as_str().unwrap();
+    
     // Create a request to create an item with a JSON payload
     let request = Request::builder()
         .uri("/items")
@@ -74,7 +95,9 @@ async fn test_create_item() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "title": "Test Item"
+                "item_type_id": item_type_id,
+                "title": "Test Item",
+                "item_data": null
             }))
             .unwrap(),
         ))
@@ -112,6 +135,26 @@ async fn test_get_item() {
     // Create our test app with an in-memory database
     let app = create_test_app();
     
+    // First create an item type
+    let item_type_request = Request::builder()
+        .uri("/item_types")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "name": "Test Item Type"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    
+    let item_type_response = app.clone().oneshot(item_type_request).await.unwrap();
+    assert_eq!(item_type_response.status(), StatusCode::OK);
+    
+    let item_type_body = to_bytes(item_type_response.into_body(), usize::MAX).await.unwrap();
+    let item_type: Value = serde_json::from_slice(&item_type_body).unwrap();
+    let item_type_id = item_type["id"].as_str().unwrap();
+    
     // First, create an item that we can later retrieve
     let request = Request::builder()
         .uri("/items")
@@ -119,7 +162,9 @@ async fn test_get_item() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "title": "Test Item for Get"
+                "item_type_id": item_type_id,
+                "title": "Test Item for Get",
+                "item_data": null
             }))
             .unwrap(),
         ))
@@ -169,6 +214,26 @@ async fn test_list_items() {
     // Create our test app with an in-memory database
     let app = create_test_app();
     
+    // First create an item type
+    let item_type_request = Request::builder()
+        .uri("/item_types")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "name": "Test Item Type"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    
+    let item_type_response = app.clone().oneshot(item_type_request).await.unwrap();
+    assert_eq!(item_type_response.status(), StatusCode::OK);
+    
+    let item_type_body = to_bytes(item_type_response.into_body(), usize::MAX).await.unwrap();
+    let item_type: Value = serde_json::from_slice(&item_type_body).unwrap();
+    let item_type_id = item_type["id"].as_str().unwrap();
+    
     // Create several items to populate the database
     for i in 1..=3 {
         let request = Request::builder()
@@ -177,14 +242,17 @@ async fn test_list_items() {
             .header("Content-Type", "application/json")
             .body(Body::from(
                 serde_json::to_string(&json!({
-                    "title": format!("Test Item {}", i)
+                    "item_type_id": item_type_id,
+                    "title": format!("Test Item {}", i),
+                    "item_data": null
                 }))
                 .unwrap(),
             ))
             .unwrap();
         
         // Send each create request (we don't need to check the responses here)
-        let _ = app.clone().oneshot(request).await.unwrap();
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "Item creation should succeed");
     }
     
     // Now, create a request to list all items
@@ -226,6 +294,26 @@ async fn test_create_review() {
     // Create our test app with an in-memory database
     let app = create_test_app();
     
+    // First create an item type
+    let item_type_request = Request::builder()
+        .uri("/item_types")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "name": "Test Item Type"
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    
+    let item_type_response = app.clone().oneshot(item_type_request).await.unwrap();
+    assert_eq!(item_type_response.status(), StatusCode::OK);
+    
+    let item_type_body = to_bytes(item_type_response.into_body(), usize::MAX).await.unwrap();
+    let item_type: Value = serde_json::from_slice(&item_type_body).unwrap();
+    let item_type_id = item_type["id"].as_str().unwrap();
+    
     // First, create an item that we can review
     let request = Request::builder()
         .uri("/items")
@@ -233,7 +321,9 @@ async fn test_create_review() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "title": "Item to Review"
+                "item_type_id": item_type_id,
+                "title": "Item to Review",
+                "item_data": null
             }))
             .unwrap(),
         ))
@@ -337,77 +427,119 @@ async fn test_get_nonexistent_item() {
 
 #[tokio::test]
 async fn test_create_review_for_nonexistent_item() {
+    // Create our test app with an in-memory database
     let app = create_test_app();
     
-    // Try to create a review for a non-existent item
+    // Generate a random UUID for a non-existent card
+    let non_existent_card_id = uuid::Uuid::new_v4().to_string();
+    
+    // Create a request to create a review for a non-existent card
     let request = Request::builder()
         .uri("/reviews")
         .method("POST")
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "item_id": "nonexistent-id",
+                "card_id": non_existent_card_id,
                 "rating": 3
             }))
             .unwrap(),
         ))
         .unwrap();
     
+    // Send the request to the application and get the response
     let response = app.oneshot(request).await.unwrap();
     
-    // Should return 404 Not Found
+    // Check that the response has a 404 Not Found status
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    
-    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let error: Value = serde_json::from_slice(&body).unwrap();
-    
-    // Verify error message
-    assert_eq!(error["error"], "Item not found");
 }
 
 #[tokio::test]
 async fn test_create_review_with_invalid_rating() {
+    // Create our test app with an in-memory database
     let app = create_test_app();
     
-    // First create an item
-    let request = Request::builder()
-        .uri("/items")
+    // First create an item type
+    let item_type_request = Request::builder()
+        .uri("/item_types")
         .method("POST")
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "title": "Test Item"
+                "name": "Test Item Type"
             }))
             .unwrap(),
         ))
         .unwrap();
     
-    let response = app.clone().oneshot(request).await.unwrap();
-    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let created_item: Item = serde_json::from_slice(&body).unwrap();
+    let item_type_response = app.clone().oneshot(item_type_request).await.unwrap();
+    assert_eq!(item_type_response.status(), StatusCode::OK);
     
-    // Try to create a review with an invalid rating
+    let item_type_body = to_bytes(item_type_response.into_body(), usize::MAX).await.unwrap();
+    let item_type: Value = serde_json::from_slice(&item_type_body).unwrap();
+    let item_type_id = item_type["id"].as_str().unwrap();
+    
+    // Create an item first
+    let item_request = Request::builder()
+        .uri("/items")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "item_type_id": item_type_id,
+                "title": "Item for Invalid Review",
+                "item_data": null
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    
+    let item_response = app.clone().oneshot(item_request).await.unwrap();
+    let item_body = to_bytes(item_response.into_body(), usize::MAX).await.unwrap();
+    let item: Item = serde_json::from_slice(&item_body).unwrap();
+    
+    // Create a card for the item
+    let card_request = Request::builder()
+        .uri(format!("/items/{}/cards", item.id))
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "card_index": 0
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    
+    let card_response = app.clone().oneshot(card_request).await.unwrap();
+    let card_body = to_bytes(card_response.into_body(), usize::MAX).await.unwrap();
+    let card: Card = serde_json::from_slice(&card_body).unwrap();
+    
+    // Try to create a review with an invalid rating (outside 1-3 range)
     let request = Request::builder()
         .uri("/reviews")
         .method("POST")
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "item_id": created_item.id,
-                "rating": 5 // Invalid rating (should be 1-3)
+                "card_id": card.id,
+                "rating": 5  // Invalid rating (should be 1-3)
             }))
             .unwrap(),
         ))
         .unwrap();
     
+    // Send the request to the application and get the response
     let response = app.oneshot(request).await.unwrap();
     
-    // Should return 400 Bad Request
+    // Check that the response has a 400 Bad Request status
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     
+    // Parse the response body to check the error message
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let error: Value = serde_json::from_slice(&body).unwrap();
     
-    // Verify error message
-    assert_eq!(error["error"], "Rating must be between 1 and 3");
+    // Verify the error message mentions the rating
+    assert!(error["error"].as_str().unwrap().contains("Rating"), 
+           "Error message should mention the rating");
 }

@@ -478,6 +478,8 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         .route("/items/{id}", get(get_item_handler))
         // Route for creating a card for an item
         .route("/items/{id}/cards", post(create_card_handler).get(list_cards_by_item_handler))
+        // Route for listing all cards
+        .route("/cards", get(list_cards_handler))
         // Route for getting a specific card by ID
         .route("/cards/{id}", get(get_card_handler))
         // Route for recording reviews
@@ -563,12 +565,15 @@ mod tests {
         let pool = setup_test_db();
         let app = create_app(pool.clone());
         
+        // Create an item type first
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        
         // Create a request with a JSON body
         let request = Request::builder()
             .uri("/items")
             .method("POST")
             .header("Content-Type", "application/json")
-            .body(Body::from(r#"{"title":"Test Item"}"#))
+            .body(Body::from(format!(r#"{{"item_type_id":"{}","title":"Test Item","item_data":null}}"#, item_type.id)))
             .unwrap();
         
         // Send the request to the app
@@ -719,7 +724,7 @@ mod tests {
         let review: Value = serde_json::from_slice(&body).unwrap();
         
         // Verify the response contains the correct review
-        assert_eq!(review["card_id"], item.id);
+        assert_eq!(review["card_id"], card.id);
         assert_eq!(review["rating"], 3);
         assert!(review["id"].is_string());
         
