@@ -243,6 +243,9 @@ async fn test_create_review() {
     let response = app.clone().oneshot(request).await.unwrap();
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let created_item: Item = serde_json::from_slice(&body).unwrap();
+
+    let request = Request::builder()
+        .uri()
     
     // Now, create a request to create a review for the item
     let request = Request::builder()
@@ -271,7 +274,7 @@ async fn test_create_review() {
     let review: Review = serde_json::from_slice(&body).unwrap();
     
     // Check that the review has the correct item_id and rating
-    assert_eq!(review.item_id, created_item.id, "Review should reference the correct item");
+    assert_eq!(review.card_id, created_item.id, "Review should reference the correct item");
     assert_eq!(review.rating, 3, "Review should have the correct rating");
     
     // Now, get the item to check if it was updated with review information

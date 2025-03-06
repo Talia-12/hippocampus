@@ -43,7 +43,7 @@ use axum::{
     http::StatusCode,
 };
 use models::{Item, Review};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -94,6 +94,24 @@ pub struct CreateReviewDto {
     
     /// The rating given during the review (typically 1-3)
     pub rating: i32,
+}
+
+/// Data transfer object for creating a new item type
+///
+/// This struct is used to deserialize JSON requests for creating item types.
+#[derive(Deserialize)]
+pub struct CreateItemTypeDto {
+    /// The name of the item type
+    pub name: String,
+}
+
+/// Data transfer object for creating a new card
+///
+/// This struct is used to deserialize JSON requests for creating cards.
+#[derive(Deserialize)]
+pub struct CreateCardDto {
+    /// The index of the card within its item
+    pub card_index: i32,
 }
 
 /// Handler for creating a new item
@@ -210,6 +228,231 @@ async fn create_review_handler(
     Ok(Json(review))
 }
 
+/// Handler for creating a new item type
+///
+/// This function handles POST requests to `/item_types`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `payload` - The request payload containing the item type name
+///
+/// ### Returns
+///
+/// The newly created item type as JSON
+async fn create_item_type_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+    // Extract and deserialize the JSON request body
+    Json(payload): Json<CreateItemTypeDto>,
+) -> Result<Json<models::ItemType>, ApiError> {
+    // Call the repository function to create the item type
+    let item_type = repo::create_item_type(&pool, payload.name)
+        .map_err(ApiError::Database)?;
+
+    // Return the created item type as JSON
+    Ok(Json(item_type))
+}
+
+/// Handler for retrieving a specific item type
+///
+/// This function handles GET requests to `/item_types/{id}`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `id` - The ID of the item type to retrieve, extracted from the URL path
+///
+/// ### Returns
+///
+/// The requested item type as JSON, or null if not found
+async fn get_item_type_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+    // Extract the item type ID from the URL path
+    Path(id): Path<String>,
+) -> Result<Json<Option<models::ItemType>>, ApiError> {
+    // Call the repository function to get the item type
+    let item_type = repo::get_item_type(&pool, &id)
+        .map_err(ApiError::Database)?;
+    // Return the item type (or None) as JSON
+    Ok(Json(item_type))
+}
+
+/// Handler for listing all item types
+///
+/// This function handles GET requests to `/item_types`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+///
+/// ### Returns
+///
+/// A list of all item types as JSON
+async fn list_item_types_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+) -> Result<Json<Vec<models::ItemType>>, ApiError> {
+    // Call the repository function to list all item types
+    let all_item_types = repo::list_item_types(&pool)
+        .map_err(ApiError::Database)?;
+    // Return the list of item types as JSON
+    Ok(Json(all_item_types))
+}
+
+/// Handler for listing items by item type
+///
+/// This function handles GET requests to `/item_types/{id}/items`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `id` - The ID of the item type to filter by, extracted from the URL path
+///
+/// ### Returns
+///
+/// A list of items of the specified type as JSON
+async fn list_items_by_item_type_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+    // Extract the item type ID from the URL path
+    Path(id): Path<String>,
+) -> Result<Json<Vec<models::Item>>, ApiError> {
+    // First check if the item type exists
+    let item_type_exists = repo::get_item_type(&pool, &id)
+        .map_err(ApiError::Database)?
+        .is_some();
+    
+    if !item_type_exists {
+        return Err(ApiError::NotFound);
+    }
+    
+    // Call the repository function to get items by type
+    let items = repo::get_items_by_type(&pool, &id)
+        .map_err(ApiError::Database)?;
+    // Return the list of items as JSON
+    Ok(Json(items))
+}
+
+/// Handler for creating a new card for an item
+///
+/// This function handles POST requests to `/items/{id}/cards`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `item_id` - The ID of the item to create a card for, extracted from the URL path
+/// * `payload` - The request payload containing the card index
+///
+/// ### Returns
+///
+/// The newly created card as JSON
+async fn create_card_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+    // Extract the item ID from the URL path
+    Path(item_id): Path<String>,
+    // Extract and deserialize the JSON request body
+    Json(payload): Json<CreateCardDto>,
+) -> Result<Json<models::Card>, ApiError> {
+    // First check if the item exists
+    let item_exists = repo::get_item(&pool, &item_id)
+        .map_err(ApiError::Database)?
+        .is_some();
+    
+    if !item_exists {
+        return Err(ApiError::NotFound);
+    }
+    
+    // Call the repository function to create the card
+    let card = repo::create_card(&pool, &item_id, payload.card_index)
+        .map_err(ApiError::Database)?;
+    // Return the created card as JSON
+    Ok(Json(card))
+}
+
+/// Handler for retrieving a specific card
+///
+/// This function handles GET requests to `/cards/{id}`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `id` - The ID of the card to retrieve, extracted from the URL path
+///
+/// ### Returns
+///
+/// The requested card as JSON, or null if not found
+async fn get_card_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+    // Extract the card ID from the URL path
+    Path(id): Path<String>,
+) -> Result<Json<Option<models::Card>>, ApiError> {
+    // Call the repository function to get the card
+    let card = repo::get_card(&pool, &id)
+        .map_err(ApiError::Database)?;
+    // Return the card (or None) as JSON
+    Ok(Json(card))
+}
+
+/// Handler for listing all cards
+///
+/// This function handles GET requests to `/cards`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+///
+/// ### Returns
+///
+/// A list of all cards as JSON
+async fn list_cards_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+) -> Result<Json<Vec<models::Card>>, ApiError> {
+    // Call the repository function to list all cards
+    let all_cards = repo::list_cards(&pool)
+        .map_err(ApiError::Database)?;
+    // Return the list of cards as JSON
+    Ok(Json(all_cards))
+}
+
+/// Handler for listing cards by item
+///
+/// This function handles GET requests to `/items/{id}/cards`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `item_id` - The ID of the item to get cards for, extracted from the URL path
+///
+/// ### Returns
+///
+/// A list of cards for the specified item as JSON
+async fn list_cards_by_item_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+    // Extract the item ID from the URL path
+    Path(item_id): Path<String>,
+) -> Result<Json<Vec<models::Card>>, ApiError> {
+    // First check if the item exists
+    let item_exists = repo::get_item(&pool, &item_id)
+        .map_err(ApiError::Database)?
+        .is_some();
+    
+    if !item_exists {
+        return Err(ApiError::NotFound);
+    }
+    
+    // Call the repository function to get cards for the item
+    let cards = repo::get_cards_for_item(&pool, &item_id)
+        .map_err(ApiError::Database)?;
+    // Return the list of cards as JSON
+    Ok(Json(cards))
+}
+
 /// Creates the application router with all routes
 ///
 /// This function sets up the Axum router with all the API endpoints.
@@ -223,10 +466,20 @@ async fn create_review_handler(
 /// An Axum Router configured with all routes and the database pool as state
 pub fn create_app(pool: Arc<db::DbPool>) -> Router {
     Router::new()
+        // Route for creating an item type
+        .route("/item_types", post(create_item_type_handler).get(list_item_types_handler))
+        // Route for getting a specific item type by ID
+        .route("/item_types/{id}", get(get_item_type_handler))
+        // Route for listing items by item type
+        .route("/item_types/{id}/items", get(list_items_by_item_type_handler))
         // Route for creating and listing items
         .route("/items", post(create_item_handler).get(list_items_handler))
         // Route for getting a specific item by ID
         .route("/items/{id}", get(get_item_handler))
+        // Route for creating a card for an item
+        .route("/items/{id}/cards", post(create_card_handler).get(list_cards_by_item_handler))
+        // Route for getting a specific card by ID
+        .route("/cards/{id}", get(get_card_handler).get(list_cards_handler))
         // Route for recording reviews
         .route("/reviews", post(create_review_handler))
         // Add the database pool to the application state
