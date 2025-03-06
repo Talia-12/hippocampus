@@ -35,7 +35,7 @@ impl ToSql<Text, Sqlite> for JsonValue {
 
 
 /// Represents an item type in the system
-#[derive(Queryable, Selectable, Insertable, Debug, Serialize, Deserialize)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::item_types)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ItemType {
@@ -54,7 +54,7 @@ pub struct ItemType {
 /// This struct maps directly to the `items` table in the database.
 /// It contains all the information needed to track an item through the
 /// spaced repetition review process, including review scheduling metadata.
-#[derive(Queryable, Selectable, Insertable, Debug, Serialize, Deserialize)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::items)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Item {
@@ -78,7 +78,7 @@ pub struct Item {
 }
 
 /// Represents a card in the spaced repetition system
-#[derive(Queryable, Selectable, Insertable, Debug, Serialize, Deserialize)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::cards)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Card {
@@ -102,7 +102,7 @@ pub struct Card {
 }
 
 /// Represents a tag in the system
-#[derive(Queryable, Selectable, Insertable, Debug, Serialize, Deserialize)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::tags)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Tag {
@@ -120,7 +120,7 @@ pub struct Tag {
 }
 
 
-#[derive(Queryable, Selectable, Insertable, Debug, Serialize, Deserialize)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::reviews)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Review { 
@@ -145,6 +145,34 @@ impl ItemType {
             name,
             created_at: Utc::now().naive_utc(),
         }
+    }
+    
+    /// Creates a new item type with all fields specified
+    ///
+    /// ### Arguments
+    ///
+    /// * `id` - The unique identifier for the item type
+    /// * `name` - The name of the item type
+    /// * `created_at` - When this item type was created
+    ///
+    /// ### Returns
+    ///
+    /// A new `ItemType` instance with the specified fields
+    pub fn new_with_fields(id: String, name: String, created_at: DateTime<Utc>) -> Self {
+        Self {
+            id,
+            name,
+            created_at: created_at.naive_utc(),
+        }
+    }
+    
+    /// Gets the item type's ID
+    ///
+    /// ### Returns
+    ///
+    /// The unique identifier of the item type
+    pub fn get_id(&self) -> String {
+        self.id.clone()
     }
     
     /// Gets the item type's name
@@ -200,6 +228,47 @@ impl Item {
             created_at: now,
             updated_at: now,
         }
+    }
+    
+    /// Creates a new item with all fields specified
+    ///
+    /// ### Arguments
+    ///
+    /// * `id` - The unique identifier for the item
+    /// * `item_type` - The type of item to create
+    /// * `title` - The title of the item
+    /// * `data` - The data associated with the item
+    /// * `created_at` - When this item was created
+    /// * `updated_at` - When this item was last updated
+    ///
+    /// ### Returns
+    ///
+    /// A new `Item` instance with the specified fields
+    pub fn new_with_fields(
+        id: String, 
+        item_type: String, 
+        title: String, 
+        data: JsonValue, 
+        created_at: DateTime<Utc>, 
+        updated_at: DateTime<Utc>
+    ) -> Self {
+        Self {
+            id,
+            item_type,
+            title,
+            item_data: data,
+            created_at: created_at.naive_utc(),
+            updated_at: updated_at.naive_utc(),
+        }
+    }
+    
+    /// Gets the item's ID
+    ///
+    /// ### Returns
+    ///
+    /// The unique identifier of the item
+    pub fn get_id(&self) -> String {
+        self.id.clone()
     }
     
     /// Gets the item's type
@@ -302,6 +371,47 @@ impl Card {
         }
     }
     
+    /// Creates a new card with all fields specified
+    ///
+    /// ### Arguments
+    ///
+    /// * `id` - The unique identifier for the card
+    /// * `item_id` - The ID of the item this card belongs to
+    /// * `card_index` - The index of this card within its item
+    /// * `next_review` - When this card should next be reviewed
+    /// * `last_review` - When this card was last reviewed
+    /// * `scheduler_data` - JSON data for the scheduler
+    ///
+    /// ### Returns
+    ///
+    /// A new `Card` instance with the specified fields
+    pub fn new_with_fields(
+        id: String,
+        item_id: String,
+        card_index: i32,
+        next_review: Option<DateTime<Utc>>,
+        last_review: Option<DateTime<Utc>>,
+        scheduler_data: Option<JsonValue>
+    ) -> Self {
+        Self {
+            id,
+            item_id,
+            card_index,
+            next_review: next_review.map(|dt| dt.naive_utc()),
+            last_review: last_review.map(|dt| dt.naive_utc()),
+            scheduler_data,
+        }
+    }
+    
+    /// Gets the card's ID
+    ///
+    /// ### Returns
+    ///
+    /// The unique identifier of the card
+    pub fn get_id(&self) -> String {
+        self.id.clone()
+    }
+    
     /// Gets the item ID this card belongs to
     ///
     /// ### Returns
@@ -398,12 +508,12 @@ impl Tag {
     /// Creates a new tag
     /// 
     /// ### Arguments
-    /// 
+    ///
     /// * `name` - The name of the tag
     /// * `visible` - Whether the tag is visible to the user
     ///
     /// ### Returns
-    ///
+    /// 
     /// A new `Tag` instance with:
     /// - A randomly generated UUID
     /// - The provided name
@@ -411,11 +521,46 @@ impl Tag {
     /// - Creation timestamp set to the current time
     pub fn new(name: String, visible: bool) -> Self {
         Self {
-            id: Uuid::new_v4().to_string(),
+            id: Uuid::new_v4().to_string(), 
             name,
             visible,
             created_at: Utc::now().naive_utc(),
         }
+    }
+    
+    /// Creates a new tag with all fields specified
+    ///
+    /// ### Arguments
+    ///
+    /// * `id` - The unique identifier for the tag
+    /// * `name` - The name of the tag
+    /// * `visible` - Whether the tag is visible to the user
+    /// * `created_at` - When this tag was created
+    ///
+    /// ### Returns
+    ///
+    /// A new `Tag` instance with the specified fields
+    pub fn new_with_fields(
+        id: String,
+        name: String,
+        visible: bool,
+        created_at: DateTime<Utc>
+    ) -> Self {
+        Self {
+            id,
+            name,
+            visible,
+            created_at: created_at.naive_utc(),
+        }
+    }
+    
+    /// Gets the tag's ID
+    ///
+    /// ### Returns
+    ///
+    /// The unique identifier of the tag
+    pub fn get_id(&self) -> String {
+        self.id.clone()
     }
 
     /// Gets the tag's name
@@ -492,6 +637,41 @@ impl Review {
             // Set the review timestamp to the current time
             review_timestamp: Utc::now().naive_utc(),
         }
+    }
+    
+    /// Creates a new review with all fields specified
+    ///
+    /// ### Arguments
+    ///
+    /// * `id` - The unique identifier for the review
+    /// * `card_id` - The ID of the card being reviewed
+    /// * `rating` - The rating given during the review
+    /// * `review_timestamp` - When this review occurred
+    ///
+    /// ### Returns
+    ///
+    /// A new `Review` instance with the specified fields
+    pub fn new_with_fields(
+        id: String,
+        card_id: String,
+        rating: i32,
+        review_timestamp: DateTime<Utc>
+    ) -> Self {
+        Self {
+            id,
+            card_id,
+            rating,
+            review_timestamp: review_timestamp.naive_utc(),
+        }
+    }
+    
+    /// Gets the review's ID
+    ///
+    /// ### Returns
+    ///
+    /// The unique identifier of the review
+    pub fn get_id(&self) -> String {
+        self.id.clone()
     }
     
     /// Gets the review timestamp
@@ -637,7 +817,7 @@ mod tests {
         let name = "Test Tag".to_string();
         let visible = true;
         
-        let tag = Tag::new(name.clone(), visible);
+        let tag = Tag::new(name.clone());
         
         assert_eq!(tag.name, name);
         assert_eq!(tag.visible, visible);
