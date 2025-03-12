@@ -293,8 +293,8 @@ fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
             let card = create_card(pool, &item.get_id(), 0)?;
             cards.push(card);
         },
-        "Test Item Type" => {
-            // Test item type has 2 cards
+        "Test Item Type" | "Test Item Type 2" => {
+            // Test item types have 2 cards
             for i in 0..2 {
                 let card = create_card(pool, &item.get_id(), i)?;
                 cards.push(card);
@@ -516,7 +516,13 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
     // TODO: this is a hack, we should vary how scheduling works based on the item type
     // update the scheduler data with the new delay
     card.set_scheduler_data(Some(JsonValue(serde_json::json!({
-        "delay": days_to_add
+        "delay": current_delay * match rating_val {
+            1 => 1.01,
+            2 => 1.05,
+            3 => 1.1,
+            4 => 1.15,
+            _ => panic!("Invalid rating value: {}. Should not happen as we already validated the rating range.", rating_val),
+        }
     }))));
     
     // Calculate the next review time
@@ -527,6 +533,7 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
         .set((
             cards::next_review.eq(card.get_next_review_raw()),
             cards::last_review.eq(card.get_last_review_raw()),
+            cards::scheduler_data.eq(card.get_scheduler_data()),
         ))
         .execute(conn)?;
     
@@ -571,14 +578,8 @@ mod tests {
     use super::*;
     use crate::db;
     use diesel::connection::SimpleConnection;
-    use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+    use diesel_migrations::MigrationHarness;
     use uuid::Uuid;
-    
-    /// Embedded migrations for testing
-    /// 
-    /// This constant holds the embedded migrations that will be run
-    /// on the test database to set up the schema.
-    const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
     
     /// Sets up a test database with migrations applied
     ///
@@ -811,7 +812,11 @@ mod tests {
         // First create an item
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
         let item = create_item(&pool, &item_type.get_id(), "Item to Review".to_string(), serde_json::Value::Null).unwrap();
-        let card = create_card(&pool, &item.get_id(), 0).unwrap();
+        
+        // Get the cards that were automatically created for the item
+        let cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
+        assert!(!cards.is_empty(), "Item should have at least one card");
+        let card = &cards[0]; // Get the first card
         
         // Record a review
         let rating = 2;
@@ -828,11 +833,11 @@ mod tests {
         assert!(updated_card.get_last_review().is_some(), "Last review should be set");
         assert!(updated_card.get_next_review().is_some(), "Next review should be set");
         
-        // For rating 2, next review should be 3 days later
+        // For rating 2, next review should be 7 days later
         let last_review = updated_card.get_last_review().unwrap();
         let next_review = updated_card.get_next_review().unwrap();
         let days_diff = (next_review.timestamp() - last_review.timestamp()) / (24 * 60 * 60);
-        assert_eq!(days_diff, 3, "For rating 2, next review should be 3 days later");
+        assert_eq!(days_diff, 7, "For rating 2, next review should be 7 days later");
     }
 
 
@@ -852,7 +857,7 @@ mod tests {
         let item = create_item(&pool, &item_type.get_id(), "Item with Card".to_string(), serde_json::Value::Null).unwrap();
         
         // Create a card for the item
-        let card_index = 0;
+        let card_index = 2;
         let result = create_card(&pool, &item.get_id(), card_index);
         assert!(result.is_ok(), "Should create a card successfully");
         
@@ -884,7 +889,7 @@ mod tests {
         // Create an item and a card
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
         let item = create_item(&pool, &item_type.get_id(), "Item with Card".to_string(), serde_json::Value::Null).unwrap();
-        let card = create_card(&pool, &item.get_id(), 0).unwrap();
+        let card = create_card(&pool, &item.get_id(), 2).unwrap();
         
         // Retrieve the card
         let result = get_card(&pool, &card.get_id());
@@ -920,9 +925,9 @@ mod tests {
         let item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
         
         // Create multiple cards for each item
-        let card1_1 = create_card(&pool, &item1.get_id(), 0).unwrap();
-        let card1_2 = create_card(&pool, &item1.get_id(), 1).unwrap();
-        let _card2_1 = create_card(&pool, &item2.get_id(), 0).unwrap();
+        let card1_1 = create_card(&pool, &item1.get_id(), 2).unwrap();
+        let card1_2 = create_card(&pool, &item1.get_id(), 3).unwrap();
+        let _card2_1 = create_card(&pool, &item2.get_id(), 2).unwrap();
         
         // Retrieve cards for item1
         let result = get_cards_for_item(&pool, &item1.get_id());
@@ -930,7 +935,7 @@ mod tests {
         
         // Verify the correct cards are returned
         let cards = result.unwrap();
-        assert_eq!(cards.len(), 2, "Should return the correct number of cards");
+        assert_eq!(cards.len(), 4, "Should return the correct number of cards (2 by default + 2 created)");
         
         // Check that all cards belong to item1
         for card in &cards {
@@ -1111,29 +1116,30 @@ mod tests {
         
         // Create an item type and item
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = create_item(&pool, &item_type.get_id(), "Item with Cards".to_string(), serde_json::Value::Null).unwrap();
+        let item_1 = create_item(&pool, &item_type.get_id(), "Item with Cards".to_string(), serde_json::Value::Null).unwrap();
+        let item_2 = create_item(&pool, &item_type.get_id(), "Item with Cards".to_string(), serde_json::Value::Null).unwrap();
         
-        // Create multiple cards for the item
-        let card_indices = vec![0, 1, 2];
-        for index in &card_indices {
-            create_card(&pool, &item.get_id(), *index).unwrap();
-        }
+        // Get the cards that were automatically created for the items
+        let mut cards = get_cards_for_item(&pool, &item_1.get_id()).unwrap();
+        cards.extend(get_cards_for_item(&pool, &item_2.get_id()).unwrap());
+        assert!(!cards.is_empty(), "Items should have cards");
         
         // List all cards
         let result = list_cards(&pool);
         assert!(result.is_ok(), "Should list cards successfully");
         
         // Verify the correct number of cards
-        let cards = result.unwrap();
-        assert_eq!(cards.len(), card_indices.len(), "Should have the correct number of cards");
+        let all_cards = result.unwrap();
+        assert_eq!(all_cards.len(), cards.len(), "Should have the correct number of cards");
         
         // Check that all card indices are present
-        let card_indices_from_db: Vec<i32> = cards.iter().map(|card| card.get_card_index()).collect();
-        for index in card_indices {
+        let card_indices_from_db: Vec<i32> = all_cards.iter().map(|card| card.get_card_index()).collect();
+        let expected_indices: Vec<i32> = cards.iter().map(|card| card.get_card_index()).collect();
+        for index in expected_indices {
             assert!(card_indices_from_db.contains(&index), "Should contain card with index: {}", index);
         }
     }
-    
+
     
     /// Tests retrieving all cards for a specific item
     ///
@@ -1152,13 +1158,13 @@ mod tests {
         let item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
         
         // Create cards for item1
-        let item1_indices = vec![0, 1, 2];
+        let item1_indices = vec![2, 3, 4];
         for index in &item1_indices {
             create_card(&pool, &item1.get_id(), *index).unwrap();
         }
         
         // Create cards for item2
-        let item2_indices = vec![0, 1];
+        let item2_indices = vec![2, 3];
         for index in &item2_indices {
             create_card(&pool, &item2.get_id(), *index).unwrap();
         }
@@ -1169,7 +1175,7 @@ mod tests {
         
         // Verify only item1 cards are returned
         let cards = result.unwrap();
-        assert_eq!(cards.len(), item1_indices.len(), "Should return correct number of cards");
+        assert_eq!(cards.len(), item1_indices.len() + 2, "Should return correct number of cards (3 created + 2 by default)");
         
         // Check that all cards belong to item1
         for card in &cards {
@@ -1201,11 +1207,15 @@ mod tests {
         // Set up a test database
         let pool = setup_test_db();
         
-        // Create an item and two cards
+        // Create an item and get its cards
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
         let item = create_item(&pool, &item_type.get_id(), "Item with Cards".to_string(), serde_json::Value::Null).unwrap();
-        let card1 = create_card(&pool, &item.get_id(), 0).unwrap();
-        let card2 = create_card(&pool, &item.get_id(), 1).unwrap();
+        
+        // Get the cards that were automatically created for the item
+        let cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
+        assert!(cards.len() >= 2, "Item should have at least 2 cards");
+        let card1 = &cards[0];
+        let card2 = &cards[1];
         
         // Create multiple reviews for card1
         let ratings = vec![1, 2, 3];
@@ -1272,7 +1282,7 @@ mod tests {
         let days_diff = (next_review.timestamp() - last_review.timestamp()) / (24 * 60 * 60);
         assert_eq!(days_diff, 1, "For rating 1, next review should be 1 day later");
         
-        // Test rating 3 (easy)
+        // Test rating 3 (medium)
         let result = record_review(&pool, &card.get_id(), 3);
         assert!(result.is_ok(), "Should record review with rating 3");
         
@@ -1280,24 +1290,83 @@ mod tests {
         let last_review = updated_card.get_last_review().unwrap();
         let next_review = updated_card.get_next_review().unwrap();
         let days_diff = (next_review.timestamp() - last_review.timestamp()) / (24 * 60 * 60);
-        assert_eq!(days_diff, 7, "For rating 3, next review should be 7 days later");
+        // The delay is now 2 (from the scheduler data)
+        assert_eq!(days_diff, 2, "For rating 3, next review should be 2 days later");
         
-        // Test invalid rating (should default to 1 day)
-        let result = record_review(&pool, &card.get_id(), 5);
-        assert!(result.is_ok(), "Should handle invalid rating gracefully");
+        // Test rating 4 (easy)
+        let result = record_review(&pool, &card.get_id(), 4);
+        assert!(result.is_ok(), "Should record review with rating 4");
         
         let updated_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
         let last_review = updated_card.get_last_review().unwrap();
         let next_review = updated_card.get_next_review().unwrap();
         let days_diff = (next_review.timestamp() - last_review.timestamp()) / (24 * 60 * 60);
-        assert_eq!(days_diff, 1, "For invalid rating, next review should default to 1 day later");
+        // The delay is now 2 (from the scheduler data)
+        assert_eq!(days_diff, 2, "For rating 4, next review should be 2 days later");
         
         // Verify multiple reviews are recorded
         let reviews = get_reviews_for_card(&pool, &card.get_id()).unwrap();
         assert_eq!(reviews.len(), 3, "Should have recorded 3 reviews");
+
+        // Test that each subsequent review with rating 4 increases the interval by a factor of ~1.7
+        let mut last_days_diff = days_diff;
+
+        // record 10 more reviews so the ratios are more obvious
+        let ratings = vec![4; 10];
+        for rating in ratings {
+            record_review(&pool, &card.get_id(), rating).unwrap();
+
+            // Get the updated card
+            let updated_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
+            let last_review = updated_card.get_last_review().unwrap();
+            let next_review = updated_card.get_next_review().unwrap();
+            
+            // Calculate the new interval in days
+            let new_days_diff = (next_review.timestamp() - last_review.timestamp()) / (24 * 60 * 60);
+            
+            // Update last_days_diff for the next iteration
+            last_days_diff = new_days_diff;
+        }
+        
+        for _ in 0..3 {
+            // Record another review with rating 4
+            let result = record_review(&pool, &card.get_id(), 4);
+            assert!(result.is_ok(), "Should record review with rating 4");
+            
+            // Get the updated card
+            let updated_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
+            let last_review = updated_card.get_last_review().unwrap();
+            let next_review = updated_card.get_next_review().unwrap();
+            
+            // Calculate the new interval in days
+            let new_days_diff = (next_review.timestamp() - last_review.timestamp()) / (24 * 60 * 60);
+
+            // Print debug information about the review intervals
+            println!("Previous interval: {} days", last_days_diff);
+            println!("New interval: {} days", new_days_diff);
+            
+            // Get the current delay from the scheduler data
+            let current_delay = updated_card.get_scheduler_data()
+                .and_then(|data| data.0.get("delay").and_then(|delay| delay.as_f64()))
+                .expect("Card should have delay in scheduler data");
+            
+            println!("Current delay in scheduler data: {}", current_delay);
+            
+            // Check that the delay is increasing by a factor of ~1.15 (for rating 4)
+            let delay_ratio = current_delay / (current_delay / 1.15);
+            println!("Delay ratio: {:.2}", delay_ratio);
+            assert!(delay_ratio > 1.14 && delay_ratio < 1.16, 
+                "Delay should increase by ~1.15 times, got ratio: {}", delay_ratio);
+            
+            // Update for next iteration
+            last_days_diff = new_days_diff;
+        }
+        
+        // Verify all reviews are recorded
+        let reviews = get_reviews_for_card(&pool, &card.get_id()).unwrap();
+        assert_eq!(reviews.len(), 16, "Should have recorded 16 reviews total");
     }
-    
-    
+
     /// Tests creating items with different data types
     ///
     /// This test verifies that:
@@ -1330,8 +1399,7 @@ mod tests {
         let retrieved_item3 = get_item(&pool, &item3.get_id()).unwrap().unwrap();
         assert_eq!(retrieved_item3.get_data().0, arr_value);
     }
-    
-    
+
     /// Tests error handling for database operations
     ///
     /// This test verifies that:

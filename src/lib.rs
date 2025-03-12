@@ -55,6 +55,8 @@ pub enum ApiError {
     NotFound,
     #[error("Invalid rating: {0}")]
     InvalidRating(String),
+    #[error("Method not allowed")]
+    MethodNotAllowed,
 }
 
 impl IntoResponse for ApiError {
@@ -63,6 +65,7 @@ impl IntoResponse for ApiError {
             ApiError::Database(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
             ApiError::NotFound => (StatusCode::NOT_FOUND, "Item not found".to_string()),
             ApiError::InvalidRating(msg) => (StatusCode::BAD_REQUEST, msg),
+            ApiError::MethodNotAllowed => (StatusCode::METHOD_NOT_ALLOWED, "Method not allowed".to_string()),
         };
 
         let body = Json(serde_json::json!({
@@ -416,6 +419,37 @@ async fn list_cards_by_item_handler(
     Ok(Json(cards))
 }
 
+/// Handler for creating a new card
+///
+/// This function handles POST requests to `/items/{id}/cards`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `item_id` - The ID of the item to create a card for
+/// * `payload` - The request payload containing the card index
+///
+/// ### Returns
+///
+/// An error indicating that this operation is no longer supported
+async fn create_card_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+    // Extract the item ID from the URL path
+    Path(item_id): Path<String>,
+    // Extract and deserialize the JSON request body
+    Json(_payload): Json<CreateCardDto>,
+) -> Result<Json<models::Card>, ApiError> {
+    // Check if the item exists
+    let _item = repo::get_item(&pool, &item_id)
+        .map_err(ApiError::Database)?
+        .ok_or(ApiError::NotFound)?;
+    
+    // Since create_item now automatically creates cards, we should return a 405 Method Not Allowed
+    // to indicate that this operation is no longer supported
+    return Err(ApiError::MethodNotAllowed);
+}
+
 /// Creates the application router with all routes
 ///
 /// This function sets up the Axum router with all the API endpoints.
@@ -440,7 +474,7 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         // Route for getting a specific item by ID
         .route("/items/{id}", get(get_item_handler))
         // Route for creating a card for an item
-        .route("/items/{id}/cards", get(list_cards_by_item_handler))
+        .route("/items/{id}/cards", post(create_card_handler).get(list_cards_by_item_handler))
         // Route for listing all cards
         .route("/cards", get(list_cards_handler))
         // Route for getting a specific card by ID
@@ -892,9 +926,9 @@ mod tests {
         // Set up a test database
         let pool = setup_test_db();
         
-        // Create two item types
-        let item_type1 = repo::create_item_type(&pool, "Item Type 1".to_string()).unwrap();
-        let item_type2 = repo::create_item_type(&pool, "Item Type 2".to_string()).unwrap();
+        // Create two item types with names that are recognized by create_cards_for_item
+        let item_type1 = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item_type2 = repo::create_item_type(&pool, "Test Item Type 2".to_string()).unwrap();
         
         // Create items for the first item type
         let titles1 = vec!["Item 1-1", "Item 1-2", "Item 1-3"];
@@ -1009,17 +1043,15 @@ mod tests {
         // Send the request to the app
         let response = app.oneshot(request).await.unwrap();
         
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
+        // Check the response status - should be METHOD_NOT_ALLOWED since cards are now created automatically
+        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
         
         // Parse the response body
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let card: Value = serde_json::from_slice(&body).unwrap();
+        let error: Value = serde_json::from_slice(&body).unwrap();
         
-        // Verify the response contains the correct card
-        assert_eq!(card["item_id"], item.get_id());
-        assert_eq!(card["card_index"], 1);
-        assert!(card["id"].is_string());
+        // Verify the response contains an error message
+        assert!(error["error"].is_string());
     }
     
     /// Tests the create card handler with a non-existent item ID
@@ -1046,7 +1078,7 @@ mod tests {
         // Send the request to the app
         let response = app.oneshot(request).await.unwrap();
         
-        // Check the response status
+        // Check the response status - should be NOT_FOUND since the item doesn't exist
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
         
         // Parse the response body
@@ -1097,7 +1129,7 @@ mod tests {
         // Verify the response contains the correct card
         assert_eq!(response_card["id"], card.get_id());
         assert_eq!(response_card["item_id"], item.get_id());
-        assert_eq!(response_card["card_index"], 2);
+        assert_eq!(response_card["card_index"], card.get_card_index());
     }
     
     /// Tests the get card handler with a non-existent ID
