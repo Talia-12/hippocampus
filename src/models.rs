@@ -904,11 +904,14 @@ mod tests {
         assert_eq!(review.id.len(), 36);
         
         // Verify that the review timestamp is set to a reasonable value
-        let now = Utc::now().naive_utc();
+        let now = Utc::now();
         let review_time = review.review_timestamp;
         
+        // Convert NaiveDateTime to DateTime<Utc> before calling timestamp()
+        let review_time_utc = DateTime::<Utc>::from_naive_utc_and_offset(review_time, Utc);
+        
         // The review timestamp should be very close to now (within a few seconds)
-        let diff_seconds = (now.timestamp() - review_time.timestamp()).abs();
+        let diff_seconds = (now.timestamp() - review_time_utc.timestamp()).abs();
         assert!(diff_seconds < 5, "Review timestamp should be close to current time, diff: {} seconds", diff_seconds);
     }    
 } 

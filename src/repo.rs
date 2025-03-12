@@ -808,10 +808,12 @@ mod tests {
         // Set up a test database
         let pool = setup_test_db();
         
+        // Create a single item type to use for all tests
+        let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        
         // Test each rating value with a fresh card
         for rating in 1..=4 {
-            // First create an item
-            let item_type = create_item_type(&pool, format!("Test Item Type for Rating {}", rating)).unwrap();
+            // Create a new item for each rating
             let item = create_item(&pool, &item_type.get_id(), format!("Item to Review with Rating {}", rating), serde_json::Value::Null).unwrap();
             
             // Get the cards that were automatically created for the item
@@ -1326,12 +1328,6 @@ mod tests {
         // record 10 more reviews so the ratios are more obvious
         let ratings = vec![4; 10];
         for rating in ratings {
-            // Get the current delay before recording a new review
-            let card_before = get_card(&pool, &card.get_id()).unwrap().unwrap();
-            let previous_delay = card_before.get_scheduler_data()
-                .and_then(|data| data.0.get("delay").and_then(|delay| delay.as_f64()))
-                .expect("Card should have delay in scheduler data");
-                
             record_review(&pool, &card.get_id(), rating).unwrap();
 
             // Get the updated card
