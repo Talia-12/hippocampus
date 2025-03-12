@@ -16,8 +16,9 @@
 /// ensuring tests are isolated and don't affect each other.
 
 use hippocampus::{
+    create_app,
     db::init_pool,
-    models::{Card, Item, ItemType, Review},
+    models::{Card, Item, ItemType},
 };
 use axum::{
     body::{to_bytes, Body},
@@ -54,7 +55,7 @@ fn create_test_app() -> Router {
     hippocampus::run_migrations(conn);
     
     // Create and return the application with the configured database pool
-    hippocampus::create_app(pool)
+    create_app(pool)
 }
 
 
@@ -301,7 +302,7 @@ async fn test_create_review() {
     let app = create_test_app();
     
     // First create an item type
-    let item_type = create_item_type(&app, "Test Item Type".to_string()).await;
+    let item_type = create_item_type(&app, "Basic".to_string()).await;
     
     // First, create an item that we can review
     let request = Request::builder()
@@ -323,21 +324,17 @@ async fn test_create_review() {
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let created_item: Item = serde_json::from_slice(&body).unwrap();
 
+    // Get the cards for the item
     let request = Request::builder()
         .uri(format!("/items/{}/cards", created_item.get_id()))
-        .method("POST")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            serde_json::to_string(&json!({
-                "card_index": 0
-            }))
-            .unwrap(),
-        ))
+        .method("GET")
+        .body(Body::empty())
         .unwrap();
-
+    
     let response = app.clone().oneshot(request).await.unwrap();
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let created_card: Card = serde_json::from_slice(&body).unwrap();
+    let cards: Vec<Card> = serde_json::from_slice(&body).unwrap();
+    let card = &cards[0];
     
     // Now, create a request to create a review for the item
     let request = Request::builder()
@@ -346,8 +343,8 @@ async fn test_create_review() {
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
-                "card_id": created_card.get_id(),
-                "rating": 3  // "Easy" rating
+                "card_id": card.get_id(),
+                "rating": 3  // "Medium" rating
             }))
             .unwrap(),
         ))
@@ -362,16 +359,16 @@ async fn test_create_review() {
     // Convert the response body into bytes for parsing
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     
-    // Parse the body as JSON into a Review struct
-    let review: Review = serde_json::from_slice(&body).unwrap();
+    // Parse the body as JSON into a Value first
+    let review_value: serde_json::Value = serde_json::from_slice(&body).unwrap();
     
     // Check that the review has the correct card_id and rating
-    assert_eq!(review.get_card_id(), created_card.get_id(), "Review should reference the correct card");
-    assert_eq!(review.get_rating(), 3, "Review should have the correct rating");
+    assert_eq!(review_value["card_id"].as_str().unwrap(), card.get_id(), "Review should reference the correct card");
+    assert_eq!(review_value["rating"].as_i64().unwrap(), 3, "Review should have the correct rating");
     
     // Now, get the card to check if it was updated with review information
     let request = Request::builder()
-        .uri(format!("/cards/{}", created_card.get_id()))
+        .uri(format!("/cards/{}", card.get_id()))
         .method("GET")
         .body(Body::empty())
         .unwrap();
@@ -387,7 +384,7 @@ async fn test_create_review() {
     // Get the unwrapped card
     let updated_card = updated_card.unwrap();
     
-    // For a rating of 3 (easy), the next review should be scheduled 7 days after the last review
+    // For a rating of 3 (medium), the next review should be scheduled 7 days after the last review
     // We could check this more precisely, but it would require more complex time calculations
     assert!(updated_card.get_next_review().is_some(), "Card should have a next review date");
     assert!(updated_card.get_last_review().is_some(), "Card should have a last review date");
@@ -475,49 +472,44 @@ async fn test_create_review_for_nonexistent_item() {
 /// 3. The error message mentions the rating issue
 #[tokio::test]
 async fn test_create_review_with_invalid_rating() {
-    // Create our test app with an in-memory database
+    // Set up the test app
     let app = create_test_app();
     
-    // First create an item type
-    let item_type = create_item_type(&app, "Test Item Type".to_string()).await;
+    // First, create an item type
+    let item_type = create_item_type(&app, "Basic".to_string()).await;
     
-    // Create an item first
-    let item_request = Request::builder()
+    // Create an item
+    let request = Request::builder()
         .uri("/items")
         .method("POST")
         .header("Content-Type", "application/json")
         .body(Body::from(
             serde_json::to_string(&json!({
                 "item_type_id": item_type.get_id(),
-                "title": "Item for Invalid Review",
+                "title": "Item to Review",
                 "item_data": null
             }))
             .unwrap(),
         ))
         .unwrap();
     
-    let item_response = app.clone().oneshot(item_request).await.unwrap();
-    let item_body = to_bytes(item_response.into_body(), usize::MAX).await.unwrap();
-    let item: Item = serde_json::from_slice(&item_body).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let created_item: Item = serde_json::from_slice(&body).unwrap();
     
-    // Create a card for the item
-    let card_request = Request::builder()
-        .uri(format!("/items/{}/cards", item.get_id()))
-        .method("POST")
-        .header("Content-Type", "application/json")
-        .body(Body::from(
-            serde_json::to_string(&json!({
-                "card_index": 0
-            }))
-            .unwrap(),
-        ))
+    // Get the cards for the item
+    let request = Request::builder()
+        .uri(format!("/items/{}/cards", created_item.get_id()))
+        .method("GET")
+        .body(Body::empty())
         .unwrap();
     
-    let card_response = app.clone().oneshot(card_request).await.unwrap();
-    let card_body = to_bytes(card_response.into_body(), usize::MAX).await.unwrap();
-    let card: Card = serde_json::from_slice(&card_body).unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let cards: Vec<Card> = serde_json::from_slice(&body).unwrap();
+    let card = &cards[0];
     
-    // Try to create a review with an invalid rating (outside 1-3 range)
+    // Try to create a review with an invalid rating (5)
     let request = Request::builder()
         .uri("/reviews")
         .method("POST")
@@ -525,23 +517,23 @@ async fn test_create_review_with_invalid_rating() {
         .body(Body::from(
             serde_json::to_string(&json!({
                 "card_id": card.get_id(),
-                "rating": 5  // Invalid rating (should be 1-3)
+                "rating": 5  // Invalid rating
             }))
             .unwrap(),
         ))
         .unwrap();
     
-    // Send the request to the application and get the response
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.clone().oneshot(request).await.unwrap();
     
     // Check that the response has a 400 Bad Request status
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     
     // Parse the response body to check the error message
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
-    let error: Value = serde_json::from_slice(&body).unwrap();
+    let error_response: serde_json::Value = serde_json::from_slice(&body).unwrap();
     
-    // Verify the error message mentions the rating
-    assert!(error["error"].as_str().unwrap().contains("Rating"), 
-           "Error message should mention the rating");
+    // Check that the error message mentions the rating range
+    let error_message = error_response["error"].as_str().unwrap();
+    assert!(error_message.contains("Rating must be between 1 and 4"), 
+            "Error message should mention valid rating range, got: {}", error_message);
 }

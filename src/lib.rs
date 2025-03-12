@@ -210,9 +210,9 @@ async fn create_review_handler(
     Json(payload): Json<CreateReviewDto>,
 ) -> Result<Json<Review>, ApiError> {
     // Validate rating range
-    if !(1..=3).contains(&payload.rating) {
+    if !(1..=4).contains(&payload.rating) {
         return Err(ApiError::InvalidRating(
-            "Rating must be between 1 and 3".to_string()
+            "Rating must be between 1 and 4".to_string()
         ));
     }
     
