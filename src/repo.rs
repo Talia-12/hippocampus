@@ -10,7 +10,7 @@ use crate::db::DbPool;
 use crate::models::{Card, Item, ItemType, JsonValue, Review};
 use crate::schema::{cards, items, reviews};
 use diesel::prelude::*;
-use anyhow::Result;
+use anyhow::{Result, anyhow};
 use chrono::Utc;
 use chrono::Duration;
 
@@ -133,7 +133,12 @@ pub fn create_item(pool: &DbPool, item_type_id: &str, new_title: String, item_da
     diesel::insert_into(items::table)
         .values(&new_item)
         .execute(conn)?;
-    
+
+    // Create all necessary cards for the item
+    create_cards_for_item(pool, &new_item)?;
+
+    // TODO: If there's an error, we should delete the item and all its cards
+
     // Return the newly created item
     Ok(new_item)
 }
@@ -226,6 +231,74 @@ pub fn get_items_by_type(pool: &DbPool, item_type_id: &str) -> Result<Vec<Item>>
     Ok(result)
 }
 
+/// Creates all necessary cards for an item based on its type
+///
+/// This function determines how many cards to create based on the item's type
+/// and generates the appropriate number of cards for the item.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `item` - The item for which to create cards
+///
+/// ### Returns
+///
+/// A Result containing a vector of the newly created Cards
+///
+/// ### Errors
+///
+/// Returns an error if:
+/// - Unable to get a connection from the pool
+/// - The database operations fail
+/// - Unable to determine the item type
+fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
+    // Get the item type to determine how many cards to create
+    let item_type = get_item_type(pool, &item.get_item_type())?
+        .ok_or_else(|| anyhow!("Item type not found"))?;
+    
+    // Vector to store the created cards
+    let mut cards = Vec::new();
+    
+    // Determine how many cards to create based on the item type
+    match item_type.get_name().as_str() {
+        "Basic" => {
+            // Basic items have just one card (front/back)
+            let card = create_card(pool, &item.get_id(), 0)?;
+            cards.push(card);
+        },
+        "Cloze" => {
+            // Cloze items might have multiple cards (one per cloze deletion)
+            // For simplicity, we'll create 3 cards for cloze items
+            for i in 0..3 {
+                let card = create_card(pool, &item.get_id(), i)?;
+                cards.push(card);
+            }
+        },
+        "Vocabulary" => {
+            // Vocabulary items have 2 cards (term->definition and definition->term)
+            for i in 0..2 {
+                let card = create_card(pool, &item.get_id(), i)?;
+                cards.push(card);
+            }
+        },
+        "Test Item Type" => {
+            // Test item type has 2 cards
+            for i in 0..2 {
+                let card = create_card(pool, &item.get_id(), i)?;
+                cards.push(card);
+            }
+        },
+        _ => {
+            // Return an error for unknown item types
+            return Err(anyhow!("Unable to construct cards for unknown item type: {}", item_type.get_name()));
+        }
+    }
+    
+    // Return all created cards
+    Ok(cards)
+}
+
+
 
 /// Creates a new card in the database
 ///
@@ -244,7 +317,7 @@ pub fn get_items_by_type(pool: &DbPool, item_type_id: &str) -> Result<Vec<Item>>
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
-pub fn create_card(pool: &DbPool, item_id: &str, card_index: i32) -> Result<Card> {
+fn create_card(pool: &DbPool, item_id: &str, card_index: i32) -> Result<Card> {
     // Get a connection from the pool
     let conn = &mut pool.get()?;
     

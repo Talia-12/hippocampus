@@ -335,43 +335,6 @@ async fn list_items_by_item_type_handler(
     Ok(Json(items))
 }
 
-/// Handler for creating a new card for an item
-///
-/// This function handles POST requests to `/items/{id}/cards`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `item_id` - The ID of the item to create a card for, extracted from the URL path
-/// * `payload` - The request payload containing the card index
-///
-/// ### Returns
-///
-/// The newly created card as JSON
-async fn create_card_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract the item ID from the URL path
-    Path(item_id): Path<String>,
-    // Extract and deserialize the JSON request body
-    Json(payload): Json<CreateCardDto>,
-) -> Result<Json<models::Card>, ApiError> {
-    // First check if the item exists
-    let item_exists = repo::get_item(&pool, &item_id)
-        .map_err(ApiError::Database)?
-        .is_some();
-    
-    if !item_exists {
-        return Err(ApiError::NotFound);
-    }
-    
-    // Call the repository function to create the card
-    let card = repo::create_card(&pool, &item_id, payload.card_index)
-        .map_err(ApiError::Database)?;
-    // Return the created card as JSON
-    Ok(Json(card))
-}
-
 /// Handler for retrieving a specific card
 ///
 /// This function handles GET requests to `/cards/{id}`.
@@ -477,7 +440,7 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         // Route for getting a specific item by ID
         .route("/items/{id}", get(get_item_handler))
         // Route for creating a card for an item
-        .route("/items/{id}/cards", post(create_card_handler).get(list_cards_by_item_handler))
+        .route("/items/{id}/cards", get(list_cards_by_item_handler))
         // Route for listing all cards
         .route("/cards", get(list_cards_handler))
         // Route for getting a specific card by ID
@@ -700,7 +663,8 @@ mod tests {
         let title = "Item to Review".to_string();
         let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
         let item = repo::create_item(&pool, &item_type.get_id(), title.clone(), serde_json::Value::Null).unwrap();
-        let card = repo::create_card(&pool, &item.get_id(), 0).unwrap();
+        let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
+        let card = cards.first().unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
@@ -1107,7 +1071,8 @@ mod tests {
         // Create an item type, item, and card first
         let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
         let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
-        let card = repo::create_card(&pool, &item.get_id(), 2).unwrap();
+        let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
+        let card = cards.first().unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
@@ -1183,14 +1148,7 @@ mod tests {
         // Create an item type and item first
         let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
         let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Create a few cards
-        let indices = vec![0, 1, 2];
-        let mut cards = Vec::new();
-        for index in &indices {
-            let card = repo::create_card(&pool, &item.get_id(), *index).unwrap();
-            cards.push(card);
-        }
+        let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
@@ -1213,7 +1171,7 @@ mod tests {
         let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
         
         // Verify the response contains the correct number of cards
-        assert_eq!(response_cards.len(), indices.len());
+        assert_eq!(response_cards.len(), cards.len());
         
         // Check that all card IDs are present in the response
         let card_ids: Vec<String> = response_cards.iter()
@@ -1241,21 +1199,9 @@ mod tests {
         let item1 = repo::create_item(&pool, &item_type.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
         let item2 = repo::create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
         
-        // Create cards for the first item
-        let indices1 = vec![0, 1, 2];
-        let mut cards1 = Vec::new();
-        for index in &indices1 {
-            let card = repo::create_card(&pool, &item1.get_id(), *index).unwrap();
-            cards1.push(card);
-        }
-        
-        // Create cards for the second item
-        let indices2 = vec![0, 1];
-        let mut cards2 = Vec::new();
-        for index in &indices2 {
-            let card = repo::create_card(&pool, &item2.get_id(), *index).unwrap();
-            cards2.push(card);
-        }
+        // Get cards for the items
+        let cards1 = repo::get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        let cards2 = repo::get_cards_for_item(&pool, &item2.get_id()).unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
@@ -1278,7 +1224,7 @@ mod tests {
         let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
         
         // Verify the response contains the correct number of cards
-        assert_eq!(response_cards.len(), indices1.len());
+        assert_eq!(response_cards.len(), cards1.len());
         
         // Check that all card IDs for the first item are present in the response
         let card_ids: Vec<String> = response_cards.iter()
