@@ -268,9 +268,12 @@ fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
         },
         "Cloze" => {
             // Cloze items might have multiple cards (one per cloze deletion)
-            // For simplicity, we'll create 3 cards for cloze items
-            for i in 0..3 {
-                let card = create_card(pool, &item.get_id(), i)?;
+            let data = item.get_data();
+            let cloze_deletions = data.0["clozes"].clone();
+            let cloze_deletions = cloze_deletions.as_array()
+                .ok_or_else(|| anyhow!("cloze deletion must be an array"))?;
+            for (index, _) in cloze_deletions.iter().enumerate() {
+                let card = create_card(pool, &item.get_id(), index as i32)?;
                 cards.push(card);
             }
         },
@@ -280,6 +283,11 @@ fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
                 let card = create_card(pool, &item.get_id(), i)?;
                 cards.push(card);
             }
+        },
+        "Todo" => {
+            // Todo items have 1 card (each todo is a card)
+            let card = create_card(pool, &item.get_id(), 0)?;
+            cards.push(card);
         },
         "Test Item Type" => {
             // Test item type has 2 cards
