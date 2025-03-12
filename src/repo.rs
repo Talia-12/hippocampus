@@ -330,7 +330,13 @@ fn create_card(pool: &DbPool, item_id: &str, card_index: i32) -> Result<Card> {
     let conn = &mut pool.get()?;
     
     // Create a new card with the provided item ID and card index
-    let new_card = Card::new(item_id.to_string(), card_index);
+    let mut new_card = Card::new(item_id.to_string(), card_index);
+
+    // TODO: this is a hack, we should vary how scheduling works based on the item type
+    // Set the card's scheduler data to "delay: 1"
+    new_card.set_scheduler_data(Some(JsonValue(serde_json::json!({
+        "delay": 1
+    }))));
     
     // Insert the new card into the database
     diesel::insert_into(cards::table)
@@ -437,15 +443,16 @@ pub fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
 /// 2. Updates the item with new review scheduling information
 ///
 /// The scheduling uses a simple spaced repetition algorithm based on the rating:
-/// - Rating 1 (difficult): Review again tomorrow
-/// - Rating 2 (medium): Review again in 3 days
-/// - Rating 3 (easy): Review again in 7 days
+/// - Rating 1 (failed): Review again tomorrow
+/// - Rating 2 (difficult): Review again in 7 days
+/// - Rating 3 (medium): Review again in 1.2 times the days of the previous review
+/// - Rating 4 (easy): Review again in 1.7 times the days of the previous review
 ///
 /// ### Arguments
 ///
 /// * `pool` - A reference to the database connection pool
 /// * `item_id_val` - The ID of the item being reviewed
-/// * `rating_val` - The rating given during the review (1-3)
+/// * `rating_val` - The rating given during the review (1-4)
 ///
 /// ### Returns
 ///
@@ -460,6 +467,11 @@ pub fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
 pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Review> {
     // Get a connection from the pool
     let conn = &mut pool.get()?;
+
+    // Validate that the rating is within the allowed range (1-3)
+    if rating_val < 1 || rating_val > 4 {
+        return Err(anyhow!("Rating must be between 1 and 4, got {}", rating_val));
+    }
     
     // 1) Insert the review record
     // Create a new review with the provided item ID and rating
@@ -481,15 +493,27 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
     
     // Update the last review time to now
     card.set_last_review(Some(now));
+
+    // Get the current delay from the card's scheduler data
+    let current_delay = card.get_scheduler_data()
+        .and_then(|data| data.0.get("delay").and_then(|delay| delay.as_f64()))
+        .ok_or_else(|| anyhow!("Missing scheduler data for card"))?;
     
     // Simple spaced repetition logic
     // Determine when to schedule the next review based on the rating
     let days_to_add = match rating_val {
-        1 => 1,  // If difficult, review tomorrow
-        2 => 3,  // If medium, review in 3 days
-        3 => 7,  // If easy, review in a week
-        _ => 1,  // Default to tomorrow for any unexpected rating
+        1 => 1,                                   // If failed, review tomorrow
+        2 => 7,                                   // If difficult, review in 6 days
+        3 => (current_delay * 1.2).ceil() as i64, // If medium, review in 1.2 times the days of the previous review
+        4 => (current_delay * 1.7).ceil() as i64, // If easy, review in 1.7 times the days of the previous review
+        _ => panic!("Invalid rating value: {}. Should not happen as we already validated the rating range.", rating_val),
     };
+
+    // TODO: this is a hack, we should vary how scheduling works based on the item type
+    // update the scheduler data with the new delay
+    card.set_scheduler_data(Some(JsonValue(serde_json::json!({
+        "delay": days_to_add
+    }))));
     
     // Calculate the next review time
     card.set_next_review(Some(now + Duration::days(days_to_add)));
