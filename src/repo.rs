@@ -808,35 +808,53 @@ mod tests {
         // Set up a test database
         let pool = setup_test_db();
         
-        // First create an item
-        let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = create_item(&pool, &item_type.get_id(), "Item to Review".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Get the cards that were automatically created for the item
-        let cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
-        assert!(!cards.is_empty(), "Item should have at least one card");
-        let card = &cards[0]; // Get the first card
-        
-        // Record a review
-        let rating = 2;
-        let result = record_review(&pool, &card.get_id(), rating);
-        assert!(result.is_ok(), "Should record a review successfully");
-        
-        // Verify the review properties
-        let review = result.unwrap();
-        assert_eq!(review.get_card_id(), card.get_id());
-        assert_eq!(review.get_rating(), rating);
-        
-        // Check that the item was updated with review information
-        let updated_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
-        assert!(updated_card.get_last_review().is_some(), "Last review should be set");
-        assert!(updated_card.get_next_review().is_some(), "Next review should be set");
-        
-        // For rating 2, next review should be 7 days later
-        let last_review = updated_card.get_last_review().unwrap();
-        let next_review = updated_card.get_next_review().unwrap();
-        let days_diff = (next_review.timestamp() - last_review.timestamp()) / (24 * 60 * 60);
-        assert_eq!(days_diff, 7, "For rating 2, next review should be 7 days later");
+        // Test each rating value with a fresh card
+        for rating in 1..=4 {
+            // First create an item
+            let item_type = create_item_type(&pool, format!("Test Item Type for Rating {}", rating)).unwrap();
+            let item = create_item(&pool, &item_type.get_id(), format!("Item to Review with Rating {}", rating), serde_json::Value::Null).unwrap();
+            
+            // Get the cards that were automatically created for the item
+            let cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
+            assert!(!cards.is_empty(), "Item should have at least one card");
+            let card = &cards[0]; // Get the first card
+            
+            // Record a review
+            let result = record_review(&pool, &card.get_id(), rating);
+            assert!(result.is_ok(), "Should record a review successfully with rating {}", rating);
+            
+            // Verify the review properties
+            let review = result.unwrap();
+            assert_eq!(review.get_card_id(), card.get_id());
+            assert_eq!(review.get_rating(), rating);
+            
+            // Check that the item was updated with review information
+            let updated_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
+            assert!(updated_card.get_last_review().is_some(), "Last review should be set");
+            assert!(updated_card.get_next_review().is_some(), "Next review should be set");
+            
+            // Check that the next review is scheduled according to the algorithm
+            let last_review = updated_card.get_last_review().unwrap();
+            let next_review = updated_card.get_next_review().unwrap();
+            let days_diff = (next_review.timestamp() - last_review.timestamp()) / (24 * 60 * 60);
+            
+            // Verify the expected days difference based on the rating
+            match rating {
+                1 => assert_eq!(days_diff, 1, "For rating 1, next review should be 1 day later"),
+                2 => assert_eq!(days_diff, 7, "For rating 2, next review should be 7 days later"),
+                3 => {
+                    // For rating 3, the delay should be based on the current delay (1) * 1.2
+                    // Ceiling of 1.2 is 2
+                    assert_eq!(days_diff, 2, "For rating 3, next review should be 2 days later");
+                },
+                4 => {
+                    // For rating 4, the delay should be based on the current delay (1) * 1.7
+                    // Ceiling of 1.7 is 2
+                    assert_eq!(days_diff, 2, "For rating 4, next review should be 2 days later");
+                },
+                _ => panic!("Invalid rating: {}", rating),
+            }
+        }
     }
 
 
@@ -867,10 +885,17 @@ mod tests {
         assert!(card.get_next_review().is_none());
         assert!(card.get_last_review().is_none());
         
-        // Check that the card can be retrieved
-        let retrieved_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
-        assert_eq!(retrieved_card.get_id(), card.get_id());
-        assert_eq!(retrieved_card.get_item_id(), item.get_id());
+        // Check that the card can be retrieved from the database
+        let retrieved_card_result = get_card(&pool, &card.get_id());
+        assert!(retrieved_card_result.is_ok(), "Should be able to retrieve the card from the database");
+        
+        let retrieved_card_option = retrieved_card_result.unwrap();
+        assert!(retrieved_card_option.is_some(), "Card should exist in the database");
+        
+        let retrieved_card = retrieved_card_option.unwrap();
+        assert_eq!(retrieved_card.get_id(), card.get_id(), "Retrieved card should have the same ID");
+        assert_eq!(retrieved_card.get_item_id(), item.get_id(), "Retrieved card should have the correct item ID");
+        assert_eq!(retrieved_card.get_card_index(), card_index, "Retrieved card should have the correct index");
     }
     
 
@@ -913,8 +938,12 @@ mod tests {
     /// 1. All cards for a specific item can be retrieved
     /// 2. Cards for other items are not included
     /// 3. The correct number of cards is returned
+    /// 
+    /// Note: This test assumes that creating an item automatically creates 2 cards
+    /// based on the item type. If this implementation detail changes, this test will
+    /// need to be updated.
     #[test]
-    fn test_get_cards_for_item() {
+    fn test_retrieve_cards_by_item_id() {
         // Set up a test database
         let pool = setup_test_db();
         
@@ -923,28 +952,49 @@ mod tests {
         let item1 = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
         let item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
         
-        // Create multiple cards for each item
-        let card1_1 = create_card(&pool, &item1.get_id(), 2).unwrap();
-        let card1_2 = create_card(&pool, &item1.get_id(), 3).unwrap();
-        let _card2_1 = create_card(&pool, &item2.get_id(), 2).unwrap();
+        // Get the number of cards automatically created for item1
+        let auto_created_cards = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        let num_auto_created = auto_created_cards.len();
+        println!("Number of automatically created cards: {}", num_auto_created);
         
-        // Retrieve cards for item1
+        // Create cards for item1
+        let item1_indices = vec![2, 3, 4];
+        for index in &item1_indices {
+            create_card(&pool, &item1.get_id(), *index).unwrap();
+        }
+        
+        // Create cards for item2
+        let item2_indices = vec![2, 3];
+        for index in &item2_indices {
+            create_card(&pool, &item2.get_id(), *index).unwrap();
+        }
+        
+        // Get cards for item1
         let result = get_cards_for_item(&pool, &item1.get_id());
-        assert!(result.is_ok(), "Should retrieve cards successfully");
+        assert!(result.is_ok(), "Should get cards for item successfully");
         
-        // Verify the correct cards are returned
+        // Verify only item1 cards are returned
         let cards = result.unwrap();
-        assert_eq!(cards.len(), 4, "Should return the correct number of cards (2 by default + 2 created)");
+        assert_eq!(cards.len(), item1_indices.len() + num_auto_created, 
+            "Should return correct number of cards ({} created + {} by default)", 
+            item1_indices.len(), num_auto_created);
         
         // Check that all cards belong to item1
         for card in &cards {
-            assert_eq!(card.get_item_id(), item1.get_id(), "Card should belong to the correct item");
+            assert_eq!(card.get_item_id(), item1.get_id(), "Card should belong to item1");
         }
         
-        // Check that the specific cards are included
-        let card_ids: Vec<String> = cards.iter().map(|card| card.get_id().clone()).collect();
-        assert!(card_ids.contains(&card1_1.get_id()), "Should contain the first card");
-        assert!(card_ids.contains(&card1_2.get_id()), "Should contain the second card");
+        // Check that all indices for item1 are present
+        let indices: Vec<i32> = cards.iter().map(|card| card.get_card_index()).collect();
+        for index in item1_indices {
+            assert!(indices.contains(&index), "Should contain card with index: {}", index);
+        }
+        
+        // Test with a non-existent item ID
+        let non_existent_id = Uuid::new_v4().to_string();
+        let result = get_cards_for_item(&pool, &non_existent_id);
+        assert!(result.is_ok(), "Should handle non-existent item ID gracefully");
+        assert_eq!(result.unwrap().len(), 0, "Should return empty list for non-existent item");
     }
     
 
@@ -1134,7 +1184,14 @@ mod tests {
         let all_cards = result.unwrap();
         assert_eq!(all_cards.len(), cards.len(), "Should have the correct number of cards");
         
-        // Check that all card indices are present
+        // Check that all card IDs are present
+        let card_ids_from_db: Vec<String> = all_cards.iter().map(|card| card.get_id().clone()).collect();
+        let expected_ids: Vec<String> = cards.iter().map(|card| card.get_id().clone()).collect();
+        for id in expected_ids {
+            assert!(card_ids_from_db.contains(&id), "Should contain card with ID: {}", id);
+        }
+        
+        // Also check that all card indices are present
         let card_indices_from_db: Vec<i32> = all_cards.iter().map(|card| card.get_card_index()).collect();
         let expected_indices: Vec<i32> = cards.iter().map(|card| card.get_card_index()).collect();
         for index in expected_indices {
@@ -1142,61 +1199,6 @@ mod tests {
         }
     }
 
-    
-    /// Tests retrieving all cards for a specific item
-    ///
-    /// This test verifies that:
-    /// 1. All cards for a specific item can be retrieved
-    /// 2. Cards for other items are not included
-    /// 3. The correct number of cards is returned
-    #[test]
-    fn test_retrieve_cards_by_item_id() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create two items
-        let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item1 = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
-        let item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Create cards for item1
-        let item1_indices = vec![2, 3, 4];
-        for index in &item1_indices {
-            create_card(&pool, &item1.get_id(), *index).unwrap();
-        }
-        
-        // Create cards for item2
-        let item2_indices = vec![2, 3];
-        for index in &item2_indices {
-            create_card(&pool, &item2.get_id(), *index).unwrap();
-        }
-        
-        // Get cards for item1
-        let result = get_cards_for_item(&pool, &item1.get_id());
-        assert!(result.is_ok(), "Should get cards for item successfully");
-        
-        // Verify only item1 cards are returned
-        let cards = result.unwrap();
-        assert_eq!(cards.len(), item1_indices.len() + 2, "Should return correct number of cards (3 created + 2 by default)");
-        
-        // Check that all cards belong to item1
-        for card in &cards {
-            assert_eq!(card.get_item_id(), item1.get_id(), "Card should belong to item1");
-        }
-        
-        // Check that all indices for item1 are present
-        let indices: Vec<i32> = cards.iter().map(|card| card.get_card_index()).collect();
-        for index in item1_indices {
-            assert!(indices.contains(&index), "Should contain card with index: {}", index);
-        }
-        
-        // Test with a non-existent item ID
-        let non_existent_id = Uuid::new_v4().to_string();
-        let result = get_cards_for_item(&pool, &non_existent_id);
-        assert!(result.is_ok(), "Should handle non-existent item ID gracefully");
-        assert_eq!(result.unwrap().len(), 0, "Should return empty list for non-existent item");
-    }
-    
     
     /// Tests retrieving reviews for a card
     ///
@@ -1274,6 +1276,14 @@ mod tests {
         let cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
         let card = cards.first().unwrap();
         
+        // Test invalid rating (0)
+        let result = record_review(&pool, &card.get_id(), 0);
+        assert!(result.is_err(), "Should reject review with invalid rating 0");
+        
+        // Test invalid rating (5)
+        let result = record_review(&pool, &card.get_id(), 5);
+        assert!(result.is_err(), "Should reject review with invalid rating 5");
+        
         // Test rating 1 (difficult)
         let result = record_review(&pool, &card.get_id(), 1);
         assert!(result.is_ok(), "Should record review with rating 1");
@@ -1316,6 +1326,12 @@ mod tests {
         // record 10 more reviews so the ratios are more obvious
         let ratings = vec![4; 10];
         for rating in ratings {
+            // Get the current delay before recording a new review
+            let card_before = get_card(&pool, &card.get_id()).unwrap().unwrap();
+            let previous_delay = card_before.get_scheduler_data()
+                .and_then(|data| data.0.get("delay").and_then(|delay| delay.as_f64()))
+                .expect("Card should have delay in scheduler data");
+                
             record_review(&pool, &card.get_id(), rating).unwrap();
 
             // Get the updated card
@@ -1331,6 +1347,12 @@ mod tests {
         }
         
         for _ in 0..3 {
+            // Get the current delay before recording a new review
+            let card_before = get_card(&pool, &card.get_id()).unwrap().unwrap();
+            let previous_delay = card_before.get_scheduler_data()
+                .and_then(|data| data.0.get("delay").and_then(|delay| delay.as_f64()))
+                .expect("Card should have delay in scheduler data");
+                
             // Record another review with rating 4
             let result = record_review(&pool, &card.get_id(), 4);
             assert!(result.is_ok(), "Should record review with rating 4");
@@ -1355,10 +1377,10 @@ mod tests {
             println!("Current delay in scheduler data: {}", current_delay);
             
             // Check that the delay is increasing by a factor of ~1.15 (for rating 4)
-            let delay_ratio = current_delay / (current_delay / 1.15);
-            println!("Delay ratio: {:.2}", delay_ratio);
-            assert!(delay_ratio > 1.14 && delay_ratio < 1.16, 
-                "Delay should increase by ~1.15 times, got ratio: {}", delay_ratio);
+            let actual_delay_ratio = current_delay / previous_delay;
+            println!("Actual delay ratio: {:.2}", actual_delay_ratio);
+            assert!(actual_delay_ratio > 1.14 && actual_delay_ratio < 1.16, 
+                "Delay should increase by ~1.15 times, got ratio: {}", actual_delay_ratio);
             
             // Update for next iteration
             last_days_diff = new_days_diff;
@@ -1407,6 +1429,7 @@ mod tests {
     /// This test verifies that:
     /// 1. Attempting to create a card for a non-existent item returns an error
     /// 2. Attempting to record a review for a non-existent card returns an error
+    /// 3. Attempting to record a review for a card with a non-existent item returns an error
     #[test]
     fn test_error_handling() {
         // Set up a test database
@@ -1431,8 +1454,22 @@ mod tests {
             None
         );
         
-        // Try to record a review for a non-existent card
+        // Try to record a review for a non-existent card (with valid item ID)
         let result = record_review(&pool, &non_existent_card.get_id(), 2);
         assert!(result.is_err(), "Should error when recording review for non-existent card");
+        
+        // Create a non-existent card with a non-existent item ID
+        let non_existent_card_and_item = Card::new_with_fields(
+            Uuid::new_v4().to_string(),
+            Uuid::new_v4().to_string(),
+            0,
+            None,
+            None,
+            None
+        );
+        
+        // Try to record a review for a non-existent card with a non-existent item ID
+        let result = record_review(&pool, &non_existent_card_and_item.get_id(), 2);
+        assert!(result.is_err(), "Should error when recording review for non-existent card with non-existent item");
     }
 } 

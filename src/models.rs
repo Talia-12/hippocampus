@@ -902,6 +902,13 @@ mod tests {
         assert_eq!(review.card_id, card_id);
         assert_eq!(review.rating, rating);
         assert_eq!(review.id.len(), 36);
-        assert!(review.review_timestamp <= Utc::now().naive_utc());
+        
+        // Verify that the review timestamp is set to a reasonable value
+        let now = Utc::now().naive_utc();
+        let review_time = review.review_timestamp;
+        
+        // The review timestamp should be very close to now (within a few seconds)
+        let diff_seconds = (now.timestamp() - review_time.timestamp()).abs();
+        assert!(diff_seconds < 5, "Review timestamp should be close to current time, diff: {} seconds", diff_seconds);
     }    
 } 
