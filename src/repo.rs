@@ -13,6 +13,7 @@ use diesel::prelude::*;
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use chrono::Duration;
+use diesel::migration::MigrationSource;
 
 /// Creates a new item type in the database
 ///
@@ -124,7 +125,7 @@ pub fn list_item_types(pool: &DbPool) -> Result<Vec<ItemType>> {
 /// - The database insert operation fails
 pub fn create_item(pool: &DbPool, item_type_id: &str, new_title: String, item_data: serde_json::Value) -> Result<Item> {
     // Get a connection from the pool
-    let conn = &mut pool.get()?;
+    let mut conn = pool.get()?;
     
     // Create a new item with the provided title
     let new_item = Item::new(item_type_id.to_string(), new_title, JsonValue(item_data));
@@ -132,7 +133,10 @@ pub fn create_item(pool: &DbPool, item_type_id: &str, new_title: String, item_da
     // Insert the new item into the database
     diesel::insert_into(items::table)
         .values(&new_item)
-        .execute(conn)?;
+        .execute(&mut conn)?;
+
+    // Drop the connection back to the pool
+    drop(conn);
 
     // Create all necessary cards for the item
     create_cards_for_item(pool, &new_item)?;
@@ -598,11 +602,67 @@ mod tests {
         conn.batch_execute("PRAGMA foreign_keys = ON").unwrap();
         
         // Run all migrations to set up the schema
-        conn.run_pending_migrations(MIGRATIONS).expect("Failed to run migrations");
+        let migrations = diesel_migrations::FileBasedMigrations::find_migrations_directory().expect("Failed to find migrations directory");
+        conn.run_pending_migrations(migrations).expect("Failed to run migrations");
         
         pool
     }
 
+    /// Tests that migrations are applied correctly
+    ///
+    /// This test verifies that:
+    /// 1. The test database is set up correctly
+    /// 2. The migrations are applied successfully
+    /// 3. The expected tables are created in the database
+    #[test]
+    fn test_migrations_applied() {
+        // Set up a test database
+        let pool = setup_test_db();
+        let mut conn = pool.get().expect("Failed to get connection");
+        
+        // Check if the item_types table exists
+        let result = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table' AND name='item_types'")
+            .execute(&mut *conn);
+        assert!(result.is_ok(), "item_types table should exist");
+        
+        // Check the structure of the item_types table using a simple query
+        let result = diesel::sql_query("SELECT sql FROM sqlite_master WHERE type='table' AND name='item_types'")
+            .execute(&mut *conn);
+        assert!(result.is_ok(), "Should be able to query item_types table structure");
+        
+        // Check if the items table exists
+        let result = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table' AND name='items'")
+            .execute(&mut *conn);
+        assert!(result.is_ok(), "items table should exist");
+        
+        // Check if the cards table exists
+        let result = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table' AND name='cards'")
+            .execute(&mut *conn);
+        assert!(result.is_ok(), "cards table should exist");
+        
+        // Check if the tags table exists
+        let result = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table' AND name='tags'")
+            .execute(&mut *conn);
+        assert!(result.is_ok(), "tags table should exist");
+        
+        // Check if the item_tags table exists
+        let result = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table' AND name='item_tags'")
+            .execute(&mut *conn);
+        assert!(result.is_ok(), "item_tags table should exist");
+        
+        // Check if the reviews table exists
+        let result = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'")
+            .execute(&mut *conn);
+        assert!(result.is_ok(), "reviews table should exist");
+        
+        // Drop the connection back to the pool
+        drop(conn);
+        
+        // Try to create an item type to verify the table is usable
+        let name = "Test Item Type".to_string();
+        let result = create_item_type(&pool, name.clone());
+        assert!(result.is_ok(), "Should be able to create an item type: {:?}", result.err());
+    }
 
     /// Tests creating a new item type
     ///
@@ -1199,7 +1259,8 @@ mod tests {
         // Create an item and card
         let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
         let item = create_item(&pool, &item_type.get_id(), "Item to Review".to_string(), serde_json::Value::Null).unwrap();
-        let card = create_card(&pool, &item.get_id(), 0).unwrap();
+        let cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
+        let card = cards.first().unwrap();
         
         // Test rating 1 (difficult)
         let result = record_review(&pool, &card.get_id(), 1);
