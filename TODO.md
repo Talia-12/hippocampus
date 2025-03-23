@@ -1,0 +1,1 @@
+- Provide route for getting all cards for all items of a specific type, with a specific tag, etc.
