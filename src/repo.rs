@@ -634,12 +634,12 @@ pub fn get_reviews_for_card(pool: &DbPool, card_id: &str) -> Result<Vec<Review>>
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database insert fails
-pub fn create_tag(pool: &DbPool, name: String) -> Result<Tag> {
+pub fn create_tag(pool: &DbPool, name: String, visible: bool) -> Result<Tag> {
     // Get a connection from the pool
     let conn = &mut pool.get()?;
     
     // Create a new tag with a random ID
-    let new_tag = Tag::new(name, true);
+    let new_tag = Tag::new(name, visible);
     
     // Insert the tag into the database
     diesel::insert_into(tags::table)
@@ -738,12 +738,31 @@ pub fn add_tag_to_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()>
 
 
 /// Removes a tag from an item in the database
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `tag_id` - The ID of the tag to remove
+/// * `item_id` - The ID of the item to remove the tag from
+///
+/// ### Returns
+///
+/// A Result indicating success or failure
 pub fn remove_tag_from_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()> {
     // Get a connection from the pool
     let conn = &mut pool.get()?;
     
     // Remove the association from the database
-    diesel::delete(item_tags::table.filter(item_tags::item_id.eq(item_id).and(item_tags::tag_id.eq(tag_id)))).execute(conn)?;
+    let deleted = diesel::delete(
+        item_tags::table
+            .filter(item_tags::item_id.eq(item_id)
+            .and(item_tags::tag_id.eq(tag_id)))
+    ).execute(conn)?;
+
+    // Return an error if no rows were deleted
+    if deleted == 0 {
+        return Err(anyhow!("item {} does not have tag {}", item_id, tag_id));
+    }
     
     Ok(())
 }
@@ -1476,8 +1495,8 @@ pub mod tests {
         let item_4 = create_item(&pool, &item_type.get_id(), "Item with no tags".to_string(), serde_json::Value::Null).unwrap();
         
         // Create tags
-        let tag_a = create_tag(&pool, "TagA".to_string()).unwrap();
-        let tag_b = create_tag(&pool, "TagB".to_string()).unwrap();
+        let tag_a = create_tag(&pool, "TagA".to_string(), true).unwrap();
+        let tag_b = create_tag(&pool, "TagB".to_string(), true).unwrap();
         
         // Associate tags with items
         add_tag_to_item(&pool, &tag_a.get_id(), &item_1.get_id()).unwrap();
@@ -1666,8 +1685,8 @@ pub mod tests {
         let item_2 = create_item(&pool, &item_type_2.get_id(), "Type 2 Item".to_string(), serde_json::Value::Null).unwrap();
         
         // Create tags
-        let tag_a = create_tag(&pool, "TagA".to_string()).unwrap();
-        let tag_b = create_tag(&pool, "TagB".to_string()).unwrap();
+        let tag_a = create_tag(&pool, "TagA".to_string(), true).unwrap();
+        let tag_b = create_tag(&pool, "TagB".to_string(), true).unwrap();
         
         // Associate tags with items
         // Item 1A: has tag A
@@ -1835,7 +1854,7 @@ pub mod tests {
         assert!(result_ancient.is_empty(), "Should not include any cards");
         
         // Test 5: Combine all filters to get empty result
-        let tag = create_tag(&pool, "TestTag".to_string()).unwrap();
+        let tag = create_tag(&pool, "TestTag".to_string(), true).unwrap();
         
         let query_combined = GetQueryDto {
             item_type_id: Some(item_type.get_id()),
@@ -2113,5 +2132,311 @@ pub mod tests {
         // Try to record a review for a non-existent card with a non-existent item ID
         let result = record_review(&pool, &non_existent_card_and_item.get_id(), 2);
         assert!(result.is_err(), "Should error when recording review for non-existent card with non-existent item");
+    }
+
+
+    /// Tests creating a tag
+    ///
+    /// This test verifies that:
+    /// 1. A tag can be created with a name
+    /// 2. The created tag has a valid ID
+    /// 3. The created tag has the correct name
+    #[test]
+    fn test_create_tag() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create a tag
+        let tag_name = "Test Tag".to_string();
+        let tag = create_tag(&pool, tag_name.clone(), true).unwrap();
+        
+        // Verify the tag was created correctly
+        assert!(!tag.get_id().is_empty());
+        assert_eq!(tag.get_name(), tag_name);
+        assert!(tag.get_visible());
+
+        // Create a tag with visibility false
+        let tag_name = "Test Tag 2".to_string();
+        let tag = create_tag(&pool, tag_name.clone(), false).unwrap();
+
+        // Verify the tag was created correctly
+        assert!(!tag.get_id().is_empty());
+        assert_eq!(tag.get_name(), tag_name);
+        assert!(!tag.get_visible());
+    }
+
+
+    /// Tests retrieving a tag by ID
+    ///
+    /// This test verifies that:
+    /// 1. A tag can be retrieved by its ID
+    /// 2. The retrieved tag has the correct properties
+    #[test]
+    fn test_get_tag() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create a tag
+        let tag_name = "Test Tag".to_string();
+        let created_tag = create_tag(&pool, tag_name.clone(), true).unwrap();
+        
+        // Retrieve the tag
+        let retrieved_tag = get_tag(&pool, &created_tag.get_id()).unwrap();
+        
+        // Verify the retrieved tag matches the created tag
+        assert_eq!(retrieved_tag.get_id(), created_tag.get_id());
+        assert_eq!(retrieved_tag.get_name(), tag_name);
+        assert_eq!(retrieved_tag.get_visible(), created_tag.get_visible());
+
+        // Create a tag with visibility false
+        let tag_name = "Test Tag 2".to_string();
+        let tag = create_tag(&pool, tag_name.clone(), false).unwrap();
+
+        // Verify the tag was created correctly
+        assert!(!tag.get_id().is_empty());
+        assert_eq!(tag.get_name(), tag_name);
+        assert!(!tag.get_visible());
+    }
+
+
+    /// Tests listing all tags
+    ///
+    /// This test verifies that:
+    /// 1. All created tags can be listed
+    /// 2. The list contains the correct number of tags
+    /// 3. Each tag in the list has the correct properties
+    #[test]
+    fn test_list_tags() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create several tags
+        let tag_names = vec!["Tag 1", "Tag 2", "Tag 3"];
+        let tag_visible = vec![true, false, true];
+        let mut created_tags = Vec::new();
+        
+        for (name, visible) in tag_names.iter().zip(tag_visible) {
+            let tag = create_tag(&pool, name.to_string(), visible).unwrap();
+            created_tags.push(tag);
+        }
+        
+        // List all tags
+        let listed_tags = list_tags(&pool).unwrap();
+        
+        // Verify the list contains the correct number of tags
+        assert_eq!(listed_tags.len(), tag_names.len());
+        
+        // Verify each created tag is in the list
+        for created_tag in &created_tags {
+            let found = listed_tags.iter().any(|tag| 
+                tag.get_id() == created_tag.get_id() && 
+                tag.get_name() == created_tag.get_name() &&
+                tag.get_visible() == created_tag.get_visible()
+            );
+            assert!(found, "Created tag not found in list");
+        }
+    }
+
+
+    /// Tests adding a tag to an item
+    ///
+    /// This test verifies that:
+    /// 1. A tag can be associated with an item
+    /// 2. The association is correctly stored in the database
+    #[test]
+    fn test_add_tag_to_item() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and item
+        let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create a tag
+        let tag = create_tag(&pool, "Test Tag".to_string(), true).unwrap();
+        
+        // Associate the tag with the item
+        add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).unwrap();
+        
+        // Get tags for the item to verify the association
+        let item_tags = list_tags_for_item(&pool, &item.get_id()).unwrap();
+        
+        // Verify the tag is associated with the item
+        assert_eq!(item_tags.len(), 1);
+        assert_eq!(item_tags[0].get_id(), tag.get_id());
+        assert_eq!(item_tags[0].get_name(), tag.get_name());
+        assert_eq!(item_tags[0].get_visible(), tag.get_visible());
+    }
+
+
+    /// Tests removing a tag from an item
+    ///
+    /// This test verifies that:
+    /// 1. A tag can be removed from an item
+    /// 2. The association is correctly removed from the database
+    #[test]
+    fn test_remove_tag_from_item() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and item
+        let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create two tags
+        let tag1 = create_tag(&pool, "Tag 1".to_string(), true).unwrap();
+        let tag2 = create_tag(&pool, "Tag 2".to_string(), false).unwrap();
+        
+        // Associate both tags with the item
+        add_tag_to_item(&pool, &tag1.get_id(), &item.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag2.get_id(), &item.get_id()).unwrap();
+        
+        // Verify both tags are associated with the item
+        let tags_before = list_tags_for_item(&pool, &item.get_id()).unwrap();
+        assert_eq!(tags_before.len(), 2);
+        
+        // Remove one tag from the item
+        remove_tag_from_item(&pool, &tag1.get_id(), &item.get_id()).unwrap();
+        
+        // Verify only the remaining tag is associated with the item
+        let tags_after = list_tags_for_item(&pool, &item.get_id()).unwrap();
+        assert_eq!(tags_after.len(), 1);
+        assert_eq!(tags_after[0].get_id(), tag2.get_id());
+        assert_eq!(tags_after[0].get_visible(), tag2.get_visible());
+    }
+
+
+    /// Tests listing tags for an item
+    ///
+    /// This test verifies that:
+    /// 1. All tags associated with an item can be listed
+    /// 2. The list contains the correct number of tags
+    /// 3. Each tag in the list has the correct properties
+    #[test]
+    fn test_list_tags_for_item() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and two items
+        let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item1 = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
+        let item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create several tags
+        let tag1 = create_tag(&pool, "Tag 1".to_string(), true).unwrap();
+        let tag2 = create_tag(&pool, "Tag 2".to_string(), false).unwrap();
+        let tag3 = create_tag(&pool, "Tag 3".to_string(), true).unwrap();
+        
+        // Associate tags with items:
+        // item1: tag1, tag2
+        // item2: tag2, tag3
+        add_tag_to_item(&pool, &tag1.get_id(), &item1.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag2.get_id(), &item1.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag2.get_id(), &item2.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag3.get_id(), &item2.get_id()).unwrap();
+        
+        // List tags for item1
+        let item1_tags = list_tags_for_item(&pool, &item1.get_id()).unwrap();
+        
+        // Verify the list contains the correct tags for item1
+        assert_eq!(item1_tags.len(), 2);
+        let item1_tag_ids: Vec<String> = item1_tags.iter()
+            .map(|tag| tag.get_id().clone())
+            .collect();
+        assert!(item1_tag_ids.contains(&tag1.get_id()));
+        assert!(item1_tag_ids.contains(&tag2.get_id()));
+        assert!(!item1_tag_ids.contains(&tag3.get_id()));
+        
+        // List tags for item2
+        let item2_tags = list_tags_for_item(&pool, &item2.get_id()).unwrap();
+        
+        // Verify the list contains the correct tags for item2
+        assert_eq!(item2_tags.len(), 2);
+        let item2_tag_ids: Vec<String> = item2_tags.iter()
+            .map(|tag| tag.get_id().clone())
+            .collect();
+        assert!(!item2_tag_ids.contains(&tag1.get_id()));
+        assert!(item2_tag_ids.contains(&tag2.get_id()));
+        assert!(item2_tag_ids.contains(&tag3.get_id()));
+    }
+
+
+    /// Tests listing tags for a card
+    ///
+    /// This test verifies that:
+    /// 1. All tags associated with a card (via its item) can be listed
+    /// 2. The list contains the correct number of tags
+    /// 3. Each tag in the list has the correct properties
+    #[test]
+    fn test_list_tags_for_card() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and item
+        let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Get the cards for the item
+        let cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
+        assert!(!cards.is_empty(), "Item should have at least one card");
+        let card = &cards[0];
+        
+        // Create tags
+        let tag1 = create_tag(&pool, "Tag 1".to_string(), true).unwrap();
+        let tag2 = create_tag(&pool, "Tag 2".to_string(), true).unwrap();
+        
+        // Associate tags with the item
+        add_tag_to_item(&pool, &tag1.get_id(), &item.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag2.get_id(), &item.get_id()).unwrap();
+        
+        // List tags for the card
+        let card_tags = list_tags_for_card(&pool, &card.get_id()).unwrap();
+        
+        // Verify the list contains the correct tags
+        assert_eq!(card_tags.len(), 2);
+        let card_tag_ids: Vec<String> = card_tags.iter()
+            .map(|tag| tag.get_id().clone())
+            .collect();
+        assert!(card_tag_ids.contains(&tag1.get_id()));
+        assert!(card_tag_ids.contains(&tag2.get_id()));
+    }
+
+
+    /// Tests error handling for tag operations
+    ///
+    /// This test verifies that:
+    /// 1. Attempting to get a non-existent tag returns an error
+    /// 2. Attempting to add a non-existent tag to an item returns an error
+    /// 3. Attempting to add a tag to a non-existent item returns an error
+    #[test]
+    fn test_tag_error_handling() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create a valid item and tag for testing
+        let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        let tag = create_tag(&pool, "Test Tag".to_string(), true).unwrap();
+        
+        // Test getting a non-existent tag
+        let non_existent_id = Uuid::new_v4().to_string();
+        let result = get_tag(&pool, &non_existent_id);
+        assert!(result.is_err(), "Should error when getting non-existent tag");
+        
+        // Test adding a non-existent tag to an item
+        let result = add_tag_to_item(&pool, &non_existent_id, &item.get_id());
+        assert!(result.is_err(), "Should error when adding non-existent tag to item");
+        
+        // Test adding a tag to a non-existent item
+        let result = add_tag_to_item(&pool, &tag.get_id(), &non_existent_id);
+        assert!(result.is_err(), "Should error when adding tag to non-existent item");
+        
+        // Test removing a non-existent tag from an item
+        let result = remove_tag_from_item(&pool, &non_existent_id, &item.get_id());
+        assert!(result.is_err(), "Should error when removing non-existent tag from item");
+        
+        // Test removing a tag from a non-existent item
+        let result = remove_tag_from_item(&pool, &tag.get_id(), &non_existent_id);
+        assert!(result.is_err(), "Should error when removing tag from non-existent item");
     }
 } 

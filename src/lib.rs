@@ -39,7 +39,7 @@ use axum::{
 };
 use axum_extra::extract::Query;
 use chrono::{DateTime, Utc};
-use models::{Item, Review};
+use models::{Item, Review, Tag};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
@@ -112,6 +112,17 @@ pub struct CreateItemTypeDto {
 pub struct CreateCardDto {
     /// The index of the card within its item
     pub card_index: i32,
+}
+
+/// Data transfer object for creating a new tag
+///
+/// This struct is used to deserialize JSON requests for creating tags.
+#[derive(Deserialize, Debug)]
+pub struct CreateTagDto {
+    /// The name of the tag
+    pub name: String,
+    /// The visibility of the tag
+    pub visible: bool,
 }
 
 /// Data transfer object for getting all items or cards matching a query
@@ -461,6 +472,106 @@ async fn create_card_handler(
     return Err(ApiError::MethodNotAllowed);
 }
 
+
+/// Handler for creating a new tag
+///
+/// This function handles POST requests to `/tags`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `payload` - The request payload containing the tag name and visibility
+///
+/// ### Returns
+///
+/// The newly created tag as JSON
+async fn create_tag_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+    // Extract and deserialize the JSON request body
+    Json(payload): Json<CreateTagDto>,
+) -> Result<Json<Tag>, ApiError> {
+    // Call the repository function to create the tag
+    let tag = repo::create_tag(&pool, payload.name, payload.visible).unwrap();
+    
+    // Return the created tag as JSON
+    Ok(Json(tag))
+}
+
+
+/// Handler for listing all tags
+///
+/// This function handles GET requests to `/tags`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+///
+/// ### Returns
+///
+/// A list of all tags as JSON
+async fn list_tags_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+) -> Result<Json<Vec<Tag>>, ApiError> {
+    // Call the repository function to list all tags
+    let tags = repo::list_tags(&pool).unwrap();
+
+    // Return the list of tags as JSON
+    Ok(Json(tags))
+}
+
+
+/// Handler for adding a tag to an item
+///
+/// This function handles POST requests to `/items/{item_id}/tags/{tag_id}`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `item_id` - The ID of the item to add the tag to
+/// * `tag_id` - The ID of the tag to add to the item
+///
+/// ### Returns
+///
+/// An empty response
+async fn add_tag_to_item_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+    // Extract the item ID from the URL path
+    Path((item_id, tag_id)): Path<(String, String)>,
+) -> Result<(), ApiError> {
+    // Call the repository function to add the tag to the item
+    repo::add_tag_to_item(&pool, &tag_id, &item_id)
+        .map_err(ApiError::Database)
+}
+
+
+/// Handler for removing a tag from an item
+///
+/// This function handles DELETE requests to `/items/{item_id}/tags/{tag_id}`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `item_id` - The ID of the item to remove the tag from
+/// * `tag_id` - The ID of the tag to remove from the item
+///
+/// ### Returns
+///
+/// An empty response
+async fn remove_tag_from_item_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<db::DbPool>>,
+    // Extract the item ID from the URL path
+    Path((item_id, tag_id)): Path<(String, String)>,
+) -> Result<(), ApiError> {
+    // Call the repository function to remove the tag from the item
+    repo::remove_tag_from_item(&pool, &tag_id, &item_id)
+        .map_err(ApiError::Database)
+}
+
+
 /// Creates the application router with all routes
 ///
 /// This function sets up the Axum router with all the API endpoints.
@@ -486,12 +597,16 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         .route("/items/{id}", get(get_item_handler))
         // Route for creating a card for an item
         .route("/items/{id}/cards", post(create_card_handler).get(list_cards_by_item_handler))
+        // Route for adding a tag to an item
+        .route("/items/{item_id}/tags/{tag_id}", post(add_tag_to_item_handler).delete(remove_tag_from_item_handler))
         // Route for listing all cards
         .route("/cards", get(list_cards_handler))
         // Route for getting a specific card by ID
         .route("/cards/{id}", get(get_card_handler))
         // Route for recording reviews
         .route("/reviews", post(create_review_handler))
+        // Route for interacting with tags
+        .route("/tags", post(create_tag_handler).get(list_tags_handler))
         // Add the database pool to the application state
         .with_state(pool)
 }
@@ -527,7 +642,6 @@ mod tests {
     use diesel::connection::SimpleConnection;
     use diesel::{SqliteConnection, RunQueryDsl, Connection};
     use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-    use serde::Serialize;
     use serde_json::Value;
     use std::sync::Arc;
     use tower::ServiceExt;
@@ -1310,7 +1424,7 @@ mod tests {
         let _item2 = repo::create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
         
         // Create a tag and associate it with only the first item
-        let tag = repo::create_tag(&pool, "TestTag".to_string()).unwrap();
+        let tag = repo::create_tag(&pool, "TestTag".to_string(), true).unwrap();
         repo::add_tag_to_item(&pool, &tag.get_id(), &item1.get_id()).unwrap();
         
         // Create the application
@@ -1359,8 +1473,8 @@ mod tests {
         let item2 = repo::create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
         
         // Create two tags and associate both with only the first item
-        let tag1 = repo::create_tag(&pool, "Tag1".to_string()).unwrap();
-        let tag2 = repo::create_tag(&pool, "Tag2".to_string()).unwrap();
+        let tag1 = repo::create_tag(&pool, "Tag1".to_string(), true).unwrap();
+        let tag2 = repo::create_tag(&pool, "Tag2".to_string(), false).unwrap();
         repo::add_tag_to_item(&pool, &tag1.get_id(), &item1.get_id()).unwrap();
         repo::add_tag_to_item(&pool, &tag2.get_id(), &item1.get_id()).unwrap();
         repo::add_tag_to_item(&pool, &tag1.get_id(), &item2.get_id()).unwrap();
@@ -1475,8 +1589,8 @@ mod tests {
         let item3 = repo::create_item(&pool, &item_type2.get_id(), "Item 3".to_string(), serde_json::Value::Null).unwrap();
         
         // Create two tags
-        let tag1 = repo::create_tag(&pool, "Tag1".to_string()).unwrap();
-        let tag2 = repo::create_tag(&pool, "Tag2".to_string()).unwrap();
+        let tag1 = repo::create_tag(&pool, "Tag1".to_string(), true).unwrap();
+        let tag2 = repo::create_tag(&pool, "Tag2".to_string(), false).unwrap();
         
         // Add both tags to item1, one tag to item2, both tags to item3
         repo::add_tag_to_item(&pool, &tag1.get_id(), &item1.get_id()).unwrap();
@@ -1611,5 +1725,188 @@ mod tests {
         
         // Verify the response contains an error message
         assert!(error["error"].is_string());
+    }
+
+
+    /// Tests the add tag to item handler
+    ///
+    /// This test verifies that:
+    /// 1. A POST request to /items/{item_id}/tags/{tag_id} adds the tag to the item
+    /// 2. The response has a 200 OK status
+    /// 3. The tag is correctly associated with the item
+    #[tokio::test]
+    async fn test_add_tag_to_item_handler() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and item
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create a tag
+        let tag = repo::create_tag(&pool, "TestTag".to_string(), true).unwrap();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a POST request to add the tag to the item
+        let request = Request::builder()
+            .uri(format!("/items/{}/tags/{}", item.get_id(), tag.get_id()))
+            .method("POST")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK, "Response status should be OK (error: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
+        
+        // Verify the tag was associated with the item by testing a filtered query
+        let get_query = GetQueryDto {
+            tag_ids: vec![tag.get_id()],
+            ..Default::default()
+        };
+        
+        // Get cards for the item with the tag filter
+        let cards = repo::list_cards_with_filters(&pool, &get_query).unwrap();
+        
+        // There should be cards associated with the item that have the tag
+        assert!(!cards.is_empty());
+        
+        // Verify all returned cards belong to our item
+        for card in cards {
+            assert_eq!(card.get_item_id(), item.get_id());
+        }
+    }
+    
+
+    /// Tests the add tag to item handler with non-existent IDs
+    ///
+    /// This test verifies that:
+    /// 1. A POST request with a non-existent item ID returns an error
+    /// 2. A POST request with a non-existent tag ID returns an error 
+    #[tokio::test]
+    async fn test_add_tag_to_item_handler_not_found() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type, item and tag
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        let tag = repo::create_tag(&pool, "TestTag".to_string(), true).unwrap();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Test with non-existent item ID
+        let request_bad_item = Request::builder()
+            .uri(format!("/items/non-existent-id/tags/{}", tag.get_id()))
+            .method("POST")
+            .body(Body::empty())
+            .unwrap();
+        
+        let response = app.clone().oneshot(request_bad_item).await.unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        
+        // Test with non-existent tag ID
+        let request_bad_tag = Request::builder()
+            .uri(format!("/items/{}/tags/non-existent-id", item.get_id()))
+            .method("POST")
+            .body(Body::empty())
+            .unwrap();
+        
+        let response = app.oneshot(request_bad_tag).await.unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+    
+
+    /// Tests the remove tag from item handler
+    ///
+    /// This test verifies that:
+    /// 1. A DELETE request to /items/{item_id}/tags/{tag_id} removes the tag from the item
+    /// 2. The response has a 200 OK status
+    /// 3. The tag is correctly disassociated from the item
+    #[tokio::test]
+    async fn test_remove_tag_from_item_handler() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and item
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create a tag and associate it with the item
+        let tag = repo::create_tag(&pool, "TestTag".to_string(), true).unwrap();
+        repo::add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).unwrap();
+        
+        // Verify the tag was associated initially
+        let get_query = GetQueryDto {
+            tag_ids: vec![tag.get_id()],
+            ..Default::default()
+        };
+        
+        let cards_before = repo::list_cards_with_filters(&pool, &get_query).unwrap();
+        assert!(!cards_before.is_empty());
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a DELETE request to remove the tag from the item
+        let request = Request::builder()
+            .uri(format!("/items/{}/tags/{}", item.get_id(), tag.get_id()))
+            .method("DELETE")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK, "Response status should be OK (error: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
+        
+        // Verify the tag was disassociated by checking that a filtered query returns no results
+        let cards_after = repo::list_cards_with_filters(&pool, &get_query).unwrap();
+        assert!(cards_after.is_empty());
+    }
+    
+
+    /// Tests the remove tag from item handler with non-existent IDs
+    ///
+    /// This test verifies that:
+    /// 1. A DELETE request with a non-existent item ID returns an error
+    /// 2. A DELETE request with a non-existent tag ID returns an error
+    #[tokio::test]
+    async fn test_remove_tag_from_item_handler_not_found() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type, item and tag
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        let tag = repo::create_tag(&pool, "TestTag".to_string(), true).unwrap();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Test with non-existent item ID
+        let request_bad_item = Request::builder()
+            .uri(format!("/items/non-existent-id/tags/{}", tag.get_id()))
+            .method("DELETE")
+            .body(Body::empty())
+            .unwrap();
+        
+        let response = app.clone().oneshot(request_bad_item).await.unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        
+        // Test with non-existent tag ID
+        let request_bad_tag = Request::builder()
+            .uri(format!("/items/{}/tags/non-existent-id", item.get_id()))
+            .method("DELETE")
+            .body(Body::empty())
+            .unwrap();
+        
+        let response = app.oneshot(request_bad_tag).await.unwrap();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }
