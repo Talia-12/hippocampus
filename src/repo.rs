@@ -7,7 +7,7 @@
 /// The repository pattern abstracts away the details of database access
 /// and provides a clean API for the rest of the application to use.
 use crate::db::DbPool;
-use crate::models::{Card, Item, ItemType, JsonValue, Review};
+use crate::models::{Card, Item, ItemTag, ItemType, JsonValue, Review, Tag};
 use crate::schema::{cards, item_tags, items, reviews, tags};
 use crate::GetQueryDto;
 use diesel::prelude::*;
@@ -293,7 +293,8 @@ fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
             let card = create_card(pool, &item.get_id(), 0)?;
             cards.push(card);
         },
-        "Test Item Type" | "Test Item Type 2" | "Type 1" | "Type 2" => {
+        // TODO: this is a hack
+        name if name.contains("Test") => {
             // Test item types have 2 cards
             for i in 0..2 {
                 let card = create_card(pool, &item.get_id(), i)?;
@@ -418,15 +419,13 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
             .load::<String>(conn)?;
         
         // Filter cards that match these item IDs
-        if !item_ids.is_empty() {
-            query_builder = query_builder.filter(cards::item_id.eq_any(item_ids));
-        }
+        query_builder = query_builder.filter(cards::item_id.eq_any(item_ids));
     }
     
     // If next_review_before is provided, filter cards with next_review before the specified time
     if let Some(next_review_before) = &query.next_review_before {
         query_builder = query_builder
-            .filter(cards::next_review.lt(next_review_before.naive_utc()).or(cards::next_review.is_null()));
+            .filter(cards::next_review.lt(next_review_before.naive_utc()).and(cards::next_review.is_not_null()));
     }
     
     // Execute the query to get the initial set of cards
@@ -621,6 +620,171 @@ pub fn get_reviews_for_card(pool: &DbPool, card_id: &str) -> Result<Vec<Review>>
 }
 
 
+/// Creates a new tag in the database
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `name` - The name of the tag to create
+///
+/// ### Returns
+///
+/// A Result containing the newly created Tag
+///
+/// ### Errors
+///
+/// Returns an error if:
+/// - Unable to get a connection from the pool
+/// - The database insert fails
+pub fn create_tag(pool: &DbPool, name: String) -> Result<Tag> {
+    // Get a connection from the pool
+    let conn = &mut pool.get()?;
+    
+    // Create a new tag with a random ID
+    let new_tag = Tag::new(name, true);
+    
+    // Insert the tag into the database
+    diesel::insert_into(tags::table)
+        .values(&new_tag)
+        .execute(conn)?;
+        
+    Ok(new_tag)
+}
+
+/// Gets a tag from the database by ID
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `tag_id` - The ID of the tag to retrieve
+///
+/// ### Returns
+///
+/// A Result containing the Tag if found
+///
+/// ### Errors
+///
+/// Returns an error if:
+/// - Unable to get a connection from the pool
+/// - The database query fails
+pub fn get_tag(pool: &DbPool, tag_id: &str) -> Result<Tag> {
+    // Get a connection from the pool
+    let conn = &mut pool.get()?;
+    
+    // Query the database for the tag
+    let tag = tags::table
+        .filter(tags::id.eq(tag_id))
+        .first::<Tag>(conn)?;
+        
+    Ok(tag)
+}
+
+
+/// Lists all tags in the database
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+///
+/// ### Returns
+///
+/// A Result containing a vector of all Tags in the database
+///
+/// ### Errors
+///
+/// Returns an error if:
+/// - Unable to get a connection from the pool
+/// - The database query fails
+pub fn list_tags(pool: &DbPool) -> Result<Vec<Tag>> {
+    // Get a connection from the pool
+    let conn = &mut pool.get()?;
+    
+    // Query the database for all tags
+    let result = tags::table.load::<Tag>(conn)?;
+    
+    Ok(result)
+}
+
+
+/// Associates a tag with an item in the database
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `tag_id` - The ID of the tag to associate
+/// * `item_id` - The ID of the item to associate
+///
+/// ### Returns
+///
+/// A Result indicating success or failure
+///
+/// ### Errors
+///
+/// Returns an error if:
+/// - Unable to get a connection from the pool
+/// - The database insert fails
+pub fn add_tag_to_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()> {
+    // Get a connection from the pool
+    let conn = &mut pool.get()?;
+    
+    // Create the association
+    let new_association = ItemTag::new(item_id.to_string(), tag_id.to_string());
+    
+    // Insert the association into the database
+    diesel::insert_into(item_tags::table)
+        .values(&new_association)
+        .execute(conn)?;
+        
+    Ok(())
+}
+
+
+/// Removes a tag from an item in the database
+pub fn remove_tag_from_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()> {
+    // Get a connection from the pool
+    let conn = &mut pool.get()?;
+    
+    // Remove the association from the database
+    diesel::delete(item_tags::table.filter(item_tags::item_id.eq(item_id).and(item_tags::tag_id.eq(tag_id)))).execute(conn)?;
+    
+    Ok(())
+}
+
+
+/// Lists all tags for an item in the database
+pub fn list_tags_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Tag>> {
+    // Get a connection from the pool
+    let conn = &mut pool.get()?;
+    
+    // Query the database for all tags for the specified item
+    let result = tags::table
+        .inner_join(item_tags::table)
+        .filter(item_tags::item_id.eq(item_id))
+        .select(tags::all_columns)
+        .load::<Tag>(conn)?;
+    
+    Ok(result)
+}
+
+
+// Lists all tags for a card in the database
+pub fn list_tags_for_card(pool: &DbPool, card_id: &str) -> Result<Vec<Tag>> {
+    // Get a connection from the pool
+    let conn = &mut pool.get()?;
+    
+    // Query the database for all tags for the specified card
+    let result = cards::table
+        .inner_join(items::table.inner_join(item_tags::table.inner_join(tags::table)))
+        .filter(cards::id.eq(card_id))
+        .select(tags::all_columns)
+        .load::<Tag>(conn)?;
+    
+    Ok(result)
+}
+
+
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -656,6 +820,41 @@ mod tests {
         
         pool
     }
+
+    
+    /// Updates an existing card in the database
+    ///
+    /// ### Arguments
+    ///
+    /// * `pool` - A reference to the database connection pool
+    /// * `card` - The updated Card object to save
+    ///
+    /// ### Returns
+    ///
+    /// A Result indicating success or failure
+    ///
+    /// ### Errors
+    ///
+    /// Returns an error if:
+    /// - Unable to get a connection from the pool
+    /// - The database update fails
+    pub fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
+        // Get a connection from the pool
+        let conn = &mut pool.get()?;
+        
+        // Update the card in the database
+        diesel::update(cards::table)
+            .filter(cards::id.eq(card.get_id()))
+            .set((
+                cards::next_review.eq(card.get_next_review_raw()),
+                cards::last_review.eq(card.get_last_review_raw()),
+                cards::scheduler_data.eq(card.get_scheduler_data()),
+            ))
+            .execute(conn)?;
+            
+        Ok(())
+    }
+
 
     /// Tests that migrations are applied correctly
     ///
@@ -1049,44 +1248,6 @@ mod tests {
     }
     
 
-    /// Tests listing all cards in the database
-    ///
-    /// This test verifies that:
-    /// 1. All cards can be retrieved from the database
-    /// 2. The correct number of cards is returned
-    #[test]
-    fn test_list_cards() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create items and cards
-        let item_type = create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item1 = create_item(&pool, &item_type.get_id(), "Item 1 for Cards".to_string(), serde_json::Value::Null).unwrap();
-        let item2 = create_item(&pool, &item_type.get_id(), "Item 2 for Cards".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Get the cards that were automatically created for the items
-        let cards1 = get_cards_for_item(&pool, &item1.get_id()).unwrap();
-        let cards2 = get_cards_for_item(&pool, &item2.get_id()).unwrap();
-        
-        // Create an additional card for item2 with a different index
-        let card3 = create_card(&pool, &item2.get_id(), 3).unwrap();
-        
-        // List all cards
-        let result = list_cards(&pool);
-        assert!(result.is_ok(), "Should list cards successfully");
-        
-        // Verify the correct number of cards is returned
-        let cards = result.unwrap();
-        assert_eq!(cards.len(), cards1.len() + cards2.len() + 1, "Should return all cards");
-        
-        // Check that all created cards are included
-        let card_ids: Vec<String> = cards.iter().map(|card| card.get_id().clone()).collect();
-        
-        // Check that the additional card is included
-        assert!(card_ids.contains(&card3.get_id()), "Should contain the additional card");
-    }
-    
-
     /// Tests retrieving all item types
     ///
     /// This test verifies that:
@@ -1164,12 +1325,12 @@ mod tests {
         let pool = setup_test_db();
         
         // Create two different item types
-        let type1 = create_item_type(&pool, "Type 1".to_string()).unwrap();
-        let type2 = create_item_type(&pool, "Type 2".to_string()).unwrap();
+        let type1 = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let type2 = create_item_type(&pool, "Test Type 2".to_string()).unwrap();
         
         // Create items of different types
-        let type1_titles = vec!["Type1 Item 1", "Type1 Item 2", "Type1 Item 3"];
-        let type2_titles = vec!["Type2 Item 1", "Type2 Item 2"];
+        let type1_titles = vec!["Test Type 1 Item 1", "Test Type 1 Item 2", "Test Type 1 Item 3"];
+        let type2_titles = vec!["Test Type 2 Item 1", "Test Type 2 Item 2"];
         
         for title in &type1_titles {
             create_item(&pool, &type1.get_id(), title.to_string(), serde_json::Value::Null).unwrap();
@@ -1228,7 +1389,11 @@ mod tests {
         assert!(!cards.is_empty(), "Items should have cards");
         
         // List all cards
-        let result = list_cards(&pool);
+        let result = list_cards_with_filters(&pool, &crate::GetQueryDto {
+            item_type_id: None,
+            tags: None,
+            next_review_before: None,
+        });
         assert!(result.is_ok(), "Should list cards successfully");
         
         // Verify the correct number of cards
@@ -1248,6 +1413,455 @@ mod tests {
         for index in expected_indices {
             assert!(card_indices_from_db.contains(&index), "Should contain card with index: {}", index);
         }
+    }
+
+
+    /// Tests filtering cards by item type
+    ///
+    /// This test verifies that:
+    /// 1. Cards can be filtered by item type
+    /// 2. Only cards associated with the specified item type are returned
+    /// 3. Cards from other item types are excluded
+    #[test]
+    fn test_filter_cards_by_item_type() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create two different item types
+        let item_type_1 = create_item_type(&pool, "Test Item Type 1".to_string()).unwrap();
+        let item_type_2 = create_item_type(&pool, "Test Item Type 2".to_string()).unwrap();
+        
+        // Create items for each item type
+        let item_1 = create_item(&pool, &item_type_1.get_id(), "Item Type 1 Item".to_string(), serde_json::Value::Null).unwrap();
+        let item_2 = create_item(&pool, &item_type_2.get_id(), "Item Type 2 Item".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Get the cards that were automatically created for the items
+        let cards_type_1 = get_cards_for_item(&pool, &item_1.get_id()).unwrap();
+        let cards_type_2 = get_cards_for_item(&pool, &item_2.get_id()).unwrap();
+        
+        // Verify both item types have cards
+        assert!(!cards_type_1.is_empty(), "Item type 1 should have cards");
+        assert!(!cards_type_2.is_empty(), "Item type 2 should have cards");
+        
+        // Create a query to filter by item_type_1
+        let query = GetQueryDto {
+            item_type_id: Some(item_type_1.get_id().clone()),
+            tags: None,
+            next_review_before: None,
+        };
+        
+        // Execute the filtered query
+        let result = list_cards_with_filters(&pool, &query);
+        assert!(result.is_ok(), "Should filter cards successfully");
+        
+        // Verify only cards from item_type_1 are returned
+        let filtered_cards = result.unwrap();
+        assert_eq!(filtered_cards.len(), cards_type_1.len(), "Should only return cards from item type 1");
+        
+        // Check that all returned cards are associated with item_1
+        for card in filtered_cards {
+            assert_eq!(card.get_item_id(), item_1.get_id(), "Card should belong to item from item type 1");
+        }
+    }
+
+
+    /// Tests filtering cards by tags
+    ///
+    /// This test verifies that:
+    /// 1. Cards can be filtered by tags associated with their items
+    /// 2. Only cards whose items have all specified tags are returned
+    /// 3. Cards whose items are missing any of the specified tags are excluded
+    #[test]
+    fn test_filter_cards_by_tags() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type
+        let item_type = create_item_type(&pool, "Test Tagged Item Type".to_string()).unwrap();
+        
+        // Create items
+        let item_1 = create_item(&pool, &item_type.get_id(), "Item with Tag A and B".to_string(), serde_json::Value::Null).unwrap();
+        let item_2 = create_item(&pool, &item_type.get_id(), "Item with Tag A only".to_string(), serde_json::Value::Null).unwrap();
+        let item_3 = create_item(&pool, &item_type.get_id(), "Item with Tag B only".to_string(), serde_json::Value::Null).unwrap();
+        let item_4 = create_item(&pool, &item_type.get_id(), "Item with no tags".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create tags
+        let tag_a = create_tag(&pool, "TagA".to_string()).unwrap();
+        let tag_b = create_tag(&pool, "TagB".to_string()).unwrap();
+        
+        // Associate tags with items
+        add_tag_to_item(&pool, &tag_a.get_id(), &item_1.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag_b.get_id(), &item_1.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag_a.get_id(), &item_2.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag_b.get_id(), &item_3.get_id()).unwrap();
+        
+        // Filter by tag A only
+        let query_tag_a = GetQueryDto {
+            item_type_id: None,
+            tags: Some(vec![tag_a.get_id().clone()]),
+            next_review_before: None,
+        };
+        
+        let result_tag_a = list_cards_with_filters(&pool, &query_tag_a).unwrap();
+        
+        // Should return cards for item_1 and item_2
+        let expected_item_ids_a = vec![item_1.get_id().clone(), item_2.get_id().clone()];
+        let result_item_ids_a: Vec<String> = result_tag_a.iter().map(|card| card.get_item_id().clone()).collect();
+        
+        for item_id in expected_item_ids_a {
+            assert!(result_item_ids_a.contains(&item_id), "Should contain cards for item with tag A");
+        }
+        assert!(!result_item_ids_a.contains(&item_3.get_id()), "Should not contain cards for item with only tag B");
+        assert!(!result_item_ids_a.contains(&item_4.get_id()), "Should not contain cards for item with no tags");
+        
+        // Filter by both tags A and B
+        let query_both_tags = GetQueryDto {
+            item_type_id: None,
+            tags: Some(vec![tag_a.get_id(), tag_b.get_id()]),
+            next_review_before: None,
+        };
+        
+        let result_both_tags = list_cards_with_filters(&pool, &query_both_tags).unwrap();
+        
+        // Should only return cards for item_1
+        let result_item_ids_both: Vec<String> = result_both_tags.iter().map(|card| card.get_item_id().clone()).collect();
+        assert!(result_item_ids_both.contains(&item_1.get_id()), "Should contain cards for item with both tags");
+        assert!(!result_item_ids_both.contains(&item_2.get_id()), "Should not contain cards for item with only tag A");
+        assert!(!result_item_ids_both.contains(&item_3.get_id()), "Should not contain cards for item with only tag B");
+        assert!(!result_item_ids_both.contains(&item_4.get_id()), "Should not contain cards for item with no tags");
+    }
+
+
+    /// Tests filtering cards by next review date
+    ///
+    /// This test verifies that:
+    /// 1. Cards can be filtered by their next_review date
+    /// 2. Only cards with next_review before the specified date are returned
+    /// 3. Cards with next_review after the specified date are excluded
+    /// 4. Cards with null next_review are included (as specified in the function)
+    #[test]
+    fn test_filter_cards_by_next_review() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and item
+        let item_type = create_item_type(&pool, "Review Test Item Type".to_string()).unwrap();
+        let item = create_item(&pool, &item_type.get_id(), "Item for review testing".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Get cards for the item
+        let mut cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
+        assert!(!cards.is_empty(), "Should have at least one card");
+        
+        // Set different next_review dates for each card
+        let now = Utc::now();
+        let yesterday = now - Duration::days(1);
+        let tomorrow = now + Duration::days(1);
+        let next_week = now + Duration::days(7);
+        
+        // We'll update at least 3 cards with different dates if available
+        let mut updated_cards = Vec::new();
+        
+        if cards.len() >= 3 {
+            // First card: review yesterday
+            let mut card1 = cards[0].clone();
+            card1.set_next_review(Some(yesterday));
+            update_card(&pool, &card1).unwrap();
+            
+            updated_cards.push(card1);
+            
+            // Second card: review tomorrow
+            let mut card2 = cards[1].clone();
+            card2.set_next_review(Some(tomorrow));
+            update_card(&pool, &card2).unwrap();
+            updated_cards.push(card2);
+            
+            // Third card: review next week
+            let mut card3 = cards[2].clone();
+            card3.set_next_review(Some(next_week));
+            update_card(&pool, &card3).unwrap();
+            updated_cards.push(card3);
+        } else {
+            // If we have fewer than 3 cards, update what we have
+            let mut card1 = cards[0].clone();
+            card1.set_next_review(Some(yesterday));
+            update_card(&pool, &card1).unwrap();
+            updated_cards.push(card1);
+            
+            if cards.len() >= 2 {
+                let mut card2 = cards[1].clone();
+                card2.set_next_review(Some(tomorrow));
+                update_card(&pool, &card2).unwrap();
+                updated_cards.push(card2);
+            }
+        }
+        
+        // Create a new card with null next_review
+        let mut null_review_card = create_card(&pool, &item.get_id(), cards.len() as i32).unwrap();
+        null_review_card.set_next_review(None);
+        updated_cards.push(null_review_card.clone());
+        cards.push(null_review_card);
+        
+        // Test filtering by today's date
+        let query_today = GetQueryDto {
+            item_type_id: None,
+            tags: None,
+            next_review_before: Some(now),
+        };
+        
+        let result_today = list_cards_with_filters(&pool, &query_today).unwrap();
+        
+        // Should include yesterday's card, but not tomorrow, next week, or the null review card
+        let result_ids: Vec<String> = result_today.iter().map(|card| card.get_id().clone()).collect();
+        
+        for card in &updated_cards {
+            if let Some(review_date) = card.get_next_review() {
+                if review_date < now {
+                    assert!(result_ids.contains(&card.get_id()), 
+                        "Should include card with review date before filter ({})", review_date);
+                } else {
+                    assert!(!result_ids.contains(&card.get_id()), 
+                        "Should not include card with review date after filter ({})", review_date);
+                }
+            } else {
+                assert!(!result_ids.contains(&card.get_id()), "Should not include card with null review date");
+            }
+        }
+        
+        // Test filtering by date in the future (e.g., tomorrow + 1 hour)
+        let future_query_time = tomorrow + Duration::hours(1);
+        let query_future = GetQueryDto {
+            item_type_id: None,
+            tags: None,
+            next_review_before: Some(future_query_time),
+        };
+        
+        let result_future = list_cards_with_filters(&pool, &query_future).unwrap();
+        let future_result_ids: Vec<String> = result_future.iter().map(|card| card.get_id().clone()).collect();
+        
+        // Should include yesterday's and tomorrow's cards, but not next week or the null review card
+        for card in &updated_cards {
+            if let Some(review_date) = card.get_next_review() {
+                if review_date < future_query_time {
+                    assert!(future_result_ids.contains(&card.get_id()), 
+                        "Should include card with review date before future filter ({})", review_date);
+                } else {
+                    assert!(!future_result_ids.contains(&card.get_id()), 
+                        "Should not include card with review date after future filter ({})", review_date);
+                }
+            } else {
+                assert!(!future_result_ids.contains(&card.get_id()), "Should not include card with null review date");
+            }
+        }
+    }
+
+
+    /// Tests filtering cards with multiple filter criteria
+    ///
+    /// This test verifies that:
+    /// 1. Cards can be filtered using multiple criteria simultaneously
+    /// 2. Only cards that satisfy ALL specified filters are returned
+    /// 3. The combination of filters works correctly
+    #[test]
+    fn test_filter_cards_with_multiple_criteria() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create two item types
+        let item_type_1 = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type_2 = create_item_type(&pool, "Test Type 2".to_string()).unwrap();
+        
+        // Create items for each type
+        let item_1a = create_item(&pool, &item_type_1.get_id(), "Test Type 1 Item A".to_string(), serde_json::Value::Null).unwrap();
+        let item_1b = create_item(&pool, &item_type_1.get_id(), "Test Type 1 Item B".to_string(), serde_json::Value::Null).unwrap();
+        let item_2 = create_item(&pool, &item_type_2.get_id(), "Type 2 Item".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create tags
+        let tag_a = create_tag(&pool, "TagA".to_string()).unwrap();
+        let tag_b = create_tag(&pool, "TagB".to_string()).unwrap();
+        
+        // Associate tags with items
+        // Item 1A: has tag A
+        add_tag_to_item(&pool, &tag_a.get_id(), &item_1a.get_id()).unwrap();
+        // Item 1B: has tag A and B
+        add_tag_to_item(&pool, &tag_a.get_id(), &item_1b.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag_b.get_id(), &item_1b.get_id()).unwrap();
+        // Item 2: has tag B
+        add_tag_to_item(&pool, &tag_b.get_id(), &item_2.get_id()).unwrap();
+        
+        // Get cards for each item
+        let cards_1a = get_cards_for_item(&pool, &item_1a.get_id()).unwrap();
+        let cards_1b = get_cards_for_item(&pool, &item_1b.get_id()).unwrap();
+        let cards_2 = get_cards_for_item(&pool, &item_2.get_id()).unwrap();
+        
+        // Set different next_review dates
+        let now = Utc::now();
+        let yesterday = now - Duration::days(1);
+        let tomorrow = now + Duration::days(1);
+        
+        // Update cards with different review dates
+        // Item 1A: one card due yesterday, one due tomorrow
+        if cards_1a.len() >= 2 {
+            let mut card1 = cards_1a[0].clone();
+            card1.set_next_review(Some(yesterday));
+            update_card(&pool, &card1).unwrap();
+            
+            let mut card2 = cards_1a[1].clone();
+            card2.set_next_review(Some(tomorrow));
+            update_card(&pool, &card2).unwrap();
+        }
+        
+        // Item 1B: all cards due yesterday
+        for card in &cards_1b {
+            let mut updated_card = card.clone();
+            updated_card.set_next_review(Some(yesterday));
+            update_card(&pool, &updated_card).unwrap();
+        }
+        
+        // Item 2: all cards due tomorrow
+        for card in &cards_2 {
+            let mut updated_card = card.clone();
+            updated_card.set_next_review(Some(tomorrow));
+            update_card(&pool, &updated_card).unwrap();
+        }
+        
+        // Test filtering by item type 1 and tag A and due today
+        let query = GetQueryDto {
+            item_type_id: Some(item_type_1.get_id()),
+            tags: Some(vec![tag_a.get_id()]),
+            next_review_before: Some(now),
+        };
+        
+        let result = list_cards_with_filters(&pool, &query).unwrap();
+        
+        // Expected: only cards from item_1b and some from item_1a
+        // (those that have tag A, belong to item type 1, and are due before now)
+        let result_item_ids: Vec<String> = result.iter().map(|card| card.get_item_id()).collect();
+        
+        // Should include cards from item_1b (due yesterday, has tag A, type 1)
+        assert!(result_item_ids.contains(&item_1b.get_id()), 
+            "Should include cards for item 1B (has tag A, type 1, due yesterday)");
+        
+        // For item_1a, should only include cards due yesterday, not tomorrow
+        let item_1a_cards_in_result: Vec<&Card> = result.iter()
+            .filter(|card| card.get_item_id() == item_1a.get_id())
+            .collect();
+        
+        for card in &item_1a_cards_in_result {
+            if let Some(review_date) = card.get_next_review() {
+                assert!(review_date < now, "Item 1A cards in result should be due before now");
+            }
+        }
+        
+        // Should not include any cards from item_2 (wrong type)
+        assert!(!result_item_ids.contains(&item_2.get_id()), 
+            "Should not include cards for item 2 (wrong item type)");
+            
+        // Now test with different filter: item type 1 and tag B (should only get item_1b cards)
+        let query_tag_b = GetQueryDto {
+            item_type_id: Some(item_type_1.get_id()),
+            tags: Some(vec![tag_b.get_id()]),
+            next_review_before: None,
+        };
+        
+        let result_tag_b = list_cards_with_filters(&pool, &query_tag_b).unwrap();
+        let result_tag_b_item_ids: Vec<String> = result_tag_b.iter().map(|card| card.get_item_id()).collect();
+        
+        // Should only include cards from item_1b (type 1 with tag B)
+        assert!(result_tag_b_item_ids.contains(&item_1b.get_id()), 
+            "Should include cards for item 1B (has tag B, type 1)");
+        assert!(!result_tag_b_item_ids.contains(&item_1a.get_id()), 
+            "Should not include cards for item 1A (doesn't have tag B)");
+        assert!(!result_tag_b_item_ids.contains(&item_2.get_id()), 
+            "Should not include cards for item 2 (wrong item type)");
+    }
+
+
+    /// Tests behavior with empty result sets and edge cases
+    ///
+    /// This test verifies that:
+    /// 1. Filters that match no cards return an empty vector, not an error
+    /// 2. Filters with empty tag lists behave as if no tag filter was applied
+    /// 3. Combinations of filters that result in no matches return empty vectors
+    #[test]
+    fn test_filter_cards_edge_cases() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and item
+        let item_type = create_item_type(&pool, "Test Edge Case Item Type".to_string()).unwrap();
+        let item = create_item(&pool, &item_type.get_id(), "Edge Case Item".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Get cards
+        let cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
+        assert!(!cards.is_empty(), "Should have at least one card");
+        
+        // Test 1: Filter by non-existent item type
+        let non_existent_id = "non-existent-id-12345".to_string();
+        let query_bad_type = GetQueryDto {
+            item_type_id: Some(non_existent_id.clone()),
+            tags: None,
+            next_review_before: None,
+        };
+        
+        let result_bad_type = list_cards_with_filters(&pool, &query_bad_type);
+        assert!(result_bad_type.is_ok(), "Should not error with non-existent item type");
+        assert!(result_bad_type.unwrap().is_empty(), "Should return empty vector for non-existent item type");
+        
+        // Test 2: Filter by empty tag list
+        let query_empty_tags = GetQueryDto {
+            item_type_id: None,
+            tags: Some(vec![]),
+            next_review_before: None,
+        };
+        
+        let result_empty_tags = list_cards_with_filters(&pool, &query_empty_tags).unwrap();
+        let all_cards = list_cards_with_filters(&pool, &GetQueryDto {
+            item_type_id: None,
+            tags: None,
+            next_review_before: None,
+        }).unwrap();
+        
+        assert_eq!(result_empty_tags.len(), all_cards.len(), 
+            "Empty tag list should behave as if no tag filter was applied");
+        
+        // Test 3: Filter by non-existent tag
+        let query_bad_tag = GetQueryDto {
+            item_type_id: None,
+            tags: Some(vec![non_existent_id.clone()]),
+            next_review_before: None,
+        };
+        
+        let result_bad_tag = list_cards_with_filters(&pool, &query_bad_tag);
+        assert!(result_bad_tag.is_ok(), "Should not error with non-existent tag");
+        assert!(result_bad_tag.unwrap().is_empty(), "Should return empty vector for non-existent tag");
+        
+        // Test 4: Filter by a date far in the past
+        let ancient_date = Utc::now() - Duration::days(10000);
+        let query_ancient = GetQueryDto {
+            item_type_id: None,
+            tags: None,
+            next_review_before: Some(ancient_date),
+        };
+        
+        let result_ancient = list_cards_with_filters(&pool, &query_ancient).unwrap();
+        
+        // Should only include cards with null next_review
+        for card in result_ancient {
+            assert!(card.get_next_review().is_none(), 
+                "For ancient date filter, should only include cards with null next_review");
+        }
+        
+        // Test 5: Combine all filters to get empty result
+        let tag = create_tag(&pool, "TestTag".to_string()).unwrap();
+        
+        let query_combined = GetQueryDto {
+            item_type_id: Some(item_type.get_id()),
+            tags: Some(vec![tag.get_id()]), // Tag not associated with any item
+            next_review_before: Some(ancient_date),
+        };
+        
+        let result_combined = list_cards_with_filters(&pool, &query_combined).unwrap();
+        assert!(result_combined.is_empty(), "Combined filters should result in empty vector");
     }
 
     

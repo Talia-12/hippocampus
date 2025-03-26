@@ -111,11 +111,26 @@ pub struct Tag {
 
     /// The name of the tag
     name: String,
-    
+        
+    /// When this tag was created
+    created_at: NaiveDateTime,
+
     /// Whether the tag is visible to the user
     visible: bool,
+}
+
+/// Represents an association between an item and a tag
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[diesel(table_name = crate::schema::item_tags)]
+#[diesel(check_for_backend(diesel::sqlite::Sqlite))]
+pub struct ItemTag {
+    /// The ID of the item
+    item_id: String,
     
-    /// When this tag was created
+    /// The ID of the tag
+    tag_id: String,
+
+    /// When this item tag was created
     created_at: NaiveDateTime,
 }
 
@@ -211,6 +226,7 @@ impl ItemType {
         self.created_at
     }
 }
+
 
 impl Item {
     /// Creates a new item
@@ -373,6 +389,7 @@ impl Item {
         self.updated_at
     }
 }
+
 
 impl Card {
     /// Creates a new card for an item
@@ -549,6 +566,50 @@ impl Card {
 }
 
 
+impl ItemTag {
+    /// Creates a new item tag association
+    ///
+    /// ### Arguments
+    ///
+    /// * `item_id` - The ID of the item
+    /// * `tag_id` - The ID of the tag
+    pub fn new(item_id: String, tag_id: String) -> Self {
+        Self {
+            item_id,
+            tag_id,
+            created_at: Utc::now().naive_utc(),
+        }
+    }
+
+    /// Gets the item ID
+    ///
+    /// ### Returns
+    ///
+    /// The ID of the item
+    pub fn get_item_id(&self) -> String {
+        self.item_id.clone()
+    }
+
+    /// Gets the tag ID
+    ///
+    /// ### Returns
+    ///
+    /// The ID of the tag
+    pub fn get_tag_id(&self) -> String {
+        self.tag_id.clone()
+    }
+
+    /// Gets the creation timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The timestamp when this item tag was created
+    pub fn get_created_at(&self) -> DateTime<Utc> {
+        DateTime::from_naive_utc_and_offset(self.created_at, Utc)
+    }
+}
+
+
 impl Tag {
     /// Creates a new tag
     /// 
@@ -662,6 +723,7 @@ impl Tag {
         self.created_at
     }
 }
+
 
 impl Review {
     /// Creates a new review for an item

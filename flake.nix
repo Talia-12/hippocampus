@@ -30,6 +30,7 @@
           ];
           devDeps = [
             diesel-cli
+            pkgs.rustc.llvmPackages.llvm
           ];
 
           mkDevShell = rustc: pkgs.mkShell {
