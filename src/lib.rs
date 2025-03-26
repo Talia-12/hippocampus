@@ -35,13 +35,9 @@ pub mod repo;
 pub mod schema;
 
 use axum::{
-    routing::{get, post},
-    Router,
-    Json,
-    extract::{State, Path},
-    response::{IntoResponse, Response},
-    http::StatusCode,
+    extract::{Path, Query, State}, http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}, Json, Router
 };
+use chrono::{DateTime, Utc};
 use models::{Item, Review};
 use serde::Deserialize;
 use std::sync::Arc;
@@ -115,6 +111,16 @@ pub struct CreateItemTypeDto {
 pub struct CreateCardDto {
     /// The index of the card within its item
     pub card_index: i32,
+}
+
+/// Data transfer object for getting all items or cards matching a query
+/// 
+/// This struct is used to deserialize JSON requests for getting all items or cards matching a query.
+#[derive(Deserialize)]
+pub struct GetQueryDto {
+    pub item_type_id: Option<String>,
+    pub tags: Option<Vec<String>>,
+    pub next_review_before: Option<DateTime<Utc>>,
 }
 
 /// Handler for creating a new item
@@ -363,26 +369,29 @@ async fn get_card_handler(
     Ok(Json(card))
 }
 
-/// Handler for listing all cards
+/// Handler for listing cards with optional filtering
 ///
-/// This function handles GET requests to `/cards`.
+/// This function handles GET requests to `/cards` with optional query parameters.
 ///
 /// ### Arguments
 ///
 /// * `pool` - The database connection pool
+/// * `query` - The query parameters for filtering
 ///
 /// ### Returns
 ///
-/// A list of all cards as JSON
+/// A filtered list of cards as JSON
 async fn list_cards_handler(
-    // Extract the database pool from the application state
+    // Extract the database connection pool from the application state
     State(pool): State<Arc<db::DbPool>>,
+    // Extract and parse query parameters
+    Query(query): Query<GetQueryDto>,
 ) -> Result<Json<Vec<models::Card>>, ApiError> {
-    // Call the repository function to list all cards
-    let all_cards = repo::list_cards(&pool)
+    // Call the repository function with filter parameters
+    let filtered_cards = repo::list_cards_with_filters(&pool, &query)
         .map_err(ApiError::Database)?;
-    // Return the list of cards as JSON
-    Ok(Json(all_cards))
+    // Return the filtered list of cards as JSON
+    Ok(Json(filtered_cards))
 }
 
 /// Handler for listing cards by item

@@ -8,7 +8,8 @@
 /// and provides a clean API for the rest of the application to use.
 use crate::db::DbPool;
 use crate::models::{Card, Item, ItemType, JsonValue, Review};
-use crate::schema::{cards, items, reviews};
+use crate::schema::{cards, item_tags, items, reviews, tags};
+use crate::GetQueryDto;
 use diesel::prelude::*;
 use anyhow::{Result, anyhow};
 use chrono::Utc;
@@ -382,29 +383,77 @@ pub fn get_card(pool: &DbPool, card_id: &str) -> Result<Option<Card>> {
 }
 
 
-/// Retrieves all cards from the database
+/// Retrieves cards from the database with optional filtering
 ///
 /// ### Arguments
 ///
 /// * `pool` - A reference to the database connection pool
+/// * `query` - A reference to a GetQueryDto containing the following optional filters:
+///   - `item_type_id` - Filter cards by item type
+///   - `tags` - Filter cards by tags
+///   - `next_review_before` - Filter cards with next_review before specified datetime
 ///
 /// ### Returns
 ///
-/// A Result containing a vector of all Cards in the database
+/// A Result containing a vector of Cards matching the specified filters
 ///
 /// ### Errors
 ///
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database query fails
-pub fn list_cards(pool: &DbPool) -> Result<Vec<Card>> {
+pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec<Card>> {
     // Get a connection from the pool
     let conn = &mut pool.get()?;
     
-    // Query the database for all cards
-    let result = cards::table.load::<Card>(conn)?;
+    // Start building the query
+    let mut query_builder = cards::table.into_boxed();
     
-    // Return the list of cards
+    // If item_type_id is provided, filter by joining with items
+    if let Some(item_type_id) = &query.item_type_id {
+        // Get the item IDs with the specified item_type
+        let item_ids: Vec<String> = items::table
+            .filter(items::item_type.eq(item_type_id))
+            .select(items::id)
+            .load::<String>(conn)?;
+        
+        // Filter cards that match these item IDs
+        if !item_ids.is_empty() {
+            query_builder = query_builder.filter(cards::item_id.eq_any(item_ids));
+        }
+    }
+    
+    // If next_review_before is provided, filter cards with next_review before the specified time
+    if let Some(next_review_before) = &query.next_review_before {
+        query_builder = query_builder
+            .filter(cards::next_review.lt(next_review_before.naive_utc()).or(cards::next_review.is_null()));
+    }
+    
+    // Execute the query to get the initial set of cards
+    let mut result = query_builder.load::<Card>(conn)?;
+    
+    // If tags are provided, we need to filter the results further
+    // Note: This is done in-memory because it's a bit complex to do in a single SQL query
+    if let Some(tags_filter) = &query.tags {
+        if !tags_filter.is_empty() {
+            // Get all item_ids that have all of the required tags
+            let tagged_item_ids: Vec<String> = item_tags::table
+                .inner_join(tags::table)
+                .filter(tags::id.eq_any(tags_filter))
+                .group_by(item_tags::item_id)
+                .having(diesel::dsl::count_star().eq(tags_filter.len() as i64))
+                .select(item_tags::item_id)
+                .load::<String>(conn)?;
+            
+            // Filter cards to only include those with item_ids in the tagged_item_ids list
+            result = result
+                .into_iter()
+                .filter(|card| tagged_item_ids.contains(&card.get_item_id()))
+                .collect();
+        }
+    }
+    
+    // Return the filtered list of cards
     Ok(result)
 }
 
