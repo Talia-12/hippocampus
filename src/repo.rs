@@ -433,23 +433,21 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
     
     // If tags are provided, we need to filter the results further
     // Note: This is done in-memory because it's a bit complex to do in a single SQL query
-    if let Some(tags_filter) = &query.tags {
-        if !tags_filter.is_empty() {
-            // Get all item_ids that have all of the required tags
-            let tagged_item_ids: Vec<String> = item_tags::table
+    if !query.tag_ids.is_empty() {
+        // Get all item_ids that have all of the required tags
+        let tagged_item_ids: Vec<String> = item_tags::table
                 .inner_join(tags::table)
-                .filter(tags::id.eq_any(tags_filter))
+                .filter(tags::id.eq_any(&query.tag_ids))
                 .group_by(item_tags::item_id)
-                .having(diesel::dsl::count_star().eq(tags_filter.len() as i64))
+                .having(diesel::dsl::count_star().eq(query.tag_ids.len() as i64))
                 .select(item_tags::item_id)
                 .load::<String>(conn)?;
             
-            // Filter cards to only include those with item_ids in the tagged_item_ids list
-            result = result
-                .into_iter()
-                .filter(|card| tagged_item_ids.contains(&card.get_item_id()))
-                .collect();
-        }
+        // Filter cards to only include those with item_ids in the tagged_item_ids list
+        result = result
+            .into_iter()
+            .filter(|card| tagged_item_ids.contains(&card.get_item_id()))
+            .collect();
     }
     
     // Return the filtered list of cards
@@ -784,9 +782,8 @@ pub fn list_tags_for_card(pool: &DbPool, card_id: &str) -> Result<Vec<Tag>> {
 
 
 
-
 #[cfg(test)]
-mod tests {
+pub mod tests {
     use super::*;
     use crate::db;
     use diesel::connection::SimpleConnection;
@@ -823,21 +820,6 @@ mod tests {
 
     
     /// Updates an existing card in the database
-    ///
-    /// ### Arguments
-    ///
-    /// * `pool` - A reference to the database connection pool
-    /// * `card` - The updated Card object to save
-    ///
-    /// ### Returns
-    ///
-    /// A Result indicating success or failure
-    ///
-    /// ### Errors
-    ///
-    /// Returns an error if:
-    /// - Unable to get a connection from the pool
-    /// - The database update fails
     pub fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
         // Get a connection from the pool
         let conn = &mut pool.get()?;
@@ -853,6 +835,14 @@ mod tests {
             .execute(conn)?;
             
         Ok(())
+    }
+
+
+    /// Lists all cards in the database
+    pub fn list_all_cards(pool: &DbPool) -> Result<Vec<Card>> {
+        let conn = &mut pool.get()?;
+        let result = cards::table.load::<Card>(conn)?;
+        Ok(result)
     }
 
 
@@ -1391,7 +1381,7 @@ mod tests {
         // List all cards
         let result = list_cards_with_filters(&pool, &crate::GetQueryDto {
             item_type_id: None,
-            tags: None,
+            tag_ids: vec![],
             next_review_before: None,
         });
         assert!(result.is_ok(), "Should list cards successfully");
@@ -1446,7 +1436,7 @@ mod tests {
         // Create a query to filter by item_type_1
         let query = GetQueryDto {
             item_type_id: Some(item_type_1.get_id().clone()),
-            tags: None,
+            tag_ids: vec![],
             next_review_before: None,
         };
         
@@ -1498,7 +1488,7 @@ mod tests {
         // Filter by tag A only
         let query_tag_a = GetQueryDto {
             item_type_id: None,
-            tags: Some(vec![tag_a.get_id().clone()]),
+            tag_ids: vec![tag_a.get_id()],
             next_review_before: None,
         };
         
@@ -1517,7 +1507,7 @@ mod tests {
         // Filter by both tags A and B
         let query_both_tags = GetQueryDto {
             item_type_id: None,
-            tags: Some(vec![tag_a.get_id(), tag_b.get_id()]),
+            tag_ids: vec![tag_a.get_id(), tag_b.get_id()],
             next_review_before: None,
         };
         
@@ -1604,7 +1594,7 @@ mod tests {
         // Test filtering by today's date
         let query_today = GetQueryDto {
             item_type_id: None,
-            tags: None,
+            tag_ids: vec![],
             next_review_before: Some(now),
         };
         
@@ -1631,7 +1621,7 @@ mod tests {
         let future_query_time = tomorrow + Duration::hours(1);
         let query_future = GetQueryDto {
             item_type_id: None,
-            tags: None,
+            tag_ids: vec![],
             next_review_before: Some(future_query_time),
         };
         
@@ -1727,7 +1717,7 @@ mod tests {
         // Test filtering by item type 1 and tag A and due today
         let query = GetQueryDto {
             item_type_id: Some(item_type_1.get_id()),
-            tags: Some(vec![tag_a.get_id()]),
+            tag_ids: vec![tag_a.get_id()],
             next_review_before: Some(now),
         };
         
@@ -1759,7 +1749,7 @@ mod tests {
         // Now test with different filter: item type 1 and tag B (should only get item_1b cards)
         let query_tag_b = GetQueryDto {
             item_type_id: Some(item_type_1.get_id()),
-            tags: Some(vec![tag_b.get_id()]),
+            tag_ids: vec![tag_b.get_id()],
             next_review_before: None,
         };
         
@@ -1799,7 +1789,7 @@ mod tests {
         let non_existent_id = "non-existent-id-12345".to_string();
         let query_bad_type = GetQueryDto {
             item_type_id: Some(non_existent_id.clone()),
-            tags: None,
+            tag_ids: vec![],
             next_review_before: None,
         };
         
@@ -1810,16 +1800,12 @@ mod tests {
         // Test 2: Filter by empty tag list
         let query_empty_tags = GetQueryDto {
             item_type_id: None,
-            tags: Some(vec![]),
+            tag_ids: vec![],
             next_review_before: None,
         };
         
         let result_empty_tags = list_cards_with_filters(&pool, &query_empty_tags).unwrap();
-        let all_cards = list_cards_with_filters(&pool, &GetQueryDto {
-            item_type_id: None,
-            tags: None,
-            next_review_before: None,
-        }).unwrap();
+        let all_cards = list_all_cards(&pool).unwrap();
         
         assert_eq!(result_empty_tags.len(), all_cards.len(), 
             "Empty tag list should behave as if no tag filter was applied");
@@ -1827,7 +1813,7 @@ mod tests {
         // Test 3: Filter by non-existent tag
         let query_bad_tag = GetQueryDto {
             item_type_id: None,
-            tags: Some(vec![non_existent_id.clone()]),
+            tag_ids: vec![non_existent_id.clone()],
             next_review_before: None,
         };
         
@@ -1839,24 +1825,21 @@ mod tests {
         let ancient_date = Utc::now() - Duration::days(10000);
         let query_ancient = GetQueryDto {
             item_type_id: None,
-            tags: None,
+            tag_ids: vec![],
             next_review_before: Some(ancient_date),
         };
         
         let result_ancient = list_cards_with_filters(&pool, &query_ancient).unwrap();
         
-        // Should only include cards with null next_review
-        for card in result_ancient {
-            assert!(card.get_next_review().is_none(), 
-                "For ancient date filter, should only include cards with null next_review");
-        }
+        // Should not include any cards
+        assert!(result_ancient.is_empty(), "Should not include any cards");
         
         // Test 5: Combine all filters to get empty result
         let tag = create_tag(&pool, "TestTag".to_string()).unwrap();
         
         let query_combined = GetQueryDto {
             item_type_id: Some(item_type.get_id()),
-            tags: Some(vec![tag.get_id()]), // Tag not associated with any item
+            tag_ids: vec![tag.get_id()], // Tag not associated with any item
             next_review_before: Some(ancient_date),
         };
         

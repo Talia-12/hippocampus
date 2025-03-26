@@ -35,11 +35,12 @@ pub mod repo;
 pub mod schema;
 
 use axum::{
-    extract::{Path, Query, State}, http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}, Json, Router
+    extract::{Path, State}, http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}, Json, Router
 };
+use axum_extra::extract::Query;
 use chrono::{DateTime, Utc};
 use models::{Item, Review};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use thiserror::Error;
 
@@ -75,7 +76,7 @@ impl IntoResponse for ApiError {
 /// Data transfer object for creating a new item
 ///
 /// This struct is used to deserialize JSON requests for creating items.
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct CreateItemDto {
     /// The title or content of the item to be remembered
     pub item_type_id: String,
@@ -86,7 +87,7 @@ pub struct CreateItemDto {
 /// Data transfer object for creating a new review
 ///
 /// This struct is used to deserialize JSON requests for recording reviews.
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct CreateReviewDto {
     /// The ID of the card being reviewed
     pub card_id: String,
@@ -98,7 +99,7 @@ pub struct CreateReviewDto {
 /// Data transfer object for creating a new item type
 ///
 /// This struct is used to deserialize JSON requests for creating item types.
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct CreateItemTypeDto {
     /// The name of the item type
     pub name: String,
@@ -107,7 +108,7 @@ pub struct CreateItemTypeDto {
 /// Data transfer object for creating a new card
 ///
 /// This struct is used to deserialize JSON requests for creating cards.
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct CreateCardDto {
     /// The index of the card within its item
     pub card_index: i32,
@@ -116,10 +117,11 @@ pub struct CreateCardDto {
 /// Data transfer object for getting all items or cards matching a query
 /// 
 /// This struct is used to deserialize JSON requests for getting all items or cards matching a query.
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize, Debug, Default)]
+#[serde(default)]
 pub struct GetQueryDto {
     pub item_type_id: Option<String>,
-    pub tags: Option<Vec<String>>,
+    pub tag_ids: Vec<String>,
     pub next_review_before: Option<DateTime<Utc>>,
 }
 
@@ -521,9 +523,11 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use chrono::Duration;
     use diesel::connection::SimpleConnection;
     use diesel::{SqliteConnection, RunQueryDsl, Connection};
     use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+    use serde::Serialize;
     use serde_json::Value;
     use std::sync::Arc;
     use tower::ServiceExt;
@@ -648,6 +652,7 @@ mod tests {
             assert!(item_titles.contains(&title.to_string()));
         }
     }
+
     
     /// Tests the get item handler
     ///
@@ -741,6 +746,7 @@ mod tests {
         assert!(updated_card.get_next_review().is_some());
     }
     
+
     /// Tests the run_migrations function
     ///
     /// This test verifies that:
@@ -800,6 +806,7 @@ mod tests {
         assert!(item_type["id"].is_string());
     }
     
+
     /// Tests the get item type handler
     ///
     /// This test verifies that:
@@ -840,6 +847,7 @@ mod tests {
         assert_eq!(response_item_type["name"], name);
     }
     
+
     /// Tests the get item type handler with a non-existent ID
     ///
     /// This test verifies that:
@@ -874,6 +882,7 @@ mod tests {
         assert!(response_item_type.is_none());
     }
     
+
     /// Tests the list item types handler
     ///
     /// This test verifies that:
@@ -924,6 +933,7 @@ mod tests {
         }
     }
     
+
     /// Tests the list items by item type handler
     ///
     /// This test verifies that:
@@ -989,6 +999,7 @@ mod tests {
         }
     }
     
+    
     /// Tests the list items by item type handler with a non-existent ID
     ///
     /// This test verifies that:
@@ -1023,6 +1034,7 @@ mod tests {
         assert!(error["error"].is_string());
     }
     
+
     /// Tests the create card handler
     ///
     /// This test verifies that:
@@ -1063,6 +1075,7 @@ mod tests {
         assert!(error["error"].is_string());
     }
     
+
     /// Tests the create card handler with a non-existent item ID
     ///
     /// This test verifies that:
@@ -1098,6 +1111,7 @@ mod tests {
         assert!(error["error"].is_string());
     }
     
+
     /// Tests the get card handler
     ///
     /// This test verifies that:
@@ -1141,6 +1155,7 @@ mod tests {
         assert_eq!(response_card["card_index"], card.get_card_index());
     }
     
+
     /// Tests the get card handler with a non-existent ID
     ///
     /// This test verifies that:
@@ -1175,6 +1190,7 @@ mod tests {
         assert!(response_card.is_none());
     }
     
+
     /// Tests the list cards handler
     ///
     /// This test verifies that:
@@ -1205,7 +1221,7 @@ mod tests {
         let response = app.oneshot(request).await.unwrap();
         
         // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK, "Response status should be OK (error: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
         
         // Parse the response body
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -1224,6 +1240,287 @@ mod tests {
         }
     }
     
+
+    /// Tests the list cards handler with item type filter
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /cards?item_type_id={id} returns only cards for that item type
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains only cards for the specified item type
+    #[tokio::test]
+    async fn test_list_cards_handler_filter_by_item_type() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create two item types
+        let item_type1 = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type2 = repo::create_item_type(&pool, "Test Type 2".to_string()).unwrap();
+        
+        // Create items of each type
+        let item1 = repo::create_item(&pool, &item_type1.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
+        let _item2 = repo::create_item(&pool, &item_type2.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Get cards for each item
+        let cards1 = repo::get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request with item type filter
+        let request = Request::builder()
+            .uri(format!("/cards?item_type_id={}", item_type1.get_id()))
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
+        
+        // Verify we got the right number of cards
+        assert_eq!(response_cards.len(), cards1.len());
+        
+        // Check that all returned cards belong to items of type1
+        for card in response_cards {
+            let card_item_id = card["item_id"].as_str().unwrap();
+            assert_eq!(card_item_id, item1.get_id());
+        }
+    }
+
+    /// Tests the list cards handler with tag filter
+    ///
+    /// This test verifies that:
+    /// 1. A GET request to /cards?tags[]={tag} returns only cards with that tag
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains only cards with the specified tag
+    #[tokio::test]
+    async fn test_list_cards_handler_filter_by_tag() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and two items
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item1 = repo::create_item(&pool, &item_type.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
+        let _item2 = repo::create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create a tag and associate it with only the first item
+        let tag = repo::create_tag(&pool, "TestTag".to_string()).unwrap();
+        repo::add_tag_to_item(&pool, &tag.get_id(), &item1.get_id()).unwrap();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request with tag filter
+        let request = Request::builder()
+            .uri(format!("/cards?tag_ids={}", tag.get_id()))
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+
+        println!("Request: {:?}", request);
+
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK, "Response status should be OK (error: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
+        
+        // Check that all returned cards belong to item1
+        for card in response_cards {
+            let card_item_id = card["item_id"].as_str().unwrap();
+            assert_eq!(card_item_id, item1.get_id(), "Card item ID should match item1");
+        }
+    }
+
+    /// Tests the list cards handler with multiple tag filter
+    ///
+    /// This test verifies that:
+    /// 1. A GET request with multiple tags returns only cards with all specified tags
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains only cards with all specified tags
+    #[tokio::test]
+    async fn test_list_cards_handler_filter_by_multiple_tags() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and items
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item1 = repo::create_item(&pool, &item_type.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
+        let item2 = repo::create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create two tags and associate both with only the first item
+        let tag1 = repo::create_tag(&pool, "Tag1".to_string()).unwrap();
+        let tag2 = repo::create_tag(&pool, "Tag2".to_string()).unwrap();
+        repo::add_tag_to_item(&pool, &tag1.get_id(), &item1.get_id()).unwrap();
+        repo::add_tag_to_item(&pool, &tag2.get_id(), &item1.get_id()).unwrap();
+        repo::add_tag_to_item(&pool, &tag1.get_id(), &item2.get_id()).unwrap();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request with multiple tag filter
+        let request = Request::builder()
+            .uri(format!("/cards?tag_ids={}&tag_ids={}", tag1.get_id(), tag2.get_id()))
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
+        
+        // Check that all returned cards belong to item1
+        for card in response_cards {
+            let card_item_id = card["item_id"].as_str().unwrap();
+            assert_eq!(card_item_id, item1.get_id());
+        }
+    }
+
+    /// Tests the list cards handler with next_review_before filter
+    ///
+    /// This test verifies that:
+    /// 1. A GET request with next_review_before returns only cards due before that time
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains only cards due before the specified time
+    #[tokio::test]
+    async fn test_list_cards_handler_filter_by_review_date() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create an item type and item
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Get cards and update their review dates
+        let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
+        let now = Utc::now();
+        let yesterday = now - Duration::days(1);
+        let tomorrow = now + Duration::days(1);
+        
+        // Set one card to yesterday and one to tomorrow
+        let mut card1 = cards[0].clone();
+        card1.set_next_review(Some(yesterday));
+        repo::tests::update_card(&pool, &card1).unwrap();
+        
+        let mut card2 = cards[1].clone();
+        card2.set_next_review(Some(tomorrow));
+        repo::tests::update_card(&pool, &card2).unwrap();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+
+        let get_query = GetQueryDto {
+            next_review_before: Some(now),
+            ..Default::default()
+        };
+        
+        // Create a GET request with next_review_before filter set to now
+        let request = Request::builder()
+            .uri(format!("/cards?{}", serde_html_form::to_string(get_query).unwrap()))
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+
+        println!("Request: {:?}", request);
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK, "Response status should be OK (error: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
+        
+        // Should only include the card due yesterday
+        assert_eq!(response_cards.len(), 1);
+        assert_eq!(response_cards[0]["id"], card1.get_id());
+    }
+
+    /// Tests the list cards handler with combined item type and multiple tag filters
+    ///
+    /// This test verifies that:
+    /// 1. A GET request with both item type and multiple tags returns only matching cards
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains only cards matching all criteria
+    #[tokio::test]
+    async fn test_list_cards_handler_combined_filters() {
+        // Set up a test database
+        let pool = setup_test_db();
+        
+        // Create two item types
+        let item_type1 = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type2 = repo::create_item_type(&pool, "Test Type 2".to_string()).unwrap();
+        
+        // Create items of each type
+        let item1 = repo::create_item(&pool, &item_type1.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
+        let item2 = repo::create_item(&pool, &item_type1.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
+        let item3 = repo::create_item(&pool, &item_type2.get_id(), "Item 3".to_string(), serde_json::Value::Null).unwrap();
+        
+        // Create two tags
+        let tag1 = repo::create_tag(&pool, "Tag1".to_string()).unwrap();
+        let tag2 = repo::create_tag(&pool, "Tag2".to_string()).unwrap();
+        
+        // Add both tags to item1, one tag to item2, both tags to item3
+        repo::add_tag_to_item(&pool, &tag1.get_id(), &item1.get_id()).unwrap();
+        repo::add_tag_to_item(&pool, &tag2.get_id(), &item1.get_id()).unwrap();
+        repo::add_tag_to_item(&pool, &tag1.get_id(), &item2.get_id()).unwrap();
+        repo::add_tag_to_item(&pool, &tag1.get_id(), &item3.get_id()).unwrap();
+        repo::add_tag_to_item(&pool, &tag2.get_id(), &item3.get_id()).unwrap();
+        
+        // Create the application
+        let app = create_app(pool.clone());
+        
+        // Create a GET request with both item type and tag filters
+        let get_query = GetQueryDto {
+            item_type_id: Some(item_type1.get_id()),
+            tag_ids: vec![tag1.get_id(), tag2.get_id()],
+            ..Default::default()
+        };
+
+        let request = Request::builder()
+            .uri(format!("/cards?{}", serde_html_form::to_string(get_query).unwrap()))
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+
+        println!("Request: {:?}", request);
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
+        
+        // Should only include cards from item1 (type1 with both tags)
+        for card in response_cards {
+            let card_item_id = card["item_id"].as_str().unwrap();
+            assert_eq!(card_item_id, item1.get_id(), "Card item ID should match item1");
+        }
+    }
+
+
     /// Tests the list cards by item handler
     ///
     /// This test verifies that:
