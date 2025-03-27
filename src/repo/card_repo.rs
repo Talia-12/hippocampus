@@ -1,10 +1,9 @@
 use crate::db::DbPool;
-use crate::models::{Card, Item, JsonValue, Tag};
-use crate::schema::{cards, item_tags, tags};
+use crate::models::{Card, Item};
+use crate::schema::{cards, item_tags};
 use crate::GetQueryDto;
 use diesel::prelude::*;
 use anyhow::{Result, anyhow};
-use chrono::Utc;
 
 /// Creates cards for an item
 ///
@@ -82,6 +81,7 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
 
 }
 
+
 /// Creates a new card in the database
 ///
 /// ### Arguments
@@ -114,6 +114,7 @@ pub fn create_card(pool: &DbPool, item_id: &str, card_index: i32) -> Result<Card
     Ok(new_card)
 }
 
+
 /// Retrieves a card from the database by its ID
 ///
 /// ### Arguments
@@ -140,6 +141,7 @@ pub fn get_card(pool: &DbPool, card_id: &str) -> Result<Option<Card>> {
     
     Ok(result)
 }
+
 
 /// Lists all cards in the database with optional filtering
 ///
@@ -217,6 +219,7 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
     Ok(results)
 }
 
+
 /// Gets all cards for a specific item
 ///
 /// ### Arguments
@@ -255,38 +258,6 @@ pub fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
     Ok(results)
 }
 
-/// Lists all cards for a card
-///
-/// ### Arguments
-///
-/// * `pool` - A reference to the database connection pool
-/// * `card_id` - The ID of the card to get tags for
-///
-/// ### Returns
-///
-/// A Result containing a vector of Tags associated with the card's item
-///
-/// ### Errors
-///
-/// Returns an error if:
-/// - Unable to get a connection from the pool
-/// - The database query fails
-/// - The card does not exist
-pub fn list_tags_for_card(pool: &DbPool, card_id: &str) -> Result<Vec<Tag>> {
-    let conn = &mut pool.get()?;
-    
-    // Get the card to find its item_id
-    let card = get_card(pool, card_id)?.ok_or_else(|| anyhow!("Card not found"))?;
-    
-    // Use the item_id to get tags
-    let results = tags::table
-        .inner_join(item_tags::table.on(tags::id.eq(item_tags::tag_id)))
-        .filter(item_tags::item_id.eq(card.get_item_id()))
-        .select(tags::all_columns)
-        .load::<Tag>(conn)?;
-    
-    Ok(results)
-}
 
 /// Updates a card in the database
 ///
@@ -318,6 +289,7 @@ pub fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
     Ok(())
 }
 
+
 /// Lists all cards in the database
 ///
 /// ### Arguments
@@ -342,13 +314,14 @@ pub fn list_all_cards(pool: &DbPool) -> Result<Vec<Card>> {
     Ok(results)
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::repo::tests::setup_test_db;
     use crate::repo::{create_item, create_item_type, create_tag, add_tag_to_item};
     use serde_json::json;
-    use chrono::Duration;
+    use chrono::{Duration, Utc};
     
     #[test]
     fn test_create_card() {
@@ -400,6 +373,7 @@ mod tests {
         assert_eq!(retrieved_card.get_item_id(), item.get_id());
     }
     
+
     #[test]
     fn test_retrieve_cards_by_item_id() {
         let pool = setup_test_db();
@@ -435,6 +409,7 @@ mod tests {
         assert_eq!(cards2[1].get_item_id(), item2.get_id());
     }
     
+
     #[test]
     fn test_list_all_cards() {
         let pool = setup_test_db();
@@ -465,6 +440,7 @@ mod tests {
         assert!(cards.iter().filter(|c| c.get_item_id() == item1.get_id()).count() == 2);
         assert!(cards.iter().filter(|c| c.get_item_id() == item2.get_id()).count() == 2);
     }
+    
     
     #[test]
     fn test_filter_cards_by_item_type() {
@@ -514,6 +490,7 @@ mod tests {
         assert_eq!(grammar_cards[1].get_item_id(), grammar_item.get_id());
     }
     
+
     #[test]
     fn test_filter_cards_by_tags() {
         let pool = setup_test_db();
@@ -534,13 +511,6 @@ mod tests {
             &item_type.get_id(), 
             "Item 2".to_string(), 
             json!({"front": "F2", "back": "B2"})
-        ).unwrap();
-        
-        let item3 = create_item(
-            &pool, 
-            &item_type.get_id(), 
-            "Item 3".to_string(), 
-            json!({"front": "F3", "back": "B3"})
         ).unwrap();
         
         // Create some tags
@@ -588,6 +558,7 @@ mod tests {
         assert!(cards_both_tags.iter().all(|c| c.get_item_id() == item1.get_id()));
     }
     
+
     #[test]
     fn test_filter_cards_by_next_review() {
         let pool = setup_test_db();
@@ -649,6 +620,7 @@ mod tests {
         assert!(!due_card_ids.contains(&cards[2].get_id())); // Card 3 is not due (no next_review)
         assert!(due_card_ids.contains(&cards[3].get_id())); // Card 4 is due
     }
+    
     
     #[test]
     fn test_filter_cards_with_multiple_criteria() {
@@ -718,6 +690,7 @@ mod tests {
         // 2. Belong to an item tagged as "Important"
         // 3. Be due for review (next_review is earlier than now)
     }
+    
     
     #[test]
     fn test_filter_cards_edge_cases() {

@@ -83,7 +83,7 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
 /// ### Errors
 ///
 /// Returns an error if:
-/// - The rating is invalid (not 1-3)
+/// - The rating is invalid (not 1-4)
 /// - The card's scheduler data is invalid
 fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<Utc>, JsonValue)> {
     use serde_json::json;
@@ -134,7 +134,19 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
             ease_factor = std::cmp::max((ease_factor - 0.15) as i32, 1) as f64;
         },
         3 => {
-            // Rating of 3 means "easy" - larger increase in interval
+            // Rating of 3 means "medium" - larger increase in interval
+            repetitions += 1;
+            if repetitions == 1 {
+                interval = 1;
+            } else if repetitions == 2 {
+                interval = 4;
+            } else {
+                interval = (interval as f64 * ease_factor).ceil() as i32;
+            }
+            ease_factor += 0.15;
+        },
+        4 => {
+            // Rating of 4 means "easy" - largest increase in interval
             repetitions += 1;
             if repetitions == 1 {
                 interval = 1;
@@ -160,6 +172,7 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
     
     Ok((next_review, scheduler_data))
 }
+
 
 /// Gets all reviews for a card
 ///
@@ -315,7 +328,7 @@ mod tests {
         // Test different ratings affect the interval correctly
         
         // First, record a review with rating 1 (again)
-        let review1 = record_review(&pool, &card.get_id(), 1).unwrap();
+        let _review1 = record_review(&pool, &card.get_id(), 1).unwrap();
         let card1 = crate::schema::cards::table
             .find(card.get_id())
             .first::<Card>(&mut pool.get().unwrap())
@@ -326,7 +339,7 @@ mod tests {
         assert_eq!(data1["interval"], 1);
         
         // Now record a review with rating 3 (easy)
-        let review2 = record_review(&pool, &card.get_id(), 3).unwrap();
+        let _review2 = record_review(&pool, &card.get_id(), 3).unwrap();
         let card2 = crate::schema::cards::table
             .find(card.get_id())
             .first::<Card>(&mut pool.get().unwrap())
@@ -337,7 +350,7 @@ mod tests {
         assert_eq!(data2["interval"], 1);
         
         // Record another review with rating 3 (easy)
-        let review3 = record_review(&pool, &card.get_id(), 3).unwrap();
+        let _review3 = record_review(&pool, &card.get_id(), 3).unwrap();
         let card3 = crate::schema::cards::table
             .find(card.get_id())
             .first::<Card>(&mut pool.get().unwrap())

@@ -123,6 +123,38 @@ pub async fn remove_tag_from_item_handler(
     }
 }
 
+/// Handler for listing all tags for a card
+///
+/// This function handles GET requests to `/cards/{card_id}/tags`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `card_id` - The ID of the card to get tags for
+///
+/// ### Returns
+///
+/// A list of tags for the specified card as JSON
+pub async fn list_tags_for_card_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<DbPool>>,
+    // Extract the card ID from the URL path
+    Path(card_id): Path<String>,
+) -> Result<Json<Vec<Tag>>, ApiError> {
+    // Call the repository function to list tags for the card
+    match crate::repo::list_tags_for_card(&pool, &card_id) {
+        Ok(tags) => Ok(Json(tags)),
+        Err(e) => {
+            // Check if the error is due to card not found
+            if e.to_string().contains("Card not found") {
+                Err(ApiError::NotFound)
+            } else {
+                Err(ApiError::Database(e))
+            }
+        }
+    }
+}
+
 /// Handler for listing all tags for an item
 ///
 /// This function handles GET requests to `/items/{item_id}/tags`.
@@ -251,7 +283,6 @@ mod tests {
         assert!(result.is_err());
 
         let err = result.unwrap_err();
-        
         assert!(matches!(err, ApiError::NotFound), "Expected NotFound error, got {:?}", err);
     }
     
@@ -305,10 +336,12 @@ mod tests {
         
         // Check that we got a NotFound error
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ApiError::NotFound));
+        
+        let err = result.unwrap_err();
+        assert!(matches!(err, ApiError::NotFound), "Expected NotFound error, got {:?}", err);
     }
     
-    
+
     #[tokio::test]
     async fn test_list_tags_for_item_handler() {
         let pool = setup_test_db();
@@ -349,6 +382,61 @@ mod tests {
         
         // Call the handler with a non-existent item ID
         let result = list_tags_for_item_handler(
+            State(pool.clone()),
+            Path("nonexistent".to_string()),
+        ).await;
+        
+        // Check that we got a NotFound error
+        assert!(result.is_err());
+
+        let err = result.unwrap_err();
+        assert!(matches!(err, ApiError::NotFound), "Expected NotFound error, got {:?}", err);
+    }
+    
+    #[tokio::test]
+    async fn test_list_tags_for_card_handler() {
+        let pool = setup_test_db();
+        
+        // Create test data
+        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item = repo::create_item(
+            &pool,
+            &item_type.get_id(),
+            "Test Item".to_string(),
+            json!({"front": "Hello", "back": "World"}),
+        ).unwrap();
+        
+        // Get the card created for the item
+        let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
+        let card = &cards[0];
+        
+        // Create some tags
+        let tag1 = repo::create_tag(&pool, "Important".to_string(), true).unwrap();
+        let tag2 = repo::create_tag(&pool, "Difficult".to_string(), false).unwrap();
+        
+        // Add tags to the item
+        repo::add_tag_to_item(&pool, &tag1.get_id(), &item.get_id()).unwrap();
+        repo::add_tag_to_item(&pool, &tag2.get_id(), &item.get_id()).unwrap();
+        
+        // Call the handler
+        let result = list_tags_for_card_handler(
+            State(pool.clone()),
+            Path(card.get_id().to_string()),
+        ).await.unwrap();
+        
+        // Check the result
+        let tags = result.0;
+        assert_eq!(tags.len(), 2);
+        assert!(tags.iter().any(|t| t.get_id() == tag1.get_id()));
+        assert!(tags.iter().any(|t| t.get_id() == tag2.get_id()));
+    }
+    
+    #[tokio::test]
+    async fn test_list_tags_for_card_handler_not_found() {
+        let pool = setup_test_db();
+        
+        // Call the handler with a non-existent card ID
+        let result = list_tags_for_card_handler(
             State(pool.clone()),
             Path("nonexistent".to_string()),
         ).await;
