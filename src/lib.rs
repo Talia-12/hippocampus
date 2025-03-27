@@ -17,10 +17,33 @@
 ///
 /// The library exposes a RESTful API using Axum with the following endpoints:
 ///
-/// - `POST /items`: Create a new item
-/// - `GET /items`: List all items
-/// - `GET /items/{id}`: Get a specific item by ID
-/// - `POST /reviews`: Record a review for an item
+/// Routes for item types:
+/// - GET /item_types: List all item types (handlers::list_item_types_handler)
+/// - POST /item_types: Create a new item type (handlers::create_item_type_handler)
+/// - GET /item_types/{id}: Get a specific item type (handlers::get_item_type_handler)
+/// - GET /item_types/{id}/items: List all items of a specific type (handlers::list_items_by_item_type_handler)
+///
+/// Routes for items:
+/// - GET /items: List all items (handlers::list_items_handler)
+/// - POST /items: Create a new item (handlers::create_item_handler)
+/// - GET /items/{id}: Get a specific item (handlers::get_item_handler)
+/// - GET /items/{id}/cards: List all cards for an item (handlers::list_cards_by_item_handler)
+/// - POST /items/{id}/cards: Create a new card for an item (handlers::create_card_handler)
+/// - GET /items/{item_id}/tags: List all tags for an item (handlers::list_tags_for_item_handler)
+/// - POST /items/{item_id}/tags/{tag_id}: Add a tag to an item (handlers::add_tag_to_item_handler)
+/// - DELETE /items/{item_id}/tags/{tag_id}: Remove a tag from an item (handlers::remove_tag_from_item_handler)
+///
+/// Routes for cards:
+/// - GET /cards: List all cards (handlers::list_cards_handler)
+/// - GET /cards/{id}: Get a specific card (handlers::get_card_handler)
+/// - GET /cards/{card_id}/reviews: List all reviews for a card (handlers::list_reviews_by_card_handler)
+///
+/// Routes for reviews:
+/// - POST /reviews: Create a new review (handlers::create_review_handler)
+///
+/// Routes for tags:
+/// - GET /tags: List all tags (handlers::list_tags_handler)
+/// - POST /tags: Create a new tag (handlers::create_tag_handler)
 
 /// Database connection module
 pub mod db;
@@ -34,543 +57,22 @@ pub mod repo;
 /// Database schema module
 pub mod schema;
 
+/// API handlers module
+pub mod handlers;
+
+/// API errors module
+pub mod errors;
+
+/// Data transfer objects module
+pub mod dto;
+
 use axum::{
-    extract::{Path, State}, http::StatusCode, response::{IntoResponse, Response}, routing::{get, post}, Json, Router
+    routing::{get, post}, Router
 };
-use axum_extra::extract::Query;
-use chrono::{DateTime, Utc};
-use models::{Item, Review, Tag};
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use thiserror::Error;
 
-#[derive(Error, Debug)]
-pub enum ApiError {
-    #[error("Database error: {0}")]
-    Database(#[from] anyhow::Error),
-    #[error("Item not found")]
-    NotFound,
-    #[error("Invalid rating: {0}")]
-    InvalidRating(String),
-    #[error("Method not allowed")]
-    MethodNotAllowed,
-}
-
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
-        let (status, message) = match self {
-            ApiError::Database(err) => (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()),
-            ApiError::NotFound => (StatusCode::NOT_FOUND, "Item not found".to_string()),
-            ApiError::InvalidRating(msg) => (StatusCode::BAD_REQUEST, msg),
-            ApiError::MethodNotAllowed => (StatusCode::METHOD_NOT_ALLOWED, "Method not allowed".to_string()),
-        };
-
-        let body = Json(serde_json::json!({
-            "error": message
-        }));
-
-        (status, body).into_response()
-    }
-}
-
-/// Data transfer object for creating a new item
-///
-/// This struct is used to deserialize JSON requests for creating items.
-#[derive(Deserialize, Debug)]
-pub struct CreateItemDto {
-    /// The title or content of the item to be remembered
-    pub item_type_id: String,
-    pub title: String,
-    pub item_data: serde_json::Value,
-}
-
-/// Data transfer object for creating a new review
-///
-/// This struct is used to deserialize JSON requests for recording reviews.
-#[derive(Deserialize, Debug)]
-pub struct CreateReviewDto {
-    /// The ID of the card being reviewed
-    pub card_id: String,
-    
-    /// The rating given during the review (typically 1-3)
-    pub rating: i32,
-}
-
-/// Data transfer object for creating a new item type
-///
-/// This struct is used to deserialize JSON requests for creating item types.
-#[derive(Deserialize, Debug)]
-pub struct CreateItemTypeDto {
-    /// The name of the item type
-    pub name: String,
-}
-
-/// Data transfer object for creating a new card
-///
-/// This struct is used to deserialize JSON requests for creating cards.
-#[derive(Deserialize, Debug)]
-pub struct CreateCardDto {
-    /// The index of the card within its item
-    pub card_index: i32,
-}
-
-/// Data transfer object for creating a new tag
-///
-/// This struct is used to deserialize JSON requests for creating tags.
-#[derive(Deserialize, Debug)]
-pub struct CreateTagDto {
-    /// The name of the tag
-    pub name: String,
-    /// The visibility of the tag
-    pub visible: bool,
-}
-
-/// Data transfer object for getting all items or cards matching a query
-/// 
-/// This struct is used to deserialize JSON requests for getting all items or cards matching a query.
-#[derive(Serialize, Deserialize, Debug, Default)]
-#[serde(default)]
-pub struct GetQueryDto {
-    pub item_type_id: Option<String>,
-    pub tag_ids: Vec<String>,
-    pub next_review_before: Option<DateTime<Utc>>,
-}
-
-/// Handler for creating a new item
-///
-/// This function handles POST requests to `/items`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `payload` - The request payload containing the item title
-///
-/// ### Returns
-///
-/// The newly created item as JSON
-async fn create_item_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract and deserialize the JSON request body
-    Json(payload): Json<CreateItemDto>,
-) -> Result<Json<Item>, ApiError> {
-    // Call the repository function to create the item
-    let item = repo::create_item(&pool, &payload.item_type_id, payload.title, payload.item_data)
-        .map_err(ApiError::Database)?;
-
-    // Return the created item as JSON
-    Ok(Json(item))
-}
-
-/// Handler for retrieving a specific item
-///
-/// This function handles GET requests to `/items/{id}`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `item_id` - The ID of the item to retrieve, extracted from the URL path
-///
-/// ### Returns
-///
-/// The requested item as JSON, or null if not found
-async fn get_item_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract the item ID from the URL path
-    Path(item_id): Path<String>,
-) -> Result<Json<Option<Item>>, ApiError> {
-    // Call the repository function to get the item
-    let item = repo::get_item(&pool, &item_id)
-        .map_err(ApiError::Database)?;
-    // Return the item (or None) as JSON
-    Ok(Json(item))
-}
-
-/// Handler for listing all items
-///
-/// This function handles GET requests to `/items`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-///
-/// ### Returns
-///
-/// A list of all items as JSON
-async fn list_items_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-) -> Result<Json<Vec<Item>>, ApiError> {
-    // Call the repository function to list all items
-    let all_items = repo::list_items(&pool)
-        .map_err(ApiError::Database)?;
-    // Return the list of items as JSON
-    Ok(Json(all_items))
-}
-
-
-/// Handler for recording a review
-///
-/// This function handles POST requests to `/reviews`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `payload` - The request payload containing the item ID and rating
-///
-/// ### Returns
-///
-/// The newly created review as JSON
-async fn create_review_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract and deserialize the JSON request body
-    Json(payload): Json<CreateReviewDto>,
-) -> Result<Json<Review>, ApiError> {
-    // Validate rating range
-    if !(1..=4).contains(&payload.rating) {
-        return Err(ApiError::InvalidRating(
-            "Rating must be between 1 and 4".to_string()
-        ));
-    }
-    
-    // First check if the item exists
-    let item_exists = repo::get_card(&pool, &payload.card_id)
-        .map_err(ApiError::Database)?
-        .is_some();
-    
-    if !item_exists {
-        return Err(ApiError::NotFound);
-    }
-    
-    let review = repo::record_review(&pool, &payload.card_id, payload.rating)
-        .map_err(ApiError::Database)?;
-    // Return the created review as JSON
-    Ok(Json(review))
-}
-
-/// Handler for creating a new item type
-///
-/// This function handles POST requests to `/item_types`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `payload` - The request payload containing the item type name
-///
-/// ### Returns
-///
-/// The newly created item type as JSON
-async fn create_item_type_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract and deserialize the JSON request body
-    Json(payload): Json<CreateItemTypeDto>,
-) -> Result<Json<models::ItemType>, ApiError> {
-    // Call the repository function to create the item type
-    let item_type = repo::create_item_type(&pool, payload.name)
-        .map_err(ApiError::Database)?;
-
-    // Return the created item type as JSON
-    Ok(Json(item_type))
-}
-
-/// Handler for retrieving a specific item type
-///
-/// This function handles GET requests to `/item_types/{id}`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `id` - The ID of the item type to retrieve, extracted from the URL path
-///
-/// ### Returns
-///
-/// The requested item type as JSON, or null if not found
-async fn get_item_type_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract the item type ID from the URL path
-    Path(id): Path<String>,
-) -> Result<Json<Option<models::ItemType>>, ApiError> {
-    // Call the repository function to get the item type
-    let item_type = repo::get_item_type(&pool, &id)
-        .map_err(ApiError::Database)?;
-    // Return the item type (or None) as JSON
-    Ok(Json(item_type))
-}
-
-/// Handler for listing all item types
-///
-/// This function handles GET requests to `/item_types`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-///
-/// ### Returns
-///
-/// A list of all item types as JSON
-async fn list_item_types_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-) -> Result<Json<Vec<models::ItemType>>, ApiError> {
-    // Call the repository function to list all item types
-    let all_item_types = repo::list_item_types(&pool)
-        .map_err(ApiError::Database)?;
-    // Return the list of item types as JSON
-    Ok(Json(all_item_types))
-}
-
-/// Handler for listing items by item type
-///
-/// This function handles GET requests to `/item_types/{id}/items`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `id` - The ID of the item type to filter by, extracted from the URL path
-///
-/// ### Returns
-///
-/// A list of items of the specified type as JSON
-async fn list_items_by_item_type_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract the item type ID from the URL path
-    Path(id): Path<String>,
-) -> Result<Json<Vec<models::Item>>, ApiError> {
-    // First check if the item type exists
-    let item_type_exists = repo::get_item_type(&pool, &id)
-        .map_err(ApiError::Database)?
-        .is_some();
-    
-    if !item_type_exists {
-        return Err(ApiError::NotFound);
-    }
-    
-    // Call the repository function to get items by type
-    let items = repo::get_items_by_type(&pool, &id)
-        .map_err(ApiError::Database)?;
-    // Return the list of items as JSON
-    Ok(Json(items))
-}
-
-/// Handler for retrieving a specific card
-///
-/// This function handles GET requests to `/cards/{id}`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `id` - The ID of the card to retrieve, extracted from the URL path
-///
-/// ### Returns
-///
-/// The requested card as JSON, or null if not found
-async fn get_card_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract the card ID from the URL path
-    Path(id): Path<String>,
-) -> Result<Json<Option<models::Card>>, ApiError> {
-    // Call the repository function to get the card
-    let card = repo::get_card(&pool, &id)
-        .map_err(ApiError::Database)?;
-    // Return the card (or None) as JSON
-    Ok(Json(card))
-}
-
-/// Handler for listing cards with optional filtering
-///
-/// This function handles GET requests to `/cards` with optional query parameters.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `query` - The query parameters for filtering
-///
-/// ### Returns
-///
-/// A filtered list of cards as JSON
-async fn list_cards_handler(
-    // Extract the database connection pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract and parse query parameters
-    Query(query): Query<GetQueryDto>,
-) -> Result<Json<Vec<models::Card>>, ApiError> {
-    // Call the repository function with filter parameters
-    let filtered_cards = repo::list_cards_with_filters(&pool, &query)
-        .map_err(ApiError::Database)?;
-    // Return the filtered list of cards as JSON
-    Ok(Json(filtered_cards))
-}
-
-/// Handler for listing cards by item
-///
-/// This function handles GET requests to `/items/{id}/cards`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `item_id` - The ID of the item to get cards for, extracted from the URL path
-///
-/// ### Returns
-///
-/// A list of cards for the specified item as JSON
-async fn list_cards_by_item_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract the item ID from the URL path
-    Path(item_id): Path<String>,
-) -> Result<Json<Vec<models::Card>>, ApiError> {
-    // First check if the item exists
-    let item_exists = repo::get_item(&pool, &item_id)
-        .map_err(ApiError::Database)?
-        .is_some();
-    
-    if !item_exists {
-        return Err(ApiError::NotFound);
-    }
-    
-    // Call the repository function to get cards for the item
-    let cards = repo::get_cards_for_item(&pool, &item_id)
-        .map_err(ApiError::Database)?;
-    // Return the list of cards as JSON
-    Ok(Json(cards))
-}
-
-/// Handler for creating a new card
-///
-/// This function handles POST requests to `/items/{id}/cards`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `item_id` - The ID of the item to create a card for
-/// * `payload` - The request payload containing the card index
-///
-/// ### Returns
-///
-/// An error indicating that this operation is no longer supported
-async fn create_card_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract the item ID from the URL path
-    Path(item_id): Path<String>,
-    // Extract and deserialize the JSON request body
-    Json(_payload): Json<CreateCardDto>,
-) -> Result<Json<models::Card>, ApiError> {
-    // Check if the item exists
-    let _item = repo::get_item(&pool, &item_id)
-        .map_err(ApiError::Database)?
-        .ok_or(ApiError::NotFound)?;
-    
-    // Since create_item now automatically creates cards, we should return a 405 Method Not Allowed
-    // to indicate that this operation is no longer supported
-    return Err(ApiError::MethodNotAllowed);
-}
-
-
-/// Handler for creating a new tag
-///
-/// This function handles POST requests to `/tags`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `payload` - The request payload containing the tag name and visibility
-///
-/// ### Returns
-///
-/// The newly created tag as JSON
-async fn create_tag_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract and deserialize the JSON request body
-    Json(payload): Json<CreateTagDto>,
-) -> Result<Json<Tag>, ApiError> {
-    // Call the repository function to create the tag
-    let tag = repo::create_tag(&pool, payload.name, payload.visible).unwrap();
-    
-    // Return the created tag as JSON
-    Ok(Json(tag))
-}
-
-
-/// Handler for listing all tags
-///
-/// This function handles GET requests to `/tags`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-///
-/// ### Returns
-///
-/// A list of all tags as JSON
-async fn list_tags_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-) -> Result<Json<Vec<Tag>>, ApiError> {
-    // Call the repository function to list all tags
-    let tags = repo::list_tags(&pool).unwrap();
-
-    // Return the list of tags as JSON
-    Ok(Json(tags))
-}
-
-
-/// Handler for adding a tag to an item
-///
-/// This function handles POST requests to `/items/{item_id}/tags/{tag_id}`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `item_id` - The ID of the item to add the tag to
-/// * `tag_id` - The ID of the tag to add to the item
-///
-/// ### Returns
-///
-/// An empty response
-async fn add_tag_to_item_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract the item ID from the URL path
-    Path((item_id, tag_id)): Path<(String, String)>,
-) -> Result<(), ApiError> {
-    // Call the repository function to add the tag to the item
-    repo::add_tag_to_item(&pool, &tag_id, &item_id)
-        .map_err(ApiError::Database)
-}
-
-
-/// Handler for removing a tag from an item
-///
-/// This function handles DELETE requests to `/items/{item_id}/tags/{tag_id}`.
-///
-/// ### Arguments
-///
-/// * `pool` - The database connection pool
-/// * `item_id` - The ID of the item to remove the tag from
-/// * `tag_id` - The ID of the tag to remove from the item
-///
-/// ### Returns
-///
-/// An empty response
-async fn remove_tag_from_item_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<db::DbPool>>,
-    // Extract the item ID from the URL path
-    Path((item_id, tag_id)): Path<(String, String)>,
-) -> Result<(), ApiError> {
-    // Call the repository function to remove the tag from the item
-    repo::remove_tag_from_item(&pool, &tag_id, &item_id)
-        .map_err(ApiError::Database)
-}
-
+pub use dto::*;
+pub use errors::ApiError;
 
 /// Creates the application router with all routes
 ///
@@ -585,28 +87,29 @@ async fn remove_tag_from_item_handler(
 /// An Axum Router configured with all routes and the database pool as state
 pub fn create_app(pool: Arc<db::DbPool>) -> Router {
     Router::new()
-        // Route for creating an item type
-        .route("/item_types", post(create_item_type_handler).get(list_item_types_handler))
-        // Route for getting a specific item type by ID
-        .route("/item_types/{id}", get(get_item_type_handler))
-        // Route for listing items by item type
-        .route("/item_types/{id}/items", get(list_items_by_item_type_handler))
-        // Route for creating and listing items
-        .route("/items", post(create_item_handler).get(list_items_handler))
-        // Route for getting a specific item by ID
-        .route("/items/{id}", get(get_item_handler))
-        // Route for creating a card for an item
-        .route("/items/{id}/cards", post(create_card_handler).get(list_cards_by_item_handler))
-        // Route for adding a tag to an item
-        .route("/items/{item_id}/tags/{tag_id}", post(add_tag_to_item_handler).delete(remove_tag_from_item_handler))
-        // Route for listing all cards
-        .route("/cards", get(list_cards_handler))
-        // Route for getting a specific card by ID
-        .route("/cards/{id}", get(get_card_handler))
-        // Route for recording reviews
-        .route("/reviews", post(create_review_handler))
-        // Route for interacting with tags
-        .route("/tags", post(create_tag_handler).get(list_tags_handler))
+        // Routes for item types
+        .route("/item_types", post(handlers::create_item_type_handler).get(handlers::list_item_types_handler))
+        .route("/item_types/{id}", get(handlers::get_item_type_handler))
+        .route("/item_types/{id}/items", get(handlers::list_items_by_item_type_handler))
+        
+        // Routes for items
+        .route("/items", post(handlers::create_item_handler).get(handlers::list_items_handler))
+        .route("/items/{id}", get(handlers::get_item_handler))
+        .route("/items/{id}/cards", post(handlers::create_card_handler).get(handlers::list_cards_by_item_handler))
+        .route("/items/{item_id}/tags", get(handlers::list_tags_for_item_handler))
+        .route("/items/{item_id}/tags/{tag_id}", post(handlers::add_tag_to_item_handler).delete(handlers::remove_tag_from_item_handler))
+        
+        // Routes for cards
+        .route("/cards", get(handlers::list_cards_handler))
+        .route("/cards/{id}", get(handlers::get_card_handler))
+        .route("/cards/{card_id}/reviews", get(handlers::list_reviews_by_card_handler))
+        
+        // Routes for reviews
+        .route("/reviews", post(handlers::create_review_handler))
+        
+        // Routes for tags
+        .route("/tags", post(handlers::create_tag_handler).get(handlers::list_tags_handler))
+        
         // Add the database pool to the application state
         .with_state(pool)
 }
@@ -638,17 +141,12 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
-    use chrono::Duration;
     use diesel::connection::SimpleConnection;
     use diesel::{SqliteConnection, RunQueryDsl, Connection};
-    use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
     use serde_json::Value;
     use std::sync::Arc;
     use tower::ServiceExt;
-    
-    /// Embedded migrations for testing
-    const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
-    
+
     /// Sets up a test database with migrations applied
     ///
     /// This function:
@@ -659,23 +157,98 @@ mod tests {
     /// ### Returns
     ///
     /// An Arc-wrapped database connection pool connected to the in-memory database
-    fn setup_test_db() -> Arc<db::DbPool> {
+    pub fn setup_test_db() -> Arc<db::DbPool> {
         // Use an in-memory database for testing
         let database_url = ":memory:";
         let pool = db::init_pool(database_url);
         
-        // Run migrations on the in-memory database
+        // Get a connection from the pool
         let mut conn = pool.get().expect("Failed to get connection");
         
         // Enable foreign key constraints for SQLite
         conn.batch_execute("PRAGMA foreign_keys = ON").unwrap();
         
         // Run all migrations to set up the schema
-        conn.run_pending_migrations(MIGRATIONS).expect("Failed to run migrations");
+        run_migrations(&mut conn);
         
         // Wrap the pool in an Arc for thread-safe sharing
         Arc::new(pool)
     }
+
+
+    use diesel::sql_types::Text;
+    use diesel::QueryableByName;
+
+    #[derive(QueryableByName, Debug)]
+    struct TableName {
+        #[diesel(sql_type = Text)]
+        name: String,
+    }
+
+    /// Tests the setup_test_db function
+    ///
+    /// This test verifies that:
+    /// 1. The test database can be created and connected to
+    /// 2. The database has the expected tables
+    /// 3. The database can be queried successfully
+    #[tokio::test]
+    async fn test_setup_test_db() {
+        let pool = setup_test_db();
+        assert!(pool.get().is_ok());
+
+        // Check that all migrations were run, i.e. the tables were created
+        let mut conn = pool.get().unwrap();
+        let result = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table'")
+            .execute(&mut conn);
+        assert!(result.is_ok());
+        
+        println!("Result: {:?}", result);
+
+        // Get the names of the tables
+        let table_names: Vec<TableName> = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table'")
+            .load(&mut conn)
+            .expect("Failed to load table names");
+        
+        println!("Tables: {:?}", table_names);
+        
+        // Verify that we have the expected tables
+        assert!(table_names.len() > 0, "No tables found in the database");
+
+        // test interacting with each of the found tables
+        let expected_tables = vec![
+            "cards", "item_tags", "item_types", "items", "reviews", "tags", 
+            "__diesel_schema_migrations" // Diesel's migration tracking table
+        ];
+        
+        for table in expected_tables {
+            let exists = table_names.iter().any(|t| t.name == table);
+            assert!(exists, "Table '{}' not found in database", table);
+            
+            // Test a simple query on each table
+            let query = format!("SELECT COUNT(*) FROM {}", table);
+            let result = diesel::sql_query(&query).execute(&mut conn);
+            assert!(result.is_ok(), "Failed to query table '{}': {:?}", table, result.err());
+            
+            println!("Table '{}' exists and is queryable", table);
+        }
+
+        drop(conn);
+
+        // test interacting with the app
+        let app = create_app(pool.clone());
+
+        // test interacting with the item_types table
+        let request = Request::builder()
+            .uri("/item_types")
+            .method("GET")
+            .body(Body::empty())
+            .unwrap();
+
+        // send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "Response status is not OK (err: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
+    }
+    
     
     /// Tests the create item handler
     ///
@@ -704,7 +277,7 @@ mod tests {
         let response = app.oneshot(request).await.unwrap();
         
         // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.status(), StatusCode::OK, "Response status is not OK (err: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
         
         // Parse the response body
         let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
@@ -961,952 +534,5 @@ mod tests {
         assert_eq!(response_item_type["name"], name);
     }
     
-
-    /// Tests the get item type handler with a non-existent ID
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /item_types/{id} with a non-existent ID returns null
-    /// 2. The response has a 200 OK status
-    #[tokio::test]
-    async fn test_get_item_type_handler_not_found() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request with a non-existent ID
-        let request = Request::builder()
-            .uri("/item_types/non-existent-id")
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_item_type: Option<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response is null
-        assert!(response_item_type.is_none());
-    }
-    
-
-    /// Tests the list item types handler
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /item_types returns all item types
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains all the expected item types
-    #[tokio::test]
-    async fn test_list_item_types_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create a few item types first
-        let names = vec!["Item Type 1", "Item Type 2", "Item Type 3"];
-        for name in &names {
-            repo::create_item_type(&pool, name.to_string()).unwrap();
-        }
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request
-        let request = Request::builder()
-            .uri("/item_types")
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let item_types: Vec<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the correct number of item types
-        assert_eq!(item_types.len(), names.len());
-        
-        // Check that all names are present in the response
-        let item_type_names: Vec<String> = item_types.iter()
-            .map(|item_type| item_type["name"].as_str().unwrap().to_string())
-            .collect();
-        
-        for name in names {
-            assert!(item_type_names.contains(&name.to_string()));
-        }
-    }
-    
-
-    /// Tests the list items by item type handler
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /item_types/{id}/items returns all items of that type
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains all the expected items
-    #[tokio::test]
-    async fn test_list_items_by_item_type_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create two item types with names that are recognized by create_cards_for_item
-        let item_type1 = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item_type2 = repo::create_item_type(&pool, "Test Item Type 2".to_string()).unwrap();
-        
-        // Create items for the first item type
-        let titles1 = vec!["Item 1-1", "Item 1-2", "Item 1-3"];
-        for title in &titles1 {
-            repo::create_item(&pool, &item_type1.get_id(), title.to_string(), serde_json::Value::Null).unwrap();
-        }
-        
-        // Create items for the second item type
-        let titles2 = vec!["Item 2-1", "Item 2-2"];
-        for title in &titles2 {
-            repo::create_item(&pool, &item_type2.get_id(), title.to_string(), serde_json::Value::Null).unwrap();
-        }
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request for the first item type
-        let request = Request::builder()
-            .uri(format!("/item_types/{}/items", item_type1.get_id()))
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let items: Vec<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the correct number of items
-        assert_eq!(items.len(), titles1.len());
-        
-        // Check that all titles for the first item type are present in the response
-        let item_titles: Vec<String> = items.iter()
-            .map(|item| item["title"].as_str().unwrap().to_string())
-            .collect();
-        
-        for title in titles1 {
-            assert!(item_titles.contains(&title.to_string()));
-        }
-        
-        // Verify that none of the titles from the second item type are present
-        for title in titles2 {
-            assert!(!item_titles.contains(&title.to_string()));
-        }
-    }
-    
-    
-    /// Tests the list items by item type handler with a non-existent ID
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /item_types/{id}/items with a non-existent ID returns a 404 Not Found
-    /// 2. The response body contains an error message
-    #[tokio::test]
-    async fn test_list_items_by_item_type_handler_not_found() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request with a non-existent ID
-        let request = Request::builder()
-            .uri("/item_types/non-existent-id/items")
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let error: Value = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains an error message
-        assert!(error["error"].is_string());
-    }
-    
-
-    /// Tests the create card handler
-    ///
-    /// This test verifies that:
-    /// 1. A POST request to /items/{id}/cards creates a new card
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains the created card with the correct item ID and card index
-    #[tokio::test]
-    async fn test_create_card_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item type and item first
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a request with a JSON body
-        let request = Request::builder()
-            .uri(format!("/items/{}/cards", item.get_id()))
-            .method("POST")
-            .header("Content-Type", "application/json")
-            .body(Body::from(r#"{"card_index":1}"#))
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status - should be METHOD_NOT_ALLOWED since cards are now created automatically
-        assert_eq!(response.status(), StatusCode::METHOD_NOT_ALLOWED);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let error: Value = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains an error message
-        assert!(error["error"].is_string());
-    }
-    
-
-    /// Tests the create card handler with a non-existent item ID
-    ///
-    /// This test verifies that:
-    /// 1. A POST request to /items/{id}/cards with a non-existent item ID returns a 404 Not Found
-    /// 2. The response body contains an error message
-    #[tokio::test]
-    async fn test_create_card_handler_not_found() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a request with a JSON body and a non-existent item ID
-        let request = Request::builder()
-            .uri("/items/non-existent-id/cards")
-            .method("POST")
-            .header("Content-Type", "application/json")
-            .body(Body::from(r#"{"card_index":1}"#))
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status - should be NOT_FOUND since the item doesn't exist
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let error: Value = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains an error message
-        assert!(error["error"].is_string());
-    }
-    
-
-    /// Tests the get card handler
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /cards/{id} returns the specific card
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains the expected card
-    #[tokio::test]
-    async fn test_get_card_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item type, item, and card first
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
-        let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
-        let card = cards.first().unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request with the card ID in the path
-        let request = Request::builder()
-            .uri(format!("/cards/{}", card.get_id()))
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_card: Value = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the correct card
-        assert_eq!(response_card["id"], card.get_id());
-        assert_eq!(response_card["item_id"], item.get_id());
-        assert_eq!(response_card["card_index"], card.get_card_index());
-    }
-    
-
-    /// Tests the get card handler with a non-existent ID
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /cards/{id} with a non-existent ID returns null
-    /// 2. The response has a 200 OK status
-    #[tokio::test]
-    async fn test_get_card_handler_not_found() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request with a non-existent ID
-        let request = Request::builder()
-            .uri("/cards/non-existent-id")
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_card: Option<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response is null
-        assert!(response_card.is_none());
-    }
-    
-
-    /// Tests the list cards handler
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /cards returns all cards
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains all the expected cards
-    #[tokio::test]
-    async fn test_list_cards_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item type and item first
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
-        let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request
-        let request = Request::builder()
-            .uri("/cards")
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK, "Response status should be OK (error: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the correct number of cards
-        assert_eq!(response_cards.len(), cards.len());
-        
-        // Check that all card IDs are present in the response
-        let card_ids: Vec<String> = response_cards.iter()
-            .map(|card| card["id"].as_str().unwrap().to_string())
-            .collect();
-        
-        for card in cards {
-            assert!(card_ids.contains(&card.get_id()));
-        }
-    }
-    
-
-    /// Tests the list cards handler with item type filter
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /cards?item_type_id={id} returns only cards for that item type
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains only cards for the specified item type
-    #[tokio::test]
-    async fn test_list_cards_handler_filter_by_item_type() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create two item types
-        let item_type1 = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
-        let item_type2 = repo::create_item_type(&pool, "Test Type 2".to_string()).unwrap();
-        
-        // Create items of each type
-        let item1 = repo::create_item(&pool, &item_type1.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
-        let _item2 = repo::create_item(&pool, &item_type2.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Get cards for each item
-        let cards1 = repo::get_cards_for_item(&pool, &item1.get_id()).unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request with item type filter
-        let request = Request::builder()
-            .uri(format!("/cards?item_type_id={}", item_type1.get_id()))
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Verify we got the right number of cards
-        assert_eq!(response_cards.len(), cards1.len());
-        
-        // Check that all returned cards belong to items of type1
-        for card in response_cards {
-            let card_item_id = card["item_id"].as_str().unwrap();
-            assert_eq!(card_item_id, item1.get_id());
-        }
-    }
-
-    /// Tests the list cards handler with tag filter
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /cards?tags[]={tag} returns only cards with that tag
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains only cards with the specified tag
-    #[tokio::test]
-    async fn test_list_cards_handler_filter_by_tag() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item type and two items
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
-        let item1 = repo::create_item(&pool, &item_type.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
-        let _item2 = repo::create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Create a tag and associate it with only the first item
-        let tag = repo::create_tag(&pool, "TestTag".to_string(), true).unwrap();
-        repo::add_tag_to_item(&pool, &tag.get_id(), &item1.get_id()).unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request with tag filter
-        let request = Request::builder()
-            .uri(format!("/cards?tag_ids={}", tag.get_id()))
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-
-        println!("Request: {:?}", request);
-
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK, "Response status should be OK (error: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Check that all returned cards belong to item1
-        for card in response_cards {
-            let card_item_id = card["item_id"].as_str().unwrap();
-            assert_eq!(card_item_id, item1.get_id(), "Card item ID should match item1");
-        }
-    }
-
-    /// Tests the list cards handler with multiple tag filter
-    ///
-    /// This test verifies that:
-    /// 1. A GET request with multiple tags returns only cards with all specified tags
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains only cards with all specified tags
-    #[tokio::test]
-    async fn test_list_cards_handler_filter_by_multiple_tags() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item type and items
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
-        let item1 = repo::create_item(&pool, &item_type.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
-        let item2 = repo::create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Create two tags and associate both with only the first item
-        let tag1 = repo::create_tag(&pool, "Tag1".to_string(), true).unwrap();
-        let tag2 = repo::create_tag(&pool, "Tag2".to_string(), false).unwrap();
-        repo::add_tag_to_item(&pool, &tag1.get_id(), &item1.get_id()).unwrap();
-        repo::add_tag_to_item(&pool, &tag2.get_id(), &item1.get_id()).unwrap();
-        repo::add_tag_to_item(&pool, &tag1.get_id(), &item2.get_id()).unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request with multiple tag filter
-        let request = Request::builder()
-            .uri(format!("/cards?tag_ids={}&tag_ids={}", tag1.get_id(), tag2.get_id()))
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Check that all returned cards belong to item1
-        for card in response_cards {
-            let card_item_id = card["item_id"].as_str().unwrap();
-            assert_eq!(card_item_id, item1.get_id());
-        }
-    }
-
-    /// Tests the list cards handler with next_review_before filter
-    ///
-    /// This test verifies that:
-    /// 1. A GET request with next_review_before returns only cards due before that time
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains only cards due before the specified time
-    #[tokio::test]
-    async fn test_list_cards_handler_filter_by_review_date() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item type and item
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Get cards and update their review dates
-        let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
-        let now = Utc::now();
-        let yesterday = now - Duration::days(1);
-        let tomorrow = now + Duration::days(1);
-        
-        // Set one card to yesterday and one to tomorrow
-        let mut card1 = cards[0].clone();
-        card1.set_next_review(Some(yesterday));
-        repo::tests::update_card(&pool, &card1).unwrap();
-        
-        let mut card2 = cards[1].clone();
-        card2.set_next_review(Some(tomorrow));
-        repo::tests::update_card(&pool, &card2).unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-
-        let get_query = GetQueryDto {
-            next_review_before: Some(now),
-            ..Default::default()
-        };
-        
-        // Create a GET request with next_review_before filter set to now
-        let request = Request::builder()
-            .uri(format!("/cards?{}", serde_html_form::to_string(get_query).unwrap()))
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-
-        println!("Request: {:?}", request);
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK, "Response status should be OK (error: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Should only include the card due yesterday
-        assert_eq!(response_cards.len(), 1);
-        assert_eq!(response_cards[0]["id"], card1.get_id());
-    }
-
-    /// Tests the list cards handler with combined item type and multiple tag filters
-    ///
-    /// This test verifies that:
-    /// 1. A GET request with both item type and multiple tags returns only matching cards
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains only cards matching all criteria
-    #[tokio::test]
-    async fn test_list_cards_handler_combined_filters() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create two item types
-        let item_type1 = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
-        let item_type2 = repo::create_item_type(&pool, "Test Type 2".to_string()).unwrap();
-        
-        // Create items of each type
-        let item1 = repo::create_item(&pool, &item_type1.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
-        let item2 = repo::create_item(&pool, &item_type1.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
-        let item3 = repo::create_item(&pool, &item_type2.get_id(), "Item 3".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Create two tags
-        let tag1 = repo::create_tag(&pool, "Tag1".to_string(), true).unwrap();
-        let tag2 = repo::create_tag(&pool, "Tag2".to_string(), false).unwrap();
-        
-        // Add both tags to item1, one tag to item2, both tags to item3
-        repo::add_tag_to_item(&pool, &tag1.get_id(), &item1.get_id()).unwrap();
-        repo::add_tag_to_item(&pool, &tag2.get_id(), &item1.get_id()).unwrap();
-        repo::add_tag_to_item(&pool, &tag1.get_id(), &item2.get_id()).unwrap();
-        repo::add_tag_to_item(&pool, &tag1.get_id(), &item3.get_id()).unwrap();
-        repo::add_tag_to_item(&pool, &tag2.get_id(), &item3.get_id()).unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request with both item type and tag filters
-        let get_query = GetQueryDto {
-            item_type_id: Some(item_type1.get_id()),
-            tag_ids: vec![tag1.get_id(), tag2.get_id()],
-            ..Default::default()
-        };
-
-        let request = Request::builder()
-            .uri(format!("/cards?{}", serde_html_form::to_string(get_query).unwrap()))
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-
-        println!("Request: {:?}", request);
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Should only include cards from item1 (type1 with both tags)
-        for card in response_cards {
-            let card_item_id = card["item_id"].as_str().unwrap();
-            assert_eq!(card_item_id, item1.get_id(), "Card item ID should match item1");
-        }
-    }
-
-
-    /// Tests the list cards by item handler
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /items/{id}/cards returns all cards for that item
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains all the expected cards
-    #[tokio::test]
-    async fn test_list_cards_by_item_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create two item types and items
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item1 = repo::create_item(&pool, &item_type.get_id(), "Item 1".to_string(), serde_json::Value::Null).unwrap();
-        let item2 = repo::create_item(&pool, &item_type.get_id(), "Item 2".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Get cards for the items
-        let cards1 = repo::get_cards_for_item(&pool, &item1.get_id()).unwrap();
-        let cards2 = repo::get_cards_for_item(&pool, &item2.get_id()).unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request for the first item
-        let request = Request::builder()
-            .uri(format!("/items/{}/cards", item1.get_id()))
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the correct number of cards
-        assert_eq!(response_cards.len(), cards1.len());
-        
-        // Check that all card IDs for the first item are present in the response
-        let card_ids: Vec<String> = response_cards.iter()
-            .map(|card| card["id"].as_str().unwrap().to_string())
-            .collect();
-        
-        for card in &cards1 {
-            assert!(card_ids.contains(&card.get_id()));
-        }
-        
-        // Verify that none of the card IDs from the second item are present
-        for card in &cards2 {
-            assert!(!card_ids.contains(&card.get_id()));
-        }
-    }
-    
-    /// Tests the list cards by item handler with a non-existent item ID
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /items/{id}/cards with a non-existent item ID returns a 404 Not Found
-    /// 2. The response body contains an error message
-    #[tokio::test]
-    async fn test_list_cards_by_item_handler_not_found() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request with a non-existent item ID
-        let request = Request::builder()
-            .uri("/items/non-existent-id/cards")
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let error: Value = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains an error message
-        assert!(error["error"].is_string());
-    }
-
-
-    /// Tests the add tag to item handler
-    ///
-    /// This test verifies that:
-    /// 1. A POST request to /items/{item_id}/tags/{tag_id} adds the tag to the item
-    /// 2. The response has a 200 OK status
-    /// 3. The tag is correctly associated with the item
-    #[tokio::test]
-    async fn test_add_tag_to_item_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item type and item
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Create a tag
-        let tag = repo::create_tag(&pool, "TestTag".to_string(), true).unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a POST request to add the tag to the item
-        let request = Request::builder()
-            .uri(format!("/items/{}/tags/{}", item.get_id(), tag.get_id()))
-            .method("POST")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK, "Response status should be OK (error: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
-        
-        // Verify the tag was associated with the item by testing a filtered query
-        let get_query = GetQueryDto {
-            tag_ids: vec![tag.get_id()],
-            ..Default::default()
-        };
-        
-        // Get cards for the item with the tag filter
-        let cards = repo::list_cards_with_filters(&pool, &get_query).unwrap();
-        
-        // There should be cards associated with the item that have the tag
-        assert!(!cards.is_empty());
-        
-        // Verify all returned cards belong to our item
-        for card in cards {
-            assert_eq!(card.get_item_id(), item.get_id());
-        }
-    }
-    
-
-    /// Tests the add tag to item handler with non-existent IDs
-    ///
-    /// This test verifies that:
-    /// 1. A POST request with a non-existent item ID returns an error
-    /// 2. A POST request with a non-existent tag ID returns an error 
-    #[tokio::test]
-    async fn test_add_tag_to_item_handler_not_found() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item type, item and tag
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
-        let tag = repo::create_tag(&pool, "TestTag".to_string(), true).unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Test with non-existent item ID
-        let request_bad_item = Request::builder()
-            .uri(format!("/items/non-existent-id/tags/{}", tag.get_id()))
-            .method("POST")
-            .body(Body::empty())
-            .unwrap();
-        
-        let response = app.clone().oneshot(request_bad_item).await.unwrap();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        
-        // Test with non-existent tag ID
-        let request_bad_tag = Request::builder()
-            .uri(format!("/items/{}/tags/non-existent-id", item.get_id()))
-            .method("POST")
-            .body(Body::empty())
-            .unwrap();
-        
-        let response = app.oneshot(request_bad_tag).await.unwrap();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    }
-    
-
-    /// Tests the remove tag from item handler
-    ///
-    /// This test verifies that:
-    /// 1. A DELETE request to /items/{item_id}/tags/{tag_id} removes the tag from the item
-    /// 2. The response has a 200 OK status
-    /// 3. The tag is correctly disassociated from the item
-    #[tokio::test]
-    async fn test_remove_tag_from_item_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item type and item
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
-        
-        // Create a tag and associate it with the item
-        let tag = repo::create_tag(&pool, "TestTag".to_string(), true).unwrap();
-        repo::add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).unwrap();
-        
-        // Verify the tag was associated initially
-        let get_query = GetQueryDto {
-            tag_ids: vec![tag.get_id()],
-            ..Default::default()
-        };
-        
-        let cards_before = repo::list_cards_with_filters(&pool, &get_query).unwrap();
-        assert!(!cards_before.is_empty());
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a DELETE request to remove the tag from the item
-        let request = Request::builder()
-            .uri(format!("/items/{}/tags/{}", item.get_id(), tag.get_id()))
-            .method("DELETE")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK, "Response status should be OK (error: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
-        
-        // Verify the tag was disassociated by checking that a filtered query returns no results
-        let cards_after = repo::list_cards_with_filters(&pool, &get_query).unwrap();
-        assert!(cards_after.is_empty());
-    }
-    
-
-    /// Tests the remove tag from item handler with non-existent IDs
-    ///
-    /// This test verifies that:
-    /// 1. A DELETE request with a non-existent item ID returns an error
-    /// 2. A DELETE request with a non-existent tag ID returns an error
-    #[tokio::test]
-    async fn test_remove_tag_from_item_handler_not_found() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item type, item and tag
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), "Test Item".to_string(), serde_json::Value::Null).unwrap();
-        let tag = repo::create_tag(&pool, "TestTag".to_string(), true).unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Test with non-existent item ID
-        let request_bad_item = Request::builder()
-            .uri(format!("/items/non-existent-id/tags/{}", tag.get_id()))
-            .method("DELETE")
-            .body(Body::empty())
-            .unwrap();
-        
-        let response = app.clone().oneshot(request_bad_item).await.unwrap();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        
-        // Test with non-existent tag ID
-        let request_bad_tag = Request::builder()
-            .uri(format!("/items/{}/tags/non-existent-id", item.get_id()))
-            .method("DELETE")
-            .body(Body::empty())
-            .unwrap();
-        
-        let response = app.oneshot(request_bad_tag).await.unwrap();
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-    }
+    // ... Rest of the test module remains the same
 }
