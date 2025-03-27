@@ -7,6 +7,7 @@ Hippocampus is a Rust-based spaced repetition server designed to help users memo
 - **Core Spaced Repetition Functionality**: Schedule items for review using scientifically-backed spaced repetition algorithms
 - **Multiple Item Types**: Support for different kinds of learning material (flashcards, etc.)
 - **Tagging System**: Organize items with tags, including hidden system tags
+- **Card Priority Management**: Adjust review priority of cards independently
 - **RESTful API**: Complete API for item management, reviews, and scheduling
 - **SQLite Database**: Persistent storage with Diesel ORM
 
@@ -16,8 +17,23 @@ Hippocampus is a Rust-based spaced repetition server designed to help users memo
   - `main.rs`: Application entry point
   - `lib.rs`: Core library functionality
   - `db.rs`: Database connection management
-  - `models.rs`: Data structures representing items and reviews
-  - `repo.rs`: Repository layer for database operations
+  - `models/`: Data structures representing items, cards, reviews, and tags
+    - `item.rs`: Item model and related functions
+    - `item_type.rs`: Item type definitions
+    - `card.rs`: Card model for review scheduling
+    - `review.rs`: Review records and rating processing
+    - `tag.rs`: Tags for item organization
+    - `item_tag.rs`: Relationship between items and tags
+    - `json_value.rs`: Support for storing JSON data
+  - `repo/`: Repository layer for database operations
+  - `handlers/`: API request handlers
+    - `item_handlers.rs`: Endpoints for managing items
+    - `item_type_handlers.rs`: Endpoints for managing item types
+    - `card_handlers.rs`: Endpoints for managing review cards
+    - `review_handlers.rs`: Endpoints for recording reviews
+    - `tag_handlers.rs`: Endpoints for tags and item tagging
+  - `errors.rs`: Error handling
+  - `dto.rs`: Data transfer objects for API
   - `schema.rs`: Diesel-generated database schema
 - `migrations/`: Database migration files
 - `tests/`: Integration tests
@@ -26,36 +42,40 @@ Hippocampus is a Rust-based spaced repetition server designed to help users memo
 
 The application exposes a RESTful API with the following endpoints:
 
-- **Item Types**
-  - `GET /item_types`: List all item types
-  - `GET /item_types/{id}`: Get a specific item type
-  - `POST /item_types`: Create a new item type
-  - `GET /item_types/{id}/items`: List items of a specific type
+### Item Types
+- `GET /item_types`: List all item types
+- `GET /item_types/{id}`: Get a specific item type
+- `POST /item_types`: Create a new item type
+- `GET /item_types/{id}/items`: List items of a specific type
 
-- **Items**
-  - `GET /items`: List all items
-  - `GET /items/{id}`: Get a specific item
-  - `POST /items`: Create a new item
-  - `GET /items/{id}/cards`: List cards for a specific item
+### Items
+- `GET /items`: List all items
+- `GET /items/{id}`: Get a specific item
+- `POST /items`: Create a new item
+- `GET /items/{id}/cards`: List cards for a specific item
+- `POST /items/{id}/cards`: Create a new card for an item
+- `GET /items/{item_id}/tags`: List all tags for an item
+- `PUT /items/{item_id}/tags/{tag_id}`: Add a tag to an item
+- `DELETE /items/{item_id}/tags/{tag_id}`: Remove a tag from an item
 
-- **Cards**
-  - `GET /cards`: List all cards (with optional filtering)
-  - `GET /cards/{id}`: Get a specific card
+### Cards
+- `GET /cards`: List all cards (with optional filtering)
+- `GET /cards/{id}`: Get a specific card
+- `GET /cards/{card_id}/reviews`: List all reviews for a card
+- `PUT /cards/{card_id}/priority`: Update the priority of a card
 
-- **Reviews**
-  - `POST /reviews`: Record a review for a card
+### Reviews
+- `POST /reviews`: Record a review for a card
 
-- **Tags**
-  - `GET /tags`: List all tags
-  - `POST /tags`: Create a new tag
-  - `POST /items/{item_id}/tags/{tag_id}`: Add a tag to an item
-  - `DELETE /items/{item_id}/tags/{tag_id}`: Remove a tag from an item
+### Tags
+- `GET /tags`: List all tags
+- `POST /tags`: Create a new tag
 
 ## Data Model
 
 - **Item Types**: Define different types of items (e.g., flashcards, cloze deletions)
 - **Items**: The basic unit of information to be remembered
-- **Cards**: Individual review units derived from items
+- **Cards**: Individual review units derived from items with scheduling information
 - **Reviews**: Records of review sessions with ratings
 - **Tags**: Labels for organizing and filtering items
 
@@ -108,12 +128,6 @@ cargo test
 # Run a single test (by name)
 cargo test test_name
 
-# Run all integration tests
-cargo test --test integration
-
-# Run a specific integration test
-cargo test --test integration test_create_item
-
 # Run tests with test feature enabled
 cargo test --features test
 
@@ -129,12 +143,11 @@ diesel migration run
 - **Testing**: Unit tests in same file as code, integration tests in `tests/`
 - **Organization**: Group imports by category (std lib, external, internal)
 - **Types**: Strong typing with getters/setters for all struct fields
-- **Documentation**: All functions have doc comments with purpose, args, and returns
 - **Database**: Use Diesel ORM with properly separated models and repository functions
 
 ## Future Development
 
-Based on the system design documents, future development may include:
+Planned enhancements include:
 
 - FSRS (Free Spaced Repetition Scheduler) implementation
 - Multiple scheduling algorithms for different item types
