@@ -103,6 +103,7 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         .route("/cards", get(handlers::list_cards_handler))
         .route("/cards/{id}", get(handlers::get_card_handler))
         .route("/cards/{card_id}/reviews", get(handlers::list_reviews_by_card_handler))
+        .route("/cards/{card_id}/priority", post(handlers::update_card_priority_handler))
         
         // Routes for reviews
         .route("/reviews", post(handlers::create_review_handler))
@@ -288,6 +289,185 @@ mod tests {
         assert!(item["id"].is_string());
     }
     
+
+    /// Tests the update card priority handler - successful update
+    ///
+    /// This test verifies that:
+    /// 1. A PUT request to /cards/{card_id}/priority updates the priority of a card
+    /// 2. The response has a 200 OK status
+    /// 3. The response body contains the updated card with the correct priority
+    #[tokio::test]
+    async fn test_update_card_priority_handler_success() {
+        // Set up a test database
+        let pool = setup_test_db();
+        let app = create_app(pool.clone());
+        
+        // Create test data
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Test Item".to_string(), 
+            serde_json::json!({"front": "Hello", "back": "World"})
+        ).unwrap();
+        
+        // Create a card with initial priority
+        let initial_priority = 0.5;
+        let card = repo::create_card(&pool, &item.get_id(), 2, initial_priority).unwrap();
+        
+        // Create a request to update the card's priority
+        let new_priority = 0.8;
+        let request = Request::builder()
+            .uri(format!("/cards/{}/priority", card.get_id()))
+            .method("PUT")
+            .header("Content-Type", "application/json")
+            .body(Body::from(format!(r#"{{"priority":{}}}"#, new_priority)))
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check the response status
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        // Parse the response body
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let updated_card: Value = serde_json::from_slice(&body).unwrap();
+        
+        // Verify the response contains the card with updated priority
+        assert_eq!(updated_card["id"], card.get_id());
+        assert!((updated_card["priority"].as_f64().unwrap() - new_priority).abs() < 0.0001);
+    }
+    
+
+    /// Tests the update card priority handler - boundary values
+    ///
+    /// This test verifies that:
+    /// 1. The handler correctly processes minimum (0.0) and maximum (1.0) priority values
+    #[tokio::test]
+    async fn test_update_card_priority_handler_boundary_values() {
+        // Set up a test database
+        let pool = setup_test_db();
+        let app = create_app(pool.clone());
+        
+        // Create test data
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Test Item".to_string(), 
+            serde_json::json!({"front": "Hello", "back": "World"})
+        ).unwrap();
+        
+        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).unwrap();
+        
+        // Test minimum valid priority (0.0)
+        let min_priority = 0.0;
+        let request = Request::builder()
+            .uri(format!("/cards/{}/priority", card.get_id()))
+            .method("PUT")
+            .header("Content-Type", "application/json")
+            .body(Body::from(format!(r#"{{"priority":{}}}"#, min_priority)))
+            .unwrap();
+        
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let updated_card: Value = serde_json::from_slice(&body).unwrap();
+        assert!((updated_card["priority"].as_f64().unwrap() - min_priority).abs() < 0.0001);
+        
+        // Test maximum valid priority (1.0)
+        let max_priority = 1.0;
+        let request = Request::builder()
+            .uri(format!("/cards/{}/priority", card.get_id()))
+            .method("PUT")
+            .header("Content-Type", "application/json")
+            .body(Body::from(format!(r#"{{"priority":{}}}"#, max_priority)))
+            .unwrap();
+        
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let updated_card: Value = serde_json::from_slice(&body).unwrap();
+        assert!((updated_card["priority"].as_f64().unwrap() - max_priority).abs() < 0.0001);
+    }
+    
+
+    /// Tests the update card priority handler - card not found
+    ///
+    /// This test verifies that:
+    /// 1. The handler returns a 404 Not Found status when the card ID doesn't exist
+    #[tokio::test]
+    async fn test_update_card_priority_handler_not_found() {
+        // Set up a test database
+        let pool = setup_test_db();
+        let app = create_app(pool.clone());
+        
+        // Create a request with a non-existent card ID
+        let request = Request::builder()
+            .uri("/cards/nonexistent-id/priority")
+            .method("PUT")
+            .header("Content-Type", "application/json")
+            .body(Body::from(r#"{"priority":0.7}"#))
+            .unwrap();
+        
+        // Send the request to the app
+        let response = app.oneshot(request).await.unwrap();
+        
+        // Check that we get a 404 Not Found status
+        assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    }
+    
+
+    /// Tests the update card priority handler - invalid priority value
+    ///
+    /// This test verifies that:
+    /// 1. The handler returns a 400 Bad Request status when the priority is outside the valid range
+    #[tokio::test]
+    async fn test_update_card_priority_handler_invalid_priority() {
+        // Set up a test database
+        let pool = setup_test_db();
+        let app = create_app(pool.clone());
+        
+        // Create test data
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item = repo::create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Test Item".to_string(), 
+            serde_json::json!({"front": "Hello", "back": "World"})
+        ).unwrap();
+        
+        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).unwrap();
+        
+        // Test with priority > 1.0 (invalid)
+        let invalid_priority = 1.5;
+        let request = Request::builder()
+            .uri(format!("/cards/{}/priority", card.get_id()))
+            .method("PUT")
+            .header("Content-Type", "application/json")
+            .body(Body::from(format!(r#"{{"priority":{}}}"#, invalid_priority)))
+            .unwrap();
+        
+        let response = app.clone().oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        
+        // Test with priority < 0.0 (invalid)
+        let invalid_priority = -0.5;
+        let request = Request::builder()
+            .uri(format!("/cards/{}/priority", card.get_id()))
+            .method("PUT")
+            .header("Content-Type", "application/json")
+            .body(Body::from(format!(r#"{{"priority":{}}}"#, invalid_priority)))
+            .unwrap();
+        
+        let response = app.oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+
     /// Tests the list items handler
     ///
     /// This test verifies that:
@@ -382,6 +562,7 @@ mod tests {
         assert_eq!(response_item["title"], title);
     }
     
+
     /// Tests the create review handler
     ///
     /// This test verifies that:
@@ -533,6 +714,4 @@ mod tests {
         assert_eq!(response_item_type["id"], item_type.get_id());
         assert_eq!(response_item_type["name"], name);
     }
-    
-    // ... Rest of the test module remains the same
 }

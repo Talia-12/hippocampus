@@ -14,7 +14,15 @@ pub struct CreateItemDto {
     
     /// Additional data specific to the item type
     pub item_data: serde_json::Value,
+
+    /// The priority of the item, between 0 and 1
+    #[serde(default = "default_priority")]
+    pub priority: f32,
 }
+
+/// The default priority for an item
+fn default_priority() -> f32 { 0.5 }
+
 
 /// Data transfer object for creating a new review
 ///

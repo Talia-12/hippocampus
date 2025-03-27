@@ -137,6 +137,7 @@ mod tests {
                 "front": "Hello",
                 "back": "World"
             }),
+            priority: 0.5,
         };
         
         // Call the handler
