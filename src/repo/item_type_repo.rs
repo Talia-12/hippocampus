@@ -22,7 +22,15 @@ use anyhow::Result;
 pub fn create_item_type(pool: &DbPool, name: String) -> Result<ItemType> {
     // Get a connection from the pool
     let conn = &mut pool.get()?;
-    
+
+    // #[cfg(test)] {
+    //     use tracing::warn;
+
+    //     if !name.contains("Test") {
+    //         warn!("Item type name should normally contain 'Test' for testing purposes");
+    //     }
+    // }
+
     // Create a new item type with the provided name
     let new_item_type = ItemType::new(name);
     
@@ -100,7 +108,7 @@ mod tests {
     #[test]
     fn test_create_item_type() {
         let pool = setup_test_db();
-        let name = "Vocabulary".to_string();
+        let name = "Type 1".to_string();
         
         let item_type = create_item_type(&pool, name.clone()).unwrap();
         
@@ -110,7 +118,7 @@ mod tests {
     #[test]
     fn test_get_item_type() {
         let pool = setup_test_db();
-        let name = "Vocabulary".to_string();
+        let name = "Type 1".to_string();
         
         let created_item_type = create_item_type(&pool, name.clone()).unwrap();
         let retrieved_item_type = get_item_type(&pool, &created_item_type.get_id()).unwrap().unwrap();
@@ -124,8 +132,8 @@ mod tests {
         let pool = setup_test_db();
         
         // Create some item types
-        let item_type1 = create_item_type(&pool, "Vocabulary".to_string()).unwrap();
-        let item_type2 = create_item_type(&pool, "Grammar".to_string()).unwrap();
+        let item_type1 = create_item_type(&pool, "Type 1".to_string()).unwrap();
+        let item_type2 = create_item_type(&pool, "Type 2".to_string()).unwrap();
         
         // List all item types
         let item_types = list_item_types(&pool).unwrap();

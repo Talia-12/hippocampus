@@ -243,7 +243,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
@@ -292,7 +292,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
@@ -347,7 +347,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
@@ -398,7 +398,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),

@@ -50,13 +50,6 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
                 cards.push(card);
             }
         },
-        "Vocabulary" => {
-            // Vocabulary items have 2 cards (term->definition and definition->term)
-            for i in 0..2 {
-                let card = create_card(pool, &item.get_id(), i)?;
-                cards.push(card);
-            }
-        },
         "Todo" => {
             // Todo items have 1 card (each todo is a card)
             let card = create_card(pool, &item.get_id(), 0)?;
@@ -328,7 +321,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         
         // Create an item
         let item = create_item(
@@ -351,7 +344,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         
         // Create an item
         let item = create_item(
@@ -379,7 +372,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         
         // Create some items
         let item1 = create_item(
@@ -415,7 +408,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         
         // Create some items (which will also create cards)
         let item1 = create_item(
@@ -447,47 +440,47 @@ mod tests {
         let pool = setup_test_db();
         
         // Create two item types
-        let vocab_type = create_item_type(&pool, "Test Vocabulary".to_string()).unwrap();
-        let grammar_type = create_item_type(&pool, "Test Grammar".to_string()).unwrap();
+        let type1_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let type2_type = create_item_type(&pool, "Test Type 2".to_string()).unwrap();
         
         // Create items of different types
-        let vocab_item = create_item(
+        let type1_item = create_item(
             &pool, 
-            &vocab_type.get_id(), 
-            "Vocab Item".to_string(), 
+            &type1_type.get_id(), 
+            "Type 1 Item".to_string(), 
             json!({"front": "F1", "back": "B1"})
         ).unwrap();
         
-        let grammar_item = create_item(
+        let type2_item = create_item(
             &pool, 
-            &grammar_type.get_id(), 
-            "Grammar Item".to_string(), 
+            &type2_type.get_id(), 
+            "Type 2 Item".to_string(), 
             json!({"front": "F2", "back": "B2"})
         ).unwrap();
         
         // Filter cards by item type
         let query1 = GetQueryDto {
-            item_type_id: Some(vocab_type.get_id()),
+            item_type_id: Some(type1_type.get_id()),
             tag_ids: vec![],
             next_review_before: None,
         };
         
         let query2 = GetQueryDto {
-            item_type_id: Some(grammar_type.get_id()),
+            item_type_id: Some(type2_type.get_id()),
             tag_ids: vec![],
             next_review_before: None,
         };
         
-        let vocab_cards = list_cards_with_filters(&pool, &query1).unwrap();
-        let grammar_cards = list_cards_with_filters(&pool, &query2).unwrap();
+        let type1_cards = list_cards_with_filters(&pool, &query1).unwrap();
+        let type2_cards = list_cards_with_filters(&pool, &query2).unwrap();
         
         // Verify that we got the right cards
-        assert_eq!(vocab_cards.len(), 2);
-        assert_eq!(grammar_cards.len(), 2);
-        assert_eq!(vocab_cards[0].get_item_id(), vocab_item.get_id());
-        assert_eq!(vocab_cards[1].get_item_id(), vocab_item.get_id());
-        assert_eq!(grammar_cards[0].get_item_id(), grammar_item.get_id());
-        assert_eq!(grammar_cards[1].get_item_id(), grammar_item.get_id());
+        assert_eq!(type1_cards.len(), 2);
+        assert_eq!(type2_cards.len(), 2);
+        assert_eq!(type1_cards[0].get_item_id(), type1_item.get_id());
+        assert_eq!(type1_cards[1].get_item_id(), type1_item.get_id());
+        assert_eq!(type2_cards[0].get_item_id(), type2_item.get_id());
+        assert_eq!(type2_cards[1].get_item_id(), type2_item.get_id());
     }
     
 
@@ -496,7 +489,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         
         // Create some items
         let item1 = create_item(
@@ -564,7 +557,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "TestVocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         
         // Create some items
         let item1 = create_item(
@@ -627,54 +620,54 @@ mod tests {
         let pool = setup_test_db();
         
         // Create two item types
-        let vocab_type = create_item_type(&pool, "Test Vocabulary".to_string()).unwrap();
-        let grammar_type = create_item_type(&pool, "Test Grammar".to_string()).unwrap();
+        let type1_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let type2_type = create_item_type(&pool, "Test Type 2".to_string()).unwrap();
         
         // Create items of different types
-        let vocab_item1 = create_item(
+        let type1_item1 = create_item(
             &pool, 
-            &vocab_type.get_id(), 
-            "Vocab 1".to_string(), 
+            &type1_type.get_id(), 
+            "Type 1 Item 1".to_string(), 
             json!({"front": "F1", "back": "B1"})
         ).unwrap();
         
-        let grammar_item = create_item(
+        let type2_item = create_item(
             &pool, 
-            &grammar_type.get_id(), 
-            "Grammar".to_string(), 
-            json!({"front": "F3", "back": "B3"})
+            &type2_type.get_id(), 
+            "Type 2 Item".to_string(), 
+            json!({"front": "F2", "back": "B2"})
         ).unwrap();
         
         // Create some tags
         let important_tag = create_tag(&pool, "Important".to_string(), true).unwrap();
         
         // Add tags to items
-        add_tag_to_item(&pool, &important_tag.get_id(), &vocab_item1.get_id()).unwrap();
-        add_tag_to_item(&pool, &important_tag.get_id(), &grammar_item.get_id()).unwrap();
-        // vocab_item2 has no tags
+        add_tag_to_item(&pool, &important_tag.get_id(), &type1_item1.get_id()).unwrap();
+        add_tag_to_item(&pool, &important_tag.get_id(), &type2_item.get_id()).unwrap();
+        // type1_item2 has no tags
         
         // Get cards for each item
-        let mut vocab_card1 = get_cards_for_item(&pool, &vocab_item1.get_id()).unwrap()[0].clone();
-        let mut vocab_card2 = get_cards_for_item(&pool, &vocab_item1.get_id()).unwrap()[1].clone();
-        let mut grammar_card = get_cards_for_item(&pool, &grammar_item.get_id()).unwrap()[0].clone();
+        let mut type1_card1 = get_cards_for_item(&pool, &type1_item1.get_id()).unwrap()[0].clone();
+        let mut type1_card2 = get_cards_for_item(&pool, &type1_item1.get_id()).unwrap()[1].clone();
+        let mut type2_card = get_cards_for_item(&pool, &type2_item.get_id()).unwrap()[0].clone();
         
         // Set different next_review times for the cards
         let now = Utc::now();
         let yesterday = now - Duration::days(1);
         let tomorrow = now + Duration::days(1);
         
-        vocab_card1.set_next_review(Some(yesterday)); // Due
-        vocab_card2.set_next_review(Some(tomorrow));  // Not due
-        grammar_card.set_next_review(Some(tomorrow)); // Not due
+        type1_card1.set_next_review(Some(yesterday)); // Due
+        type1_card2.set_next_review(Some(tomorrow));  // Not due
+        type2_card.set_next_review(Some(tomorrow)); // Not due
         
         // Update the cards in the database
-        update_card(&pool, &vocab_card1).unwrap();
-        update_card(&pool, &vocab_card2).unwrap();
-        update_card(&pool, &grammar_card).unwrap();
+        update_card(&pool, &type1_card1).unwrap();
+        update_card(&pool, &type1_card2).unwrap();
+        update_card(&pool, &type2_card).unwrap();
         
         // Filter cards by multiple criteria
         let query = GetQueryDto {
-            item_type_id: Some(vocab_type.get_id()),
+            item_type_id: Some(type1_type.get_id()),
             tag_ids: vec![important_tag.get_id()],
             next_review_before: Some(now),
         };
@@ -683,10 +676,10 @@ mod tests {
         
         // Verify that we got exactly the right card
         assert_eq!(filtered_cards.len(), 1);
-        assert!(filtered_cards.iter().any(|c| c.get_id() == vocab_card1.get_id()));
+        assert!(filtered_cards.iter().any(|c| c.get_id() == type1_card1.get_id()));
         
         // This card should:
-        // 1. Belong to an item of type "Vocabulary"
+        // 1. Belong to an item of type "Type 1"
         // 2. Belong to an item tagged as "Important"
         // 3. Be due for review (next_review is earlier than now)
     }

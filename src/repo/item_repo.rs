@@ -147,7 +147,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
         
         // Create an item of that type
         let title = "Example Item".to_string();
@@ -168,7 +168,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
         
         // Create an item
         let title = "Example Item".to_string();
@@ -203,7 +203,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
         
         // Create some items
         let item1 = create_item(
@@ -234,8 +234,8 @@ mod tests {
         let pool = setup_test_db();
         
         // Create two item types
-        let vocab_type = create_item_type(&pool, "Test Vocabulary".to_string()).unwrap();
-        let grammar_type = create_item_type(&pool, "Test Grammar".to_string()).unwrap();
+        let vocab_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let grammar_type = create_item_type(&pool, "Test Type 2".to_string()).unwrap();
         
         // Create items of different types
         let vocab_item = create_item(
@@ -270,7 +270,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
         
         // Create an item with complex JSON data
         let data = json!({

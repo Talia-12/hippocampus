@@ -213,7 +213,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
         
         // Create an item
         let item = create_item(
@@ -257,7 +257,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
         
         // Create an item
         let item = create_item(
@@ -295,7 +295,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
         
         // Create an item
         let item = create_item(

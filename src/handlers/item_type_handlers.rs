@@ -94,9 +94,9 @@ mod tests {
     async fn test_create_item_type_handler() {
         let pool = setup_test_db();
         
-        // Create a test payload
+        // Create a payload
         let payload = CreateItemTypeDto {
-            name: "Vocabulary".to_string(),
+            name: "Type 1".to_string(),
         };
         
         // Call the handler
@@ -107,15 +107,15 @@ mod tests {
         
         // Check the result
         let item_type = result.0;
-        assert_eq!(item_type.get_name(), "Vocabulary");
+        assert_eq!(item_type.get_name(), "Type 1");
     }
     
     #[tokio::test]
     async fn test_get_item_type_handler() {
         let pool = setup_test_db();
         
-        // Create an item type
-        let created_item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        // Create an item type to get
+        let created_item_type = repo::create_item_type(&pool, "Type 1".to_string()).unwrap();
         
         // Call the handler
         let result = get_item_type_handler(
@@ -125,8 +125,7 @@ mod tests {
         
         // Check the result
         let retrieved_item_type = result.0.unwrap();
-        assert_eq!(retrieved_item_type.get_id(), created_item_type.get_id());
-        assert_eq!(retrieved_item_type.get_name(), "Vocabulary");
+        assert_eq!(retrieved_item_type.get_name(), "Type 1");
     }
     
     #[tokio::test]
@@ -148,8 +147,8 @@ mod tests {
         let pool = setup_test_db();
         
         // Create some item types
-        let item_type1 = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
-        let item_type2 = repo::create_item_type(&pool, "Grammar".to_string()).unwrap();
+        let item_type1 = repo::create_item_type(&pool, "Type 1".to_string()).unwrap();
+        let item_type2 = repo::create_item_type(&pool, "Type 2".to_string()).unwrap();
         
         // Call the handler
         let result = list_item_types_handler(

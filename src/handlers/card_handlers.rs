@@ -139,7 +139,7 @@ mod tests {
         let pool = setup_test_db();
         
         // First create an item type
-        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         
         // Then create an item of that type
         let item = repo::create_item(
@@ -167,6 +167,7 @@ mod tests {
         assert_eq!(card.get_card_index(), 3);
     }
     
+    
     #[tokio::test]
     async fn test_create_card_handler_not_found() {
         let pool = setup_test_db();
@@ -193,7 +194,7 @@ mod tests {
         let pool = setup_test_db();
         
         // First create an item type
-        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         
         // Then create an item of that type
         let item = repo::create_item(
@@ -237,7 +238,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up some test data
-        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
@@ -267,7 +268,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up some test data
-        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         let item1 = repo::create_item(
             &pool,
             &item_type.get_id(),

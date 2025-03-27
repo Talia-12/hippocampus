@@ -249,10 +249,11 @@ pub fn remove_tag_from_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Resul
 mod tests {
     use super::*;
     use crate::repo::tests::setup_test_db;
-    
+
     #[test]
     fn test_create_tag() {
         let pool = setup_test_db();
+        
         let name = "Important".to_string();
         let visible = true;
         
@@ -265,6 +266,7 @@ mod tests {
     #[test]
     fn test_get_tag() {
         let pool = setup_test_db();
+        
         let name = "Important".to_string();
         let visible = true;
         
@@ -312,7 +314,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create necessary objects
-        let item_type = crate::repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
         
         // Create some items
         let item1 = crate::repo::create_item(
@@ -359,7 +361,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create necessary objects
-        let item_type = crate::repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
         
         // Create an item
         let item = crate::repo::create_item(
@@ -395,7 +397,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = crate::repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
         
         // Create an item
         let item = crate::repo::create_item(
@@ -425,7 +427,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = crate::repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
         
         // Create an item
         let item = crate::repo::create_item(

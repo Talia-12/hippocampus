@@ -99,7 +99,7 @@ mod tests {
     
     #[test]
     fn test_item_type_new() {
-        let name = "Vocabulary".to_string();
+        let name = "Type 1".to_string();
         let item_type = ItemType::new(name.clone());
         
         assert_eq!(item_type.get_name(), name);

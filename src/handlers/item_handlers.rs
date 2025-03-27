@@ -127,7 +127,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type first
-        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         
         // Create a test payload
         let payload = CreateItemDto {
@@ -156,7 +156,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         
         // Create some items
         let item1 = repo::create_item(
@@ -190,7 +190,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = repo::create_item_type(&pool, "Vocabulary".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
         
         // Create an item
         let item = repo::create_item(
