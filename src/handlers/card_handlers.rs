@@ -152,6 +152,16 @@ pub async fn update_card_priority_handler(
     // Extract and deserialize the JSON request body
     Json(payload): Json<UpdateCardPriorityDto>,
 ) -> Result<Json<Card>, ApiError> {
+    // Check if the priority is valid
+    if payload.priority < 0.0 || payload.priority > 1.0 {
+        return Err(ApiError::InvalidPriority(format!("Priority must be between 0 and 1, got {}", payload.priority)));
+    }
+
+    // Check if the card exists
+    let _card = repo::get_card(&pool, &id)
+        .map_err(ApiError::Database)?
+        .ok_or(ApiError::NotFound)?;
+
     // Call the repository function to update the card's priority
     let card = repo::update_card_priority(&pool, &id, payload.priority)
         .map_err(ApiError::Database)?;
@@ -456,7 +466,7 @@ mod tests {
         
         // Should return an error
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ApiError::Database(_)));
+        assert!(matches!(result.unwrap_err(), ApiError::InvalidPriority(_)));
     }
     
 
@@ -487,7 +497,7 @@ mod tests {
         
         // Should return an error
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ApiError::Database(_)));
+        assert!(matches!(result.unwrap_err(), ApiError::InvalidPriority(_)));
     }
     
     
@@ -507,6 +517,6 @@ mod tests {
         
         // Should return an error
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ApiError::Database(_)));
+        assert!(matches!(result.unwrap_err(), ApiError::NotFound));
     }
 }
