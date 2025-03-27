@@ -6,7 +6,7 @@ use uuid::Uuid;
 use super::JsonValue;
 
 /// Represents a card in the spaced repetition system
-#[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::cards)]
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Card {
@@ -27,6 +27,9 @@ pub struct Card {
     
     /// JSON data for the scheduler, stored as TEXT
     scheduler_data: Option<JsonValue>,
+
+    /// The priority of the card, between 0 and 1
+    priority: f32,
 }
 
 impl Card {
@@ -40,7 +43,7 @@ impl Card {
     /// ### Returns
     ///
     /// A new `Card` instance with the specified item ID and card index
-    pub fn new(item_id: String, card_index: i32) -> Self {
+    pub fn new(item_id: String, card_index: i32, priority: f32) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             item_id,
@@ -48,6 +51,7 @@ impl Card {
             next_review: None,
             last_review: None,
             scheduler_data: None,
+            priority,
         }
     }
     
@@ -71,7 +75,8 @@ impl Card {
         card_index: i32,
         next_review: Option<DateTime<Utc>>,
         last_review: Option<DateTime<Utc>>,
-        scheduler_data: Option<JsonValue>
+        scheduler_data: Option<JsonValue>,
+        priority: f32,
     ) -> Self {
         Self {
             id,
@@ -80,6 +85,7 @@ impl Card {
             next_review: next_review.map(|dt| dt.naive_utc()),
             last_review: last_review.map(|dt| dt.naive_utc()),
             scheduler_data,
+            priority,
         }
     }
     
@@ -199,6 +205,24 @@ impl Card {
     pub fn set_scheduler_data(&mut self, data: Option<JsonValue>) {
         self.scheduler_data = data;
     }
+
+    /// Gets the card's priority
+    ///
+    /// ### Returns
+    ///
+    /// The priority of the card, between 0 and 1
+    pub fn get_priority(&self) -> f32 {
+        self.priority
+    }
+
+    /// Sets the card's priority
+    ///
+    /// ### Arguments
+    ///
+    /// * `priority` - The new priority for the card
+    pub fn set_priority(&mut self, priority: f32) {
+        self.priority = priority;
+    }
 }
 
 #[cfg(test)]
@@ -211,7 +235,7 @@ mod tests {
         let item_id = Uuid::new_v4().to_string();
         let card_index = 1;
         
-        let card = Card::new(item_id.clone(), card_index);
+        let card = Card::new(item_id.clone(), card_index, 0.5);
         
         assert_eq!(card.get_item_id(), item_id);
         assert_eq!(card.get_card_index(), card_index);
@@ -231,7 +255,7 @@ mod tests {
             "repetitions": 0,
         })));
         
-        let mut card = Card::new(item_id, card_index);
+        let mut card = Card::new(item_id, card_index, 0.5);
         card.set_scheduler_data(scheduler_data.clone());
         
         assert_eq!(card.get_scheduler_data(), scheduler_data);

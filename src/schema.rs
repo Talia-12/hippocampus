@@ -8,6 +8,7 @@ diesel::table! {
         next_review -> Nullable<Timestamp>,
         last_review -> Nullable<Timestamp>,
         scheduler_data -> Nullable<Text>,
+        priority -> Float,
     }
 }
 

@@ -36,7 +36,7 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
     match item_type.get_name().as_str() {
         "Basic" => {
             // Basic items have just one card (front/back)
-            let card = create_card(pool, &item.get_id(), 0)?;
+            let card = create_card(pool, &item.get_id(), 0, 0.5)?;
             cards.push(card);
         },
         "Cloze" => {
@@ -46,20 +46,20 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
             let cloze_deletions = cloze_deletions.as_array()
                 .ok_or_else(|| anyhow!("cloze deletion must be an array"))?;
             for (index, _) in cloze_deletions.iter().enumerate() {
-                let card = create_card(pool, &item.get_id(), index as i32)?;
+                let card = create_card(pool, &item.get_id(), index as i32, 0.5)?;
                 cards.push(card);
             }
         },
         "Todo" => {
             // Todo items have 1 card (each todo is a card)
-            let card = create_card(pool, &item.get_id(), 0)?;
+            let card = create_card(pool, &item.get_id(), 0, 0.5)?;
             cards.push(card);
         },
         // TODO: this is a hack
         name if name.contains("Test") => {
             // Test item types have 2 cards
             for i in 0..2 {
-                let card = create_card(pool, &item.get_id(), i)?;
+                let card = create_card(pool, &item.get_id(), i, 0.5)?;
                 cards.push(card);
             }
         },
@@ -92,11 +92,11 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
-pub fn create_card(pool: &DbPool, item_id: &str, card_index: i32) -> Result<Card> {
+pub fn create_card(pool: &DbPool, item_id: &str, card_index: i32, priority: f32) -> Result<Card> {
     let conn = &mut pool.get()?;
     
     // Create a new card for the item
-    let new_card = Card::new(item_id.to_string(), card_index);
+    let new_card = Card::new(item_id.to_string(), card_index, priority);
     
     // Insert the new card into the database
     diesel::insert_into(cards::table)
@@ -276,9 +276,41 @@ pub fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
             cards::next_review.eq(card.get_next_review_raw()),
             cards::last_review.eq(card.get_last_review_raw()),
             cards::scheduler_data.eq(card.get_scheduler_data()),
+            cards::priority.eq(card.get_priority()),
         ))
         .execute(conn)?;
     
+    Ok(())
+}
+
+
+/// Updates a card's priority
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `card_id` - The ID of the card to update
+/// * `priority` - The new priority for the card - must be between 0 and 1
+///
+/// ### Returns
+///
+/// A Result indicating success (Ok(())) or an error
+pub fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -> Result<()> {
+    // Check if the priority is within the valid range
+    if priority < 0.0 || priority > 1.0 {
+        return Err(anyhow!("Priority must be between 0 and 1"));
+    }
+
+    // Check if the card exists
+    let card = get_card(pool, card_id)?;
+    if card.is_none() {
+        return Err(anyhow!("Card not found"));
+    }
+
+    let conn = &mut pool.get()?;
+    diesel::update(cards::table.find(card_id))
+        .set(cards::priority.eq(priority))
+        .execute(conn)?;
     Ok(())
 }
 
@@ -333,10 +365,12 @@ mod tests {
         
         // Test creating a card manually
         let card_index = 2;
-        let card = create_card(&pool, &item.get_id(), card_index).unwrap();
+        let priority = 0.3;
+        let card = create_card(&pool, &item.get_id(), card_index, priority).unwrap();
         
         assert_eq!(card.get_item_id(), item.get_id());
         assert_eq!(card.get_card_index(), card_index);
+        assert!((card.get_priority() - priority).abs() < 0.0001);
     }
     
     #[test]
@@ -718,5 +752,93 @@ mod tests {
         
         let cards = list_cards_with_filters(&pool, &query).unwrap();
         assert_eq!(cards.len(), 0);
+    }
+
+
+    #[test]
+    fn test_update_card_priority() {
+        let pool = setup_test_db();
+        
+        // Create an item type
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        
+        // Create an item
+        let item = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Test Item".to_string(), 
+            json!({"front": "Hello", "back": "World"})
+        ).unwrap();
+        
+        // Create a card with initial priority
+        let initial_priority = 0.5;
+        let card = create_card(&pool, &item.get_id(), 2, initial_priority).unwrap();
+        
+        // Test updating to a valid priority
+        let new_priority = 0.8;
+        let result = update_card_priority(&pool, &card.get_id(), new_priority);
+        assert!(result.is_ok());
+        
+        // Verify the priority was updated
+        let updated_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
+        assert!((updated_card.get_priority() - new_priority).abs() < 0.0001);
+        
+        // Test updating to minimum valid priority (0.0)
+        let min_priority = 0.0;
+        let result = update_card_priority(&pool, &card.get_id(), min_priority);
+        assert!(result.is_ok());
+        
+        // Verify the priority was updated to minimum
+        let updated_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
+        assert!((updated_card.get_priority() - min_priority).abs() < 0.0001);
+        
+        // Test updating to maximum valid priority (1.0)
+        let max_priority = 1.0;
+        let result = update_card_priority(&pool, &card.get_id(), max_priority);
+        assert!(result.is_ok());
+        
+        // Verify the priority was updated to maximum
+        let updated_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
+        assert!((updated_card.get_priority() - max_priority).abs() < 0.0001);
+    }
+    
+    #[test]
+    fn test_update_card_priority_invalid_values() {
+        let pool = setup_test_db();
+        
+        // Create an item type
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        
+        // Create an item
+        let item = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Test Item".to_string(), 
+            json!({"front": "Hello", "back": "World"})
+        ).unwrap();
+        
+        // Create a card with initial priority
+        let initial_priority = 0.5;
+        let card = create_card(&pool, &item.get_id(), 2, initial_priority).unwrap();
+        
+        // Test updating to a priority below the valid range
+        let below_min_priority = -0.1;
+        let result = update_card_priority(&pool, &card.get_id(), below_min_priority);
+        assert!(result.is_err());
+        
+        // Test updating to a priority above the valid range
+        let above_max_priority = 1.1;
+        let result = update_card_priority(&pool, &card.get_id(), above_max_priority);
+        assert!(result.is_err());
+    }
+    
+    #[test]
+    fn test_update_card_priority_nonexistent_card() {
+        let pool = setup_test_db();
+        
+        // Try to update a card that doesn't exist
+        let nonexistent_card_id = "00000000-0000-0000-0000-000000000000";
+        let result = update_card_priority(&pool, nonexistent_card_id, 0.5);
+        assert!(result.is_err());
     }
 } 

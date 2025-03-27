@@ -44,6 +44,9 @@ pub struct CreateItemTypeDto {
 pub struct CreateCardDto {
     /// The index of the card within its item
     pub card_index: i32,
+
+    /// The priority of the card, between 0 and 1
+    pub priority: f32,
 }
 
 /// Data transfer object for creating a new tag

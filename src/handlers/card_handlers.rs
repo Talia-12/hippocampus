@@ -37,12 +37,13 @@ pub async fn create_card_handler(
         .ok_or(ApiError::NotFound)?;
     
     // Call the repository function to create the card
-    let card = repo::create_card(&pool, &item.get_id(), payload.card_index)
+    let card = repo::create_card(&pool, &item.get_id(), payload.card_index, payload.priority)
         .map_err(ApiError::Database)?;
 
     // Return the created card as JSON
     Ok(Json(card))
 }
+
 
 /// Handler for retrieving a specific card
 ///
@@ -69,6 +70,7 @@ pub async fn get_card_handler(
     // Return the card (or None) as JSON
     Ok(Json(card))
 }
+
 
 /// Handler for listing all cards with optional filtering
 ///
@@ -152,6 +154,7 @@ mod tests {
         // Create a payload for the card
         let payload = CreateCardDto {
             card_index: 3,
+            priority: 0.5,
         };
         
         // Call the handler
@@ -167,7 +170,7 @@ mod tests {
         assert_eq!(card.get_card_index(), 3);
     }
     
-    
+
     #[tokio::test]
     async fn test_create_card_handler_not_found() {
         let pool = setup_test_db();
@@ -175,6 +178,7 @@ mod tests {
         // Create a payload for the card
         let payload = CreateCardDto {
             card_index: 1,
+            priority: 0.5,
         };
         
         // Call the handler with a non-existent item ID
@@ -205,7 +209,7 @@ mod tests {
         ).unwrap();
         
         // Create a card for the item
-        let card = repo::create_card(&pool, &item.get_id(), 3).unwrap();
+        let card = repo::create_card(&pool, &item.get_id(), 3, 0.5).unwrap();
         
         // Call the handler
         let result = get_card_handler(
@@ -247,8 +251,8 @@ mod tests {
         ).unwrap();
         
         // Create some cards
-        let card1 = repo::create_card(&pool, &item.get_id(), 3).unwrap();
-        let card2 = repo::create_card(&pool, &item.get_id(), 4).unwrap();
+        let card1 = repo::create_card(&pool, &item.get_id(), 3, 0.5).unwrap();
+        let card2 = repo::create_card(&pool, &item.get_id(), 4, 0.5).unwrap();
         
         // Call the handler with no filters
         let result = list_cards_handler(
@@ -284,8 +288,8 @@ mod tests {
         ).unwrap();
         
         // Create cards for the items
-        let card1 = repo::create_card(&pool, &item1.get_id(), 3).unwrap();
-        let card2 = repo::create_card(&pool, &item2.get_id(), 3).unwrap();
+        let card1 = repo::create_card(&pool, &item1.get_id(), 3, 0.5).unwrap();
+        let card2 = repo::create_card(&pool, &item2.get_id(), 3, 0.5).unwrap();
         
         // Call the handler
         let result = list_cards_by_item_handler(

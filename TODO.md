@@ -1,0 +1,2 @@
+- Add back in more commenting on tests.
+- Add a handler for updating a card's priority.
