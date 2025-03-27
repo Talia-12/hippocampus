@@ -5,7 +5,7 @@ use axum::{
 use std::sync::Arc;
 
 use crate::db::DbPool;
-use crate::dto::{CreateCardDto, GetQueryDto};
+use crate::dto::{CreateCardDto, GetQueryDto, UpdateCardPriorityDto};
 use crate::errors::ApiError;
 use crate::models::Card;
 use crate::repo;
@@ -98,6 +98,7 @@ pub async fn list_cards_handler(
     Ok(Json(cards))
 }
 
+
 /// Handler for listing cards for a specific item
 ///
 /// This function handles GET requests to `/items/{item_id}/cards`.
@@ -128,6 +129,37 @@ pub async fn list_cards_by_item_handler(
     // Return the list of cards as JSON
     Ok(Json(cards))
 }
+
+
+/// Handler for updating a card's priority
+///
+/// This function handles PUT requests to `/cards/{id}/priority`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `id` - The ID of the card to update
+/// * `payload` - The request payload containing the new priority
+///
+/// ### Returns
+///
+/// The updated card as JSON
+pub async fn update_card_priority_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<DbPool>>,
+    // Extract the card ID from the URL path
+    Path(id): Path<String>,
+    // Extract and deserialize the JSON request body
+    Json(payload): Json<UpdateCardPriorityDto>,
+) -> Result<Json<Card>, ApiError> {
+    // Call the repository function to update the card's priority
+    let card = repo::update_card_priority(&pool, &id, payload.priority)
+        .map_err(ApiError::Database)?;
+
+    // Return the updated card as JSON
+    Ok(Json(card))
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -304,6 +336,7 @@ mod tests {
         assert!(!cards.iter().any(|c| c.get_id() == card2.get_id()), "item 2's cards found in list");
     }
     
+
     #[tokio::test]
     async fn test_list_cards_by_item_handler_not_found() {
         let pool = setup_test_db();
@@ -318,4 +351,162 @@ mod tests {
         assert!(result.is_err());
         assert!(matches!(result.unwrap_err(), ApiError::NotFound));
     }
-} 
+
+
+    #[tokio::test]
+    async fn test_update_card_priority_handler_success() {
+        let pool = setup_test_db();
+        
+        // Create test data
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item = repo::create_item(
+            &pool,
+            &item_type.get_id(),
+            "Test Item".to_string(),
+            json!({"front": "Hello", "back": "World"}),
+        ).unwrap();
+        
+        // Create a card with initial priority
+        let initial_priority = 0.5;
+        let card = repo::create_card(&pool, &item.get_id(), 2, initial_priority).unwrap();
+        
+        // Update the card's priority
+        let new_priority = 0.8;
+        let payload = UpdateCardPriorityDto { priority: new_priority };
+        
+        let result = update_card_priority_handler(
+            State(pool.clone()),
+            Path(card.get_id()),
+            Json(payload),
+        ).await.unwrap();
+        
+        // Check the result
+        let updated_card = result.0;
+        assert!((updated_card.get_priority() - new_priority).abs() < 0.0001, "Priority not updated correctly, should be {}, but is {}", new_priority, updated_card.get_priority());
+    }
+    
+
+    #[tokio::test]
+    async fn test_update_card_priority_handler_boundary_values() {
+        let pool = setup_test_db();
+        
+        // Create test data
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item = repo::create_item(
+            &pool,
+            &item_type.get_id(),
+            "Test Item".to_string(),
+            json!({"front": "Hello", "back": "World"}),
+        ).unwrap();
+        
+        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).unwrap();
+        
+        // Test minimum valid priority (0.0)
+        let min_priority = 0.0;
+        let payload = UpdateCardPriorityDto { priority: min_priority };
+        
+        let result = update_card_priority_handler(
+            State(pool.clone()),
+            Path(card.get_id()),
+            Json(payload),
+        ).await.unwrap();
+        
+        let updated_card = result.0;
+        assert!((updated_card.get_priority() - min_priority).abs() < 0.0001);
+        
+        // Test maximum valid priority (1.0)
+        let max_priority = 1.0;
+        let payload = UpdateCardPriorityDto { priority: max_priority };
+        
+        let result = update_card_priority_handler(
+            State(pool.clone()),
+            Path(card.get_id()),
+            Json(payload),
+        ).await.unwrap();
+        
+        let updated_card = result.0;
+        assert!((updated_card.get_priority() - max_priority).abs() < 0.0001);
+    }
+    
+
+    #[tokio::test]
+    async fn test_update_card_priority_handler_invalid_priority_too_low() {
+        let pool = setup_test_db();
+        
+        // Create test data
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item = repo::create_item(
+            &pool,
+            &item_type.get_id(),
+            "Test Item".to_string(),
+            json!({"front": "Hello", "back": "World"}),
+        ).unwrap();
+        
+        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).unwrap();
+        
+        // Test priority below valid range
+        let below_min_priority = -0.1;
+        let payload = UpdateCardPriorityDto { priority: below_min_priority };
+        
+        let result = update_card_priority_handler(
+            State(pool.clone()),
+            Path(card.get_id()),
+            Json(payload),
+        ).await;
+        
+        // Should return an error
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ApiError::Database(_)));
+    }
+    
+
+    #[tokio::test]
+    async fn test_update_card_priority_handler_invalid_priority_too_high() {
+        let pool = setup_test_db();
+        
+        // Create test data
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item = repo::create_item(
+            &pool,
+            &item_type.get_id(),
+            "Test Item".to_string(),
+            json!({"front": "Hello", "back": "World"}),
+        ).unwrap();
+        
+        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).unwrap();
+        
+        // Test priority above valid range
+        let above_max_priority = 1.1;
+        let payload = UpdateCardPriorityDto { priority: above_max_priority };
+        
+        let result = update_card_priority_handler(
+            State(pool.clone()),
+            Path(card.get_id()),
+            Json(payload),
+        ).await;
+        
+        // Should return an error
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ApiError::Database(_)));
+    }
+    
+    
+    #[tokio::test]
+    async fn test_update_card_priority_handler_nonexistent_card() {
+        let pool = setup_test_db();
+        
+        // Try to update a card that doesn't exist
+        let nonexistent_card_id = "00000000-0000-0000-0000-000000000000";
+        let payload = UpdateCardPriorityDto { priority: 0.5 };
+        
+        let result = update_card_priority_handler(
+            State(pool.clone()),
+            Path(nonexistent_card_id.to_string()),
+            Json(payload),
+        ).await;
+        
+        // Should return an error
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ApiError::Database(_)));
+    }
+}

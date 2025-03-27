@@ -67,7 +67,21 @@ pub struct CreateTagDto {
 #[derive(Serialize, Deserialize, Debug, Default)]
 #[serde(default)]
 pub struct GetQueryDto {
+    /// The ID of the item type to filter by
     pub item_type_id: Option<String>,
+    
+    /// The IDs of the tags to filter by
     pub tag_ids: Vec<String>,
+    
+    /// The maximum next review date to filter by
     pub next_review_before: Option<DateTime<Utc>>,
-} 
+}
+
+/// Data transfer object for updating a card's priority
+///
+/// This struct is used to deserialize JSON requests for updating a card's priority.
+#[derive(Deserialize, Debug)]
+pub struct UpdateCardPriorityDto {
+    /// The new priority for the card, between 0 and 1
+    pub priority: f32,
+}

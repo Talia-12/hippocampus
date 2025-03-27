@@ -295,7 +295,7 @@ pub fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
 /// ### Returns
 ///
 /// A Result indicating success (Ok(())) or an error
-pub fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -> Result<()> {
+pub fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -> Result<Card> {
     // Check if the priority is within the valid range
     if priority < 0.0 || priority > 1.0 {
         return Err(anyhow!("Priority must be between 0 and 1"));
@@ -307,11 +307,16 @@ pub fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -> Resu
         return Err(anyhow!("Card not found"));
     }
 
-    let conn = &mut pool.get()?;
+    let mut conn = pool.get()?;
     diesel::update(cards::table.find(card_id))
         .set(cards::priority.eq(priority))
-        .execute(conn)?;
-    Ok(())
+        .execute(&mut conn)?;
+
+    drop(conn);
+
+    let card = get_card(pool, card_id)?;
+
+    return Ok(card.unwrap_or_else(|| panic!("We already checked if the card exists, so this should never happen (somehow the card was deleted)")));
 }
 
 
