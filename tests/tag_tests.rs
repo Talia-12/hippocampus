@@ -469,7 +469,7 @@ async fn test_remove_tag_from_nonexistent_item() {
         .unwrap();
     
     let response = app.call(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+    assert_eq!(response.status(), StatusCode::NOT_FOUND, "Expected 404 Not Found (error message: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
 }
 
 /// Tests error case: removing a non-existent tag from an item

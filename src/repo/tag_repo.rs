@@ -265,12 +265,12 @@ pub async fn add_tag_to_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Resu
 #[instrument(skip(pool), fields(tag_id = %tag_id, item_id = %item_id))]
 pub async fn remove_tag_from_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()> {
     debug!("Removing tag from item");
-    
-    let conn = &mut pool.get()?;
-    
+        
     // Make sure the tag exists
     get_tag(pool, tag_id)?;
     
+    let conn = &mut pool.get()?;
+
     // Delete the association
     let rows_deleted = diesel::delete(
         item_tags::table.filter(

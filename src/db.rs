@@ -97,6 +97,7 @@ pub trait ExecuteWithRetry: RunQueryDsl<SqliteConnection> + ExecuteDsl<SqliteCon
     ///
     /// This function itself doesn't panic, but the underlying `execute` call might
     /// depending on the Diesel operation.
+    #[allow(async_fn_in_trait)]
     async fn execute_with_retry(&self, conn: &mut SqliteConnection) -> Result<usize, DieselError> {
         let mut attempts = 0;
         let mut delay = Duration::from_millis(INITIAL_DELAY_MS);

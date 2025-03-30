@@ -138,7 +138,7 @@ pub async fn remove_tag_from_item_handler(
         },
         Err(e) => {
             // Check if the error is due to item or tag not found
-            if e.to_string().contains("Tag not found") {
+            if e.to_string().contains("not found") {
                 debug!("Failed to remove tag: item or tag not found");
                 Err(ApiError::NotFound)
             } else {

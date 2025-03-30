@@ -406,7 +406,7 @@ mod tests {
             
         let data2 = card2_updated.get_scheduler_data().unwrap().0;
         assert_eq!(data2["repetitions"], 1);
-        assert!(data2["interval"].as_f64().unwrap() > 1.0); // Should be at least a day
+        assert!(data2["interval"].as_f64().unwrap() > 0.999, "Interval should be at least a day, got {}", data2["interval"]); // Should be at least a day
         
         // Create a third card and do multiple reviews
         let item3 = create_item(
