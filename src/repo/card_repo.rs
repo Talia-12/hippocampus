@@ -1,4 +1,4 @@
-use crate::db::DbPool;
+use crate::db::{DbPool, ExecuteWithRetry, LoadWithRetry};
 use crate::models::{Card, Item};
 use crate::schema::{cards, item_tags};
 use crate::GetQueryDto;
@@ -267,25 +267,34 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database query fails
-pub fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
+#[instrument(skip(pool), fields(item_id = %item_id))]
+pub async fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
+    debug!("Getting cards for item: {}", item_id);
     let conn = &mut pool.get()?;
-    
+
     // Check if the item exists
+    debug!("Checking if item exists");
     let item_exists: bool = crate::schema::items::table
         .find(item_id)
         .count()
         .get_result::<i64>(conn)? > 0;
     
     if !item_exists {
+        info!("Item not found: {}", item_id);
         return Err(anyhow!("Item not found"));
     }
-    
+
+    // Clone item_id to ensure 'static lifetime for the async block
+    let item_id_owned = item_id.to_string();
+    debug!("Item found, fetching cards");
+
     // Get all cards for the item
     let results = cards::table
-        .filter(cards::item_id.eq(item_id))
+        .filter(cards::item_id.eq(item_id_owned))
         .order_by(cards::card_index.asc())
-        .load::<Card>(conn)?;
-    
+        .load_with_retry::<Card>(conn).await?;
+
+    debug!("Successfully fetched {} cards for item {}", results.len(), item_id);
     Ok(results)
 }
 
@@ -306,9 +315,14 @@ pub fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database update operation fails
-pub fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
+#[instrument(skip(pool, card), fields(card_id = %card.get_id()))]
+pub async fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
+    debug!("Updating card");
     let conn = &mut pool.get()?;
-    
+
+    let card_id = card.get_id();
+    debug!("Executing update for card_id: {}", card_id);
+
     diesel::update(cards::table.find(card.get_id()))
         .set((
             cards::next_review.eq(card.get_next_review_raw()),
@@ -316,8 +330,9 @@ pub fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
             cards::scheduler_data.eq(card.get_scheduler_data()),
             cards::priority.eq(card.get_priority()),
         ))
-        .execute(conn)?;
-    
+        .execute_with_retry(conn).await?;
+
+    debug!("Successfully updated card_id: {}", card_id);
     Ok(())
 }
 
@@ -390,7 +405,7 @@ mod tests {
     use crate::repo::{create_item, create_item_type, create_tag, add_tag_to_item};
     use serde_json::json;
     use chrono::{Duration, Utc};
-    
+
     #[test]
     fn test_create_card() {
         let pool = setup_test_db();
@@ -416,8 +431,8 @@ mod tests {
         assert!((card.get_priority() - priority).abs() < 0.0001);
     }
     
-    #[test]
-    fn test_get_card() {
+    #[tokio::test]
+    async fn test_get_card() {
         let pool = setup_test_db();
         
         // Create an item type
@@ -432,7 +447,7 @@ mod tests {
         ).unwrap();
         
         // Get the cards created for the item
-        let cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
+        let cards = get_cards_for_item(&pool, &item.get_id()).await.unwrap();
         assert!(!cards.is_empty());
         
         // Test getting a card by ID
@@ -444,8 +459,8 @@ mod tests {
     }
     
 
-    #[test]
-    fn test_retrieve_cards_by_item_id() {
+    #[tokio::test]
+    async fn test_retrieve_cards_by_item_id() {
         let pool = setup_test_db();
         
         // Create an item type
@@ -467,8 +482,8 @@ mod tests {
         ).unwrap();
         
         // Get cards for each item
-        let cards1 = get_cards_for_item(&pool, &item1.get_id()).unwrap();
-        let cards2 = get_cards_for_item(&pool, &item2.get_id()).unwrap();
+        let cards1 = get_cards_for_item(&pool, &item1.get_id()).await.unwrap();
+        let cards2 = get_cards_for_item(&pool, &item2.get_id()).await.unwrap();
         
         // Verify that each item has its own card(s)
         assert_eq!(cards1.len(), 2);
@@ -629,8 +644,8 @@ mod tests {
     }
     
 
-    #[test]
-    fn test_filter_cards_by_next_review() {
+    #[tokio::test]
+    async fn test_filter_cards_by_next_review() {
         let pool = setup_test_db();
         
         // Create an item type
@@ -653,8 +668,8 @@ mod tests {
         
         // Get cards for each item - there will be 2 cards per item
         let mut cards = vec![];
-        cards.append(&mut get_cards_for_item(&pool, &item1.get_id()).unwrap());
-        cards.append(&mut get_cards_for_item(&pool, &item2.get_id()).unwrap());
+        cards.append(&mut get_cards_for_item(&pool, &item1.get_id()).await.unwrap());
+        cards.append(&mut get_cards_for_item(&pool, &item2.get_id()).await.unwrap());
         
         // Set different next_review times for the cards
         let now = Utc::now();
@@ -668,7 +683,7 @@ mod tests {
 
         // Update the cards in the database
         for card in &cards {
-            update_card(&pool, card).unwrap();
+            update_card(&pool, card).await.unwrap();
         }
         
         // Filter cards by next_review
@@ -692,8 +707,8 @@ mod tests {
     }
     
     
-    #[test]
-    fn test_filter_cards_with_multiple_criteria() {
+    #[tokio::test]
+    async fn test_filter_cards_with_multiple_criteria() {
         let pool = setup_test_db();
         
         // Create two item types
@@ -724,9 +739,11 @@ mod tests {
         // type1_item2 has no tags
         
         // Get cards for each item
-        let mut type1_card1 = get_cards_for_item(&pool, &type1_item1.get_id()).unwrap()[0].clone();
-        let mut type1_card2 = get_cards_for_item(&pool, &type1_item1.get_id()).unwrap()[1].clone();
-        let mut type2_card = get_cards_for_item(&pool, &type2_item.get_id()).unwrap()[0].clone();
+        let item1_cards = get_cards_for_item(&pool, &type1_item1.get_id()).await.unwrap();
+        let mut type1_card1 = item1_cards[0].clone();
+        let mut type1_card2 = item1_cards[1].clone();
+        let item2_cards = get_cards_for_item(&pool, &type2_item.get_id()).await.unwrap();
+        let mut type2_card = item2_cards[0].clone();
         
         // Set different next_review times for the cards
         let now = Utc::now();
@@ -738,9 +755,9 @@ mod tests {
         type2_card.set_next_review(Some(tomorrow)); // Not due
         
         // Update the cards in the database
-        update_card(&pool, &type1_card1).unwrap();
-        update_card(&pool, &type1_card2).unwrap();
-        update_card(&pool, &type2_card).unwrap();
+        update_card(&pool, &type1_card1).await.unwrap();
+        update_card(&pool, &type1_card2).await.unwrap();
+        update_card(&pool, &type2_card).await.unwrap();
         
         // Filter cards by multiple criteria
         let query = GetQueryDto {
