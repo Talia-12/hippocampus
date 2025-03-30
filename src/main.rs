@@ -25,7 +25,7 @@ use tracing_appender::rolling::{RollingFileAppender, Rotation};
 async fn main() {
 	// Initialize logging for better debugging and monitoring
 	println!("Initializing logging");
-	init_tracing();
+	let _guard = init_tracing();
 	
 	info!("Starting Hippocampus SRS Server");
 
@@ -85,7 +85,7 @@ async fn main() {
 /// 
 /// A special debug layer can be enabled by setting the HIPPOCAMPUS_DEBUG
 /// environment variable, which will output DEBUG-level logs to the console.
-fn init_tracing() {
+fn init_tracing() -> impl Drop {
     // Create a directory for logs if it doesn't exist
     if !Path::new("logs").exists() {
         std::fs::create_dir("logs").expect("Failed to create logs directory");
@@ -99,7 +99,7 @@ fn init_tracing() {
     );
     
     // Non-blocking writer for better performance
-    let (file_writer, _guard) = tracing_appender::non_blocking(file_appender);
+    let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
 
     println!("Initializing tracing subscriber");
     
@@ -133,6 +133,9 @@ fn init_tracing() {
     subscriber.init();
 
     println!("Tracing subscriber initialized");
+    
+    // Return the guard so it stays alive for the program's duration
+    guard
 }
 
 
