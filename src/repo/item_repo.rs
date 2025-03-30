@@ -1,4 +1,4 @@
-use crate::db::DbPool;
+use crate::db::{DbPool, ExecuteWithRetry};
 use crate::models::{Item, JsonValue};
 use crate::schema::items;
 use diesel::prelude::*;
@@ -26,7 +26,7 @@ use super::card_repo::create_cards_for_item;
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
 #[instrument(skip(pool, item_data), fields(item_type_id = %item_type_id, title = %new_title))]
-pub fn create_item(pool: &DbPool, item_type_id: &str, new_title: String, item_data: serde_json::Value) -> Result<Item> {
+pub async fn create_item(pool: &DbPool, item_type_id: &str, new_title: String, item_data: serde_json::Value) -> Result<Item> {
     debug!("Creating new item");
     
     // Get a connection from the pool
@@ -39,8 +39,8 @@ pub fn create_item(pool: &DbPool, item_type_id: &str, new_title: String, item_da
     
     // Insert the new item into the database
     diesel::insert_into(items::table)
-        .values(&new_item)
-        .execute(&mut conn)?;
+        .values(new_item.clone())
+        .execute_with_retry(&mut conn).await?;
 
     // Drop the connection back to the pool
     drop(conn);
@@ -48,7 +48,7 @@ pub fn create_item(pool: &DbPool, item_type_id: &str, new_title: String, item_da
     debug!("Creating cards for item");
     
     // Create all necessary cards for the item
-    create_cards_for_item(pool, &new_item)?;
+    create_cards_for_item(pool, &new_item).await?;
 
     // TODO: If there's an error, we should delete the item and all its cards
 
@@ -171,12 +171,12 @@ mod tests {
     use crate::repo::create_item_type;
     use serde_json::json;
     
-    #[test]
-    fn test_create_item() {
+    #[tokio::test]
+    async fn test_create_item() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         // Create an item of that type
         let title = "Example Item".to_string();
@@ -185,19 +185,19 @@ mod tests {
             "back": "World"
         });
         
-        let item = create_item(&pool, &item_type.get_id(), title.clone(), data.clone()).unwrap();
+        let item = create_item(&pool, &item_type.get_id(), title.clone(), data.clone()).await.unwrap();
         
         assert_eq!(item.get_title(), title);
         assert_eq!(item.get_item_type(), item_type.get_id());
         assert_eq!(item.get_data().0, data);
     }
     
-    #[test]
-    fn test_get_item() {
+    #[tokio::test]
+    async fn test_get_item() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         // Create an item
         let title = "Example Item".to_string();
@@ -206,7 +206,7 @@ mod tests {
             "back": "World"
         });
         
-        let created_item = create_item(&pool, &item_type.get_id(), title.clone(), data.clone()).unwrap();
+        let created_item = create_item(&pool, &item_type.get_id(), title.clone(), data.clone()).await.unwrap();
         
         // Retrieve the item
         let retrieved_item = get_item(&pool, &created_item.get_id()).unwrap().unwrap();
@@ -217,8 +217,8 @@ mod tests {
         assert_eq!(retrieved_item.get_data().0, data);
     }
     
-    #[test]
-    fn test_get_nonexistent_item() {
+    #[tokio::test]
+    async fn test_get_nonexistent_item() {
         let pool = setup_test_db();
         
         // Try to retrieve a non-existent item
@@ -227,12 +227,12 @@ mod tests {
         assert!(result.is_none());
     }
     
-    #[test]
-    fn test_list_items() {
+    #[tokio::test]
+    async fn test_list_items() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         // Create some items
         let item1 = create_item(
@@ -240,14 +240,14 @@ mod tests {
             &item_type.get_id(), 
             "Item 1".to_string(), 
             json!({"front": "F1", "back": "B1"})
-        ).unwrap();
+        ).await.unwrap();
         
         let item2 = create_item(
             &pool, 
             &item_type.get_id(), 
             "Item 2".to_string(), 
             json!({"front": "F2", "back": "B2"})
-        ).unwrap();
+        ).await.unwrap();
         
         // List all items
         let items = list_items(&pool).unwrap();
@@ -258,13 +258,13 @@ mod tests {
         assert!(items.iter().any(|i| i.get_id() == item2.get_id()));
     }
     
-    #[test]
-    fn test_get_items_by_type() {
+    #[tokio::test]
+    async fn test_get_items_by_type() {
         let pool = setup_test_db();
         
         // Create two item types
-        let vocab_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
-        let grammar_type = create_item_type(&pool, "Test Type 2".to_string()).unwrap();
+        let vocab_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let grammar_type = create_item_type(&pool, "Test Type 2".to_string()).await.unwrap();
         
         // Create items of different types
         let vocab_item = create_item(
@@ -272,14 +272,14 @@ mod tests {
             &vocab_type.get_id(), 
             "Vocab Item".to_string(), 
             json!({"front": "F1", "back": "B1"})
-        ).unwrap();
+        ).await.unwrap();
         
         let grammar_item = create_item(
             &pool, 
             &grammar_type.get_id(), 
             "Grammar Item".to_string(), 
             json!({"front": "F2", "back": "B2"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Get items by type
         let vocab_items = get_items_by_type(&pool, &vocab_type.get_id()).unwrap();
@@ -294,12 +294,12 @@ mod tests {
     }
     
     
-    #[test]
-    fn test_create_item_with_data() {
+    #[tokio::test]
+    async fn test_create_item_with_data() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         // Create an item with complex JSON data
         let data = json!({
@@ -318,7 +318,7 @@ mod tests {
             }
         });
         
-        let item = create_item(&pool, &item_type.get_id(), "Complex Item".to_string(), data.clone()).unwrap();
+        let item = create_item(&pool, &item_type.get_id(), "Complex Item".to_string(), data.clone()).await.unwrap();
         
         // Retrieve the item
         let retrieved_item = get_item(&pool, &item.get_id()).unwrap().unwrap();

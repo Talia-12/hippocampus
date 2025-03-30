@@ -1,4 +1,4 @@
-use crate::db::{DbPool, ExecuteWithRetry, LoadWithRetry};
+use crate::db::{DbPool, ExecuteWithRetry};
 use crate::models::{Card, Item};
 use crate::schema::{cards, item_tags};
 use crate::GetQueryDto;
@@ -26,7 +26,7 @@ use tracing::{instrument, debug, info, warn};
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
 #[instrument(skip(pool, item), fields(item_id = %item.get_id(), item_type = %item.get_item_type()))]
-pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
+pub async fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
     debug!("Creating cards for item");
     
     // Get the item type to determine how many cards to create
@@ -43,7 +43,7 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
         "Basic" => {
             debug!("Creating basic card (front/back)");
             // Basic items have just one card (front/back)
-            let card = create_card(pool, &item.get_id(), 0, 0.5)?;
+            let card = create_card(pool, &item.get_id(), 0, 0.5).await?;
             cards.push(card);
         },
         "Cloze" => {
@@ -56,14 +56,14 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
             
             debug!("Creating {} cloze cards", cloze_deletions.len());
             for (index, _) in cloze_deletions.iter().enumerate() {
-                let card = create_card(pool, &item.get_id(), index as i32, 0.5)?;
+                let card = create_card(pool, &item.get_id(), index as i32, 0.5).await?;
                 cards.push(card);
             }
         },
         "Todo" => {
             debug!("Creating todo card");
             // Todo items have 1 card (each todo is a card)
-            let card = create_card(pool, &item.get_id(), 0, 0.5)?;
+            let card = create_card(pool, &item.get_id(), 0, 0.5).await?;
             cards.push(card);
         },
         // TODO: this is a hack
@@ -71,7 +71,7 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
             debug!("Creating test cards");
             // Test item types have 2 cards
             for i in 0..2 {
-                let card = create_card(pool, &item.get_id(), i, 0.5)?;
+                let card = create_card(pool, &item.get_id(), i, 0.5).await?;
                 cards.push(card);
             }
         },
@@ -107,22 +107,23 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
 #[instrument(skip(pool), fields(item_id = %item_id, card_index = %card_index, priority = %priority))]
-pub fn create_card(pool: &DbPool, item_id: &str, card_index: i32, priority: f32) -> Result<Card> {
+pub async fn create_card(pool: &DbPool, item_id: &str, card_index: i32, priority: f32) -> Result<Card> {
     debug!("Creating new card");
     
     let conn = &mut pool.get()?;
     
     // Create a new card for the item
     let new_card = Card::new(item_id.to_string(), card_index, priority);
+    let new_card_id = new_card.get_id();
     
-    debug!("Inserting card into database with id: {}", new_card.get_id());
+    debug!("Inserting card into database with id: {}", new_card_id);
     
     // Insert the new card into the database
     diesel::insert_into(cards::table)
-        .values(&new_card)
-        .execute(conn)?;
+        .values(new_card.clone())
+        .execute_with_retry(conn).await?;
     
-    info!("Successfully created card with id: {}", new_card.get_id());
+    info!("Successfully created card with id: {}", new_card_id);
     
     // Return the newly created card
     Ok(new_card)
@@ -268,7 +269,7 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
 /// - Unable to get a connection from the pool
 /// - The database query fails
 #[instrument(skip(pool), fields(item_id = %item_id))]
-pub async fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
+pub fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
     debug!("Getting cards for item: {}", item_id);
     let conn = &mut pool.get()?;
 
@@ -284,15 +285,13 @@ pub async fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card
         return Err(anyhow!("Item not found"));
     }
 
-    // Clone item_id to ensure 'static lifetime for the async block
-    let item_id_owned = item_id.to_string();
     debug!("Item found, fetching cards");
 
     // Get all cards for the item
     let results = cards::table
-        .filter(cards::item_id.eq(item_id_owned))
+        .filter(cards::item_id.eq(item_id))
         .order_by(cards::card_index.asc())
-        .load_with_retry::<Card>(conn).await?;
+        .load::<Card>(conn)?;
 
     debug!("Successfully fetched {} cards for item {}", results.len(), item_id);
     Ok(results)
@@ -348,7 +347,7 @@ pub async fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
 /// ### Returns
 ///
 /// A Result indicating success (Ok(())) or an error
-pub fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -> Result<Card> {
+pub async fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -> Result<Card> {
     // Check if the priority is within the valid range
     if priority < 0.0 || priority > 1.0 {
         return Err(anyhow!("Priority must be between 0 and 1"));
@@ -361,9 +360,9 @@ pub fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -> Resu
     }
 
     let mut conn = pool.get()?;
-    diesel::update(cards::table.find(card_id))
+    diesel::update(cards::table.find(card_id.to_string()))
         .set(cards::priority.eq(priority))
-        .execute(&mut conn)?;
+        .execute_with_retry(&mut conn).await?;
 
     drop(conn);
 
@@ -406,12 +405,12 @@ mod tests {
     use serde_json::json;
     use chrono::{Duration, Utc};
 
-    #[test]
-    fn test_create_card() {
+    #[tokio::test]
+    async fn test_create_card() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Create an item
         let item = create_item(
@@ -419,12 +418,12 @@ mod tests {
             &item_type.get_id(), 
             "Test Item".to_string(), 
             json!({"front": "Hello", "back": "World"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Test creating a card manually
         let card_index = 2;
         let priority = 0.3;
-        let card = create_card(&pool, &item.get_id(), card_index, priority).unwrap();
+        let card = create_card(&pool, &item.get_id(), card_index, priority).await.unwrap();
         
         assert_eq!(card.get_item_id(), item.get_id());
         assert_eq!(card.get_card_index(), card_index);
@@ -436,7 +435,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Create an item
         let item = create_item(
@@ -444,10 +443,10 @@ mod tests {
             &item_type.get_id(), 
             "Test Item".to_string(), 
             json!({"front": "Hello", "back": "World"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Get the cards created for the item
-        let cards = get_cards_for_item(&pool, &item.get_id()).await.unwrap();
+        let cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
         assert!(!cards.is_empty());
         
         // Test getting a card by ID
@@ -464,7 +463,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Create some items
         let item1 = create_item(
@@ -472,18 +471,18 @@ mod tests {
             &item_type.get_id(), 
             "Item 1".to_string(), 
             json!({"front": "F1", "back": "B1"})
-        ).unwrap();
+        ).await.unwrap();
         
         let item2 = create_item(
             &pool, 
             &item_type.get_id(), 
             "Item 2".to_string(), 
             json!({"front": "F2", "back": "B2"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Get cards for each item
-        let cards1 = get_cards_for_item(&pool, &item1.get_id()).await.unwrap();
-        let cards2 = get_cards_for_item(&pool, &item2.get_id()).await.unwrap();
+        let cards1 = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        let cards2 = get_cards_for_item(&pool, &item2.get_id()).unwrap();
         
         // Verify that each item has its own card(s)
         assert_eq!(cards1.len(), 2);
@@ -495,12 +494,12 @@ mod tests {
     }
     
 
-    #[test]
-    fn test_list_all_cards() {
+    #[tokio::test]
+    async fn test_list_all_cards() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Create some items (which will also create cards)
         let item1 = create_item(
@@ -508,14 +507,14 @@ mod tests {
             &item_type.get_id(), 
             "Item 1".to_string(), 
             json!({"front": "F1", "back": "B1"})
-        ).unwrap();
+        ).await.unwrap();
         
         let item2 = create_item(
             &pool, 
             &item_type.get_id(), 
             "Item 2".to_string(), 
             json!({"front": "F2", "back": "B2"})
-        ).unwrap();
+        ).await.unwrap();
         
         // List all cards
         let cards = list_all_cards(&pool).unwrap();
@@ -527,13 +526,13 @@ mod tests {
     }
     
     
-    #[test]
-    fn test_filter_cards_by_item_type() {
+    #[tokio::test]
+    async fn test_filter_cards_by_item_type() {
         let pool = setup_test_db();
         
         // Create two item types
-        let type1_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
-        let type2_type = create_item_type(&pool, "Test Type 2".to_string()).unwrap();
+        let type1_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let type2_type = create_item_type(&pool, "Test Type 2".to_string()).await.unwrap();
         
         // Create items of different types
         let type1_item = create_item(
@@ -541,14 +540,14 @@ mod tests {
             &type1_type.get_id(), 
             "Type 1 Item".to_string(), 
             json!({"front": "F1", "back": "B1"})
-        ).unwrap();
+        ).await.unwrap();
         
         let type2_item = create_item(
             &pool, 
             &type2_type.get_id(), 
             "Type 2 Item".to_string(), 
             json!({"front": "F2", "back": "B2"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Filter cards by item type
         let query1 = GetQueryDto {
@@ -576,12 +575,12 @@ mod tests {
     }
     
 
-    #[test]
-    fn test_filter_cards_by_tags() {
+    #[tokio::test]
+    async fn test_filter_cards_by_tags() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Create some items
         let item1 = create_item(
@@ -589,23 +588,23 @@ mod tests {
             &item_type.get_id(), 
             "Item 1".to_string(), 
             json!({"front": "F1", "back": "B1"})
-        ).unwrap();
+        ).await.unwrap();
         
         let item2 = create_item(
             &pool, 
             &item_type.get_id(), 
             "Item 2".to_string(), 
             json!({"front": "F2", "back": "B2"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Create some tags
-        let tag1 = create_tag(&pool, "Important".to_string(), true).unwrap();
-        let tag2 = create_tag(&pool, "Difficult".to_string(), true).unwrap();
+        let tag1 = create_tag(&pool, "Important".to_string(), true).await.unwrap();
+        let tag2 = create_tag(&pool, "Difficult".to_string(), true).await.unwrap();
         
         // Add tags to items
-        add_tag_to_item(&pool, &tag1.get_id(), &item1.get_id()).unwrap();
-        add_tag_to_item(&pool, &tag2.get_id(), &item1.get_id()).unwrap();
-        add_tag_to_item(&pool, &tag1.get_id(), &item2.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag1.get_id(), &item1.get_id()).await.unwrap();
+        add_tag_to_item(&pool, &tag2.get_id(), &item1.get_id()).await.unwrap();
+        add_tag_to_item(&pool, &tag1.get_id(), &item2.get_id()).await.unwrap();
         // Item 3 has no tags
         
         // Filter cards by tags
@@ -649,7 +648,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Create some items
         let item1 = create_item(
@@ -657,19 +656,19 @@ mod tests {
             &item_type.get_id(), 
             "Item 1".to_string(), 
             json!({"front": "F1", "back": "B1"})
-        ).unwrap();
+        ).await.unwrap();
         
         let item2 = create_item(
             &pool, 
             &item_type.get_id(), 
             "Item 2".to_string(), 
             json!({"front": "F2", "back": "B2"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Get cards for each item - there will be 2 cards per item
         let mut cards = vec![];
-        cards.append(&mut get_cards_for_item(&pool, &item1.get_id()).await.unwrap());
-        cards.append(&mut get_cards_for_item(&pool, &item2.get_id()).await.unwrap());
+        cards.append(&mut get_cards_for_item(&pool, &item1.get_id()).unwrap());
+        cards.append(&mut get_cards_for_item(&pool, &item2.get_id()).unwrap());
         
         // Set different next_review times for the cards
         let now = Utc::now();
@@ -712,8 +711,8 @@ mod tests {
         let pool = setup_test_db();
         
         // Create two item types
-        let type1_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
-        let type2_type = create_item_type(&pool, "Test Type 2".to_string()).unwrap();
+        let type1_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let type2_type = create_item_type(&pool, "Test Type 2".to_string()).await.unwrap();
         
         // Create items of different types
         let type1_item1 = create_item(
@@ -721,28 +720,28 @@ mod tests {
             &type1_type.get_id(), 
             "Type 1 Item 1".to_string(), 
             json!({"front": "F1", "back": "B1"})
-        ).unwrap();
+        ).await.unwrap();
         
         let type2_item = create_item(
             &pool, 
             &type2_type.get_id(), 
             "Type 2 Item".to_string(), 
             json!({"front": "F2", "back": "B2"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Create some tags
-        let important_tag = create_tag(&pool, "Important".to_string(), true).unwrap();
+        let important_tag = create_tag(&pool, "Important".to_string(), true).await.unwrap();
         
         // Add tags to items
-        add_tag_to_item(&pool, &important_tag.get_id(), &type1_item1.get_id()).unwrap();
-        add_tag_to_item(&pool, &important_tag.get_id(), &type2_item.get_id()).unwrap();
+        add_tag_to_item(&pool, &important_tag.get_id(), &type1_item1.get_id()).await.unwrap();
+        add_tag_to_item(&pool, &important_tag.get_id(), &type2_item.get_id()).await.unwrap();
         // type1_item2 has no tags
         
         // Get cards for each item
-        let item1_cards = get_cards_for_item(&pool, &type1_item1.get_id()).await.unwrap();
+        let item1_cards = get_cards_for_item(&pool, &type1_item1.get_id()).unwrap();
         let mut type1_card1 = item1_cards[0].clone();
         let mut type1_card2 = item1_cards[1].clone();
-        let item2_cards = get_cards_for_item(&pool, &type2_item.get_id()).await.unwrap();
+        let item2_cards = get_cards_for_item(&pool, &type2_item.get_id()).unwrap();
         let mut type2_card = item2_cards[0].clone();
         
         // Set different next_review times for the cards
@@ -815,12 +814,12 @@ mod tests {
     }
 
 
-    #[test]
-    fn test_update_card_priority() {
+    #[tokio::test]
+    async fn test_update_card_priority() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Create an item
         let item = create_item(
@@ -828,15 +827,15 @@ mod tests {
             &item_type.get_id(), 
             "Test Item".to_string(), 
             json!({"front": "Hello", "back": "World"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Create a card with initial priority
         let initial_priority = 0.5;
-        let card = create_card(&pool, &item.get_id(), 2, initial_priority).unwrap();
+        let card = create_card(&pool, &item.get_id(), 2, initial_priority).await.unwrap();
         
         // Test updating to a valid priority
         let new_priority = 0.8;
-        let result = update_card_priority(&pool, &card.get_id(), new_priority);
+        let result = update_card_priority(&pool, &card.get_id(), new_priority).await;
         assert!(result.is_ok());
         
         // Verify the priority was updated
@@ -845,7 +844,7 @@ mod tests {
         
         // Test updating to minimum valid priority (0.0)
         let min_priority = 0.0;
-        let result = update_card_priority(&pool, &card.get_id(), min_priority);
+        let result = update_card_priority(&pool, &card.get_id(), min_priority).await;
         assert!(result.is_ok());
         
         // Verify the priority was updated to minimum
@@ -854,7 +853,7 @@ mod tests {
         
         // Test updating to maximum valid priority (1.0)
         let max_priority = 1.0;
-        let result = update_card_priority(&pool, &card.get_id(), max_priority);
+        let result = update_card_priority(&pool, &card.get_id(), max_priority).await;
         assert!(result.is_ok());
         
         // Verify the priority was updated to maximum
@@ -862,12 +861,12 @@ mod tests {
         assert!((updated_card.get_priority() - max_priority).abs() < 0.0001);
     }
     
-    #[test]
-    fn test_update_card_priority_invalid_values() {
+    #[tokio::test]
+    async fn test_update_card_priority_invalid_values() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Create an item
         let item = create_item(
@@ -875,30 +874,30 @@ mod tests {
             &item_type.get_id(), 
             "Test Item".to_string(), 
             json!({"front": "Hello", "back": "World"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Create a card with initial priority
         let initial_priority = 0.5;
-        let card = create_card(&pool, &item.get_id(), 2, initial_priority).unwrap();
+        let card = create_card(&pool, &item.get_id(), 2, initial_priority).await.unwrap();
         
         // Test updating to a priority below the valid range
         let below_min_priority = -0.1;
-        let result = update_card_priority(&pool, &card.get_id(), below_min_priority);
+        let result = update_card_priority(&pool, &card.get_id(), below_min_priority).await;
         assert!(result.is_err());
         
         // Test updating to a priority above the valid range
         let above_max_priority = 1.1;
-        let result = update_card_priority(&pool, &card.get_id(), above_max_priority);
+        let result = update_card_priority(&pool, &card.get_id(), above_max_priority).await;
         assert!(result.is_err());
     }
     
-    #[test]
-    fn test_update_card_priority_nonexistent_card() {
+    #[tokio::test]
+    async fn test_update_card_priority_nonexistent_card() {
         let pool = setup_test_db();
         
         // Try to update a card that doesn't exist
         let nonexistent_card_id = "00000000-0000-0000-0000-000000000000";
-        let result = update_card_priority(&pool, nonexistent_card_id, 0.5);
+        let result = update_card_priority(&pool, nonexistent_card_id, 0.5).await;
         assert!(result.is_err());
     }
 } 

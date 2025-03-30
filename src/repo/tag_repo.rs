@@ -1,4 +1,4 @@
-use crate::db::DbPool;
+use crate::db::{DbPool, ExecuteWithRetry};
 use crate::models::Tag;
 use crate::schema::{tags, item_tags};
 use diesel::prelude::*;
@@ -23,7 +23,7 @@ use tracing::{instrument, debug, info};
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
 #[instrument(skip(pool), fields(name = %name, visible = %visible))]
-pub fn create_tag(pool: &DbPool, name: String, visible: bool) -> Result<Tag> {
+pub async fn create_tag(pool: &DbPool, name: String, visible: bool) -> Result<Tag> {
     debug!("Creating new tag");
     
     let conn = &mut pool.get()?;
@@ -35,8 +35,8 @@ pub fn create_tag(pool: &DbPool, name: String, visible: bool) -> Result<Tag> {
     
     // Insert the new tag into the database
     diesel::insert_into(tags::table)
-        .values(&new_tag)
-        .execute(conn)?;
+        .values(new_tag.clone())
+        .execute_with_retry(conn).await?;
     
     info!("Successfully created tag with id: {}", new_tag.get_id());
     
@@ -209,7 +209,7 @@ pub fn list_tags(pool: &DbPool) -> Result<Vec<Tag>> {
 /// - The database query fails
 /// - The item or tag does not exist (this will cause the database to return an error)
 #[instrument(skip(pool), fields(tag_id = %tag_id, item_id = %item_id))]
-pub fn add_tag_to_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()> {
+pub async fn add_tag_to_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()> {
     debug!("Adding tag to item");
     
     use crate::models::ItemTag;
@@ -232,8 +232,8 @@ pub fn add_tag_to_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()>
         debug!("Tag association does not exist, creating it");
         // Insert the association
         diesel::insert_into(item_tags::table)
-            .values(&item_tag)
-            .execute(conn)?;
+            .values(item_tag.clone())
+            .execute_with_retry(conn).await?;
         
         info!("Successfully added tag {} to item {}", tag_id, item_id);
     } else {
@@ -263,7 +263,7 @@ pub fn add_tag_to_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()>
 /// - The database query fails
 /// - The item or tag does not exist
 #[instrument(skip(pool), fields(tag_id = %tag_id, item_id = %item_id))]
-pub fn remove_tag_from_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()> {
+pub async fn remove_tag_from_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()> {
     debug!("Removing tag from item");
     
     let conn = &mut pool.get()?;
@@ -274,10 +274,10 @@ pub fn remove_tag_from_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Resul
     // Delete the association
     let rows_deleted = diesel::delete(
         item_tags::table.filter(
-            item_tags::item_id.eq(item_id)
-                .and(item_tags::tag_id.eq(tag_id))
+            item_tags::item_id.eq(item_id.to_string())
+                .and(item_tags::tag_id.eq(tag_id.to_string()))
         )
-    ).execute(conn)?;
+    ).execute_with_retry(conn).await?;
     
     if rows_deleted == 0 {
         debug!("No tag association found to remove");
@@ -295,27 +295,27 @@ mod tests {
     use super::*;
     use crate::repo::tests::setup_test_db;
 
-    #[test]
-    fn test_create_tag() {
+    #[tokio::test]
+    async fn test_create_tag() {
         let pool = setup_test_db();
         
         let name = "Important".to_string();
         let visible = true;
         
-        let tag = create_tag(&pool, name.clone(), visible).unwrap();
+        let tag = create_tag(&pool, name.clone(), visible).await.unwrap();
         
         assert_eq!(tag.get_name(), name);
         assert_eq!(tag.get_visible(), visible);
     }
     
-    #[test]
-    fn test_get_tag() {
+    #[tokio::test]
+    async fn test_get_tag() {
         let pool = setup_test_db();
         
         let name = "Important".to_string();
         let visible = true;
         
-        let created_tag = create_tag(&pool, name.clone(), visible).unwrap();
+        let created_tag = create_tag(&pool, name.clone(), visible).await.unwrap();
         let retrieved_tag = get_tag(&pool, &created_tag.get_id()).unwrap();
         
         assert_eq!(retrieved_tag.get_name(), name);
@@ -323,13 +323,13 @@ mod tests {
         assert_eq!(retrieved_tag.get_visible(), visible);
     }
     
-    #[test]
-    fn test_list_tags() {
+    #[tokio::test]
+    async fn test_list_tags() {
         let pool = setup_test_db();
         
         // Create some tags
-        let tag1 = create_tag(&pool, "Important".to_string(), true).unwrap();
-        let tag2 = create_tag(&pool, "Difficult".to_string(), false).unwrap();
+        let tag1 = create_tag(&pool, "Important".to_string(), true).await.unwrap();
+        let tag2 = create_tag(&pool, "Difficult".to_string(), false).await.unwrap();
         
         // List all tags
         let tags = list_tags(&pool).unwrap();
@@ -340,8 +340,8 @@ mod tests {
         assert!(tags.iter().any(|t| t.get_id() == tag2.get_id()));
     }
     
-    #[test]
-    fn test_tag_error_handling() {
+    #[tokio::test]
+    async fn test_tag_error_handling() {
         let pool = setup_test_db();
         
         // Try to get a non-existent tag
@@ -354,12 +354,12 @@ mod tests {
     }
     
 
-    #[test]
-    fn test_list_tags_for_item() {
+    #[tokio::test]
+    async fn test_list_tags_for_item() {
         let pool = setup_test_db();
         
         // Create necessary objects
-        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         // Create some items
         let item1 = crate::repo::create_item(
@@ -367,25 +367,25 @@ mod tests {
             &item_type.get_id(),
             "Item 1".to_string(),
             serde_json::json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         let item2 = crate::repo::create_item(
             &pool,
             &item_type.get_id(),
             "Item 2".to_string(),
             serde_json::json!({"front": "Goodbye", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Create some tags
-        let tag1 = create_tag(&pool, "Important".to_string(), true).unwrap();
-        let tag2 = create_tag(&pool, "Difficult".to_string(), false).unwrap();
+        let tag1 = create_tag(&pool, "Important".to_string(), true).await.unwrap();
+        let tag2 = create_tag(&pool, "Difficult".to_string(), false).await.unwrap();
         
         // Add tags to item1
-        add_tag_to_item(&pool, &tag1.get_id(), &item1.get_id()).unwrap();
-        add_tag_to_item(&pool, &tag2.get_id(), &item1.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag1.get_id(), &item1.get_id()).await.unwrap();
+        add_tag_to_item(&pool, &tag2.get_id(), &item1.get_id()).await.unwrap();
         
         // Add only tag1 to item2
-        add_tag_to_item(&pool, &tag1.get_id(), &item2.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag1.get_id(), &item2.get_id()).await.unwrap();
         
         // Test list_tags_for_item with item1
         let item1_tags = list_tags_for_item(&pool, &item1.get_id()).unwrap();
@@ -401,12 +401,12 @@ mod tests {
     }
     
 
-    #[test]
-    fn test_list_tags_for_card() {
+    #[tokio::test]
+    async fn test_list_tags_for_card() {
         let pool = setup_test_db();
         
         // Create necessary objects
-        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         // Create an item
         let item = crate::repo::create_item(
@@ -414,19 +414,19 @@ mod tests {
             &item_type.get_id(),
             "Test Item".to_string(),
             serde_json::json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Get the card created for the item
         let cards = crate::repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
         let card = &cards[0];
         
         // Create some tags
-        let tag1 = create_tag(&pool, "Important".to_string(), true).unwrap();
-        let tag2 = create_tag(&pool, "Difficult".to_string(), false).unwrap();
+        let tag1 = create_tag(&pool, "Important".to_string(), true).await.unwrap();
+        let tag2 = create_tag(&pool, "Difficult".to_string(), false).await.unwrap();
         
         // Add tags to the item
-        add_tag_to_item(&pool, &tag1.get_id(), &item.get_id()).unwrap();
-        add_tag_to_item(&pool, &tag2.get_id(), &item.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag1.get_id(), &item.get_id()).await.unwrap();
+        add_tag_to_item(&pool, &tag2.get_id(), &item.get_id()).await.unwrap();
         
         // Test list_tags_for_card
         let card_tags = list_tags_for_card(&pool, &card.get_id()).unwrap();
@@ -437,12 +437,12 @@ mod tests {
 
 
 
-    #[test]
-    fn test_add_tag_to_item() {
+    #[tokio::test]
+    async fn test_add_tag_to_item() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         // Create an item
         let item = crate::repo::create_item(
@@ -450,13 +450,13 @@ mod tests {
             &item_type.get_id(), 
             "Tagged Item".to_string(), 
             serde_json::json!({"front": "F1", "back": "B1"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Create a tag
-        let tag = create_tag(&pool, "Important".to_string(), true).unwrap();
+        let tag = create_tag(&pool, "Important".to_string(), true).await.unwrap();
         
         // Add the tag to the item
-        add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).await.unwrap();
         
         // Get the tags for the item
         let tags = list_tags_for_item(&pool, &item.get_id()).unwrap();
@@ -467,12 +467,12 @@ mod tests {
     }
     
 
-    #[test]
-    fn test_remove_tag_from_item() {
+    #[tokio::test]
+    async fn test_remove_tag_from_item() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         // Create an item
         let item = crate::repo::create_item(
@@ -480,20 +480,20 @@ mod tests {
             &item_type.get_id(), 
             "Tagged Item".to_string(), 
             serde_json::json!({"front": "F1", "back": "B1"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Create a tag
-        let tag = create_tag(&pool, "Important".to_string(), true).unwrap();
+        let tag = create_tag(&pool, "Important".to_string(), true).await.unwrap();
         
         // Add the tag to the item
-        add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).unwrap();
+        add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).await.unwrap();
         
         // Verify that the item has the tag
         let tags_before = list_tags_for_item(&pool, &item.get_id()).unwrap();
         assert_eq!(tags_before.len(), 1);
         
         // Remove the tag from the item
-        remove_tag_from_item(&pool, &tag.get_id(), &item.get_id()).unwrap();
+        remove_tag_from_item(&pool, &tag.get_id(), &item.get_id()).await.unwrap();
         
         // Verify that the item no longer has the tag
         let tags_after = list_tags_for_item(&pool, &item.get_id()).unwrap();

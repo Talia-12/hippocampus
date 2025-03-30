@@ -1,4 +1,3 @@
-use diesel::query_dsl::methods::LoadQuery;
 /// Database connection module
 ///
 /// This module provides functionality for creating and managing database connections
@@ -7,6 +6,7 @@ use diesel::query_dsl::methods::LoadQuery;
 use diesel::sqlite::SqliteConnection;
 use diesel::r2d2::{Pool, ConnectionManager};
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
+use diesel::query_dsl::methods::LoadQuery;
 use diesel::query_dsl::load_dsl::ExecuteDsl;
 use diesel::RunQueryDsl;
 use std::time::Duration;
@@ -189,8 +189,6 @@ where
         }
     }
 }
-
-
 
 
 #[cfg(test)]

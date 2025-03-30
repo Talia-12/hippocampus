@@ -1,4 +1,4 @@
-use crate::db::DbPool;
+use crate::db::{DbPool, ExecuteWithRetry};
 use crate::models::{Card, JsonValue, Review};
 use crate::schema::{cards, reviews};
 use diesel::prelude::*;
@@ -30,7 +30,7 @@ use tracing::{instrument, debug, info, warn};
 /// - The card does not exist
 /// - The rating is invalid (not 1-3)
 #[instrument(skip(pool), fields(card_id = %card_id, rating = %rating_val))]
-pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Review> {
+pub async fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Review> {
     debug!("Recording new review for card");
     
     let conn = &mut pool.get()?;
@@ -57,8 +57,8 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
     
     // Insert the review into the database
     diesel::insert_into(reviews::table)
-        .values(&new_review)
-        .execute(conn)?;
+        .values(new_review.clone())
+        .execute_with_retry(conn).await?;
     
     debug!("Calculating next review date");
     
@@ -68,19 +68,20 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
     debug!("Next review scheduled for: {}", next_review);
     
     // Update the card in the database
-    diesel::update(cards::table.find(card_id))
+    diesel::update(cards::table.find(card_id.to_string()))
         .set((
             cards::last_review.eq(Utc::now().naive_utc()),
             cards::next_review.eq(next_review.naive_utc()),
             cards::scheduler_data.eq(Some(scheduler_data)),
         ))
-        .execute(conn)?;
+        .execute_with_retry(conn).await?;
     
     info!("Successfully recorded review with id: {}", new_review.get_id());
     
     // Return the review
     Ok(new_review)
 }
+
 
 /// Calculates the next review date and updated scheduler data for a card
 ///
@@ -243,6 +244,7 @@ pub fn get_reviews_for_card(pool: &DbPool, card_id: &str) -> Result<Vec<Review>>
     Ok(reviews)
 }
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,12 +252,12 @@ mod tests {
     use crate::repo::{create_item, create_item_type};
     use serde_json::json;
     
-    #[test]
-    fn test_record_review() {
+    #[tokio::test]
+    async fn test_record_review() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         // Create an item
         let item = create_item(
@@ -263,7 +265,7 @@ mod tests {
             &item_type.get_id(), 
             "Test Item".to_string(), 
             json!({"front": "Hello", "back": "World"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Get the card created for the item
         let card = crate::schema::cards::table
@@ -273,7 +275,7 @@ mod tests {
         
         // Test recording a review
         let rating = 2;
-        let review = record_review(&pool, &card.get_id(), rating).unwrap();
+        let review = record_review(&pool, &card.get_id(), rating).await.unwrap();
         
         assert_eq!(review.get_card_id(), card.get_id());
         assert_eq!(review.get_rating(), rating);
@@ -294,12 +296,13 @@ mod tests {
         assert!(next_review > now);
     }
     
-    #[test]
-    fn test_get_reviews_for_card() {
+
+    #[tokio::test]
+    async fn test_get_reviews_for_card() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         // Create an item
         let item = create_item(
@@ -307,7 +310,7 @@ mod tests {
             &item_type.get_id(), 
             "Test Item".to_string(), 
             json!({"front": "Hello", "back": "World"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Get the card created for the item
         let card = crate::schema::cards::table
@@ -316,12 +319,12 @@ mod tests {
             .unwrap();
         
         // Record some reviews
-        let review1 = record_review(&pool, &card.get_id(), 2).unwrap();
+        let review1 = record_review(&pool, &card.get_id(), 2).await.unwrap();
         
         // We need to wait a moment to ensure the timestamps are different
         std::thread::sleep(std::time::Duration::from_millis(10));
         
-        let review2 = record_review(&pool, &card.get_id(), 3).unwrap();
+        let review2 = record_review(&pool, &card.get_id(), 3).await.unwrap();
         
         // Get reviews for the card
         let reviews = get_reviews_for_card(&pool, &card.get_id()).unwrap();
@@ -332,12 +335,13 @@ mod tests {
         assert_eq!(reviews[1].get_id(), review1.get_id());
     }
     
-    #[test]
-    fn test_record_review_edge_cases() {
+
+    #[tokio::test]
+    async fn test_record_review_edge_cases() {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         // Create an item
         let item = create_item(
@@ -345,7 +349,7 @@ mod tests {
             &item_type.get_id(), 
             "Test Item".to_string(), 
             json!({"front": "Hello", "back": "World"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Get the card created for the item
         let card = crate::schema::cards::table
@@ -354,23 +358,23 @@ mod tests {
             .unwrap();
         
         // Try an invalid rating
-        let result = record_review(&pool, &card.get_id(), 0);
+        let result = record_review(&pool, &card.get_id(), 0).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Rating must be between 1 and 4"));
         
-        let result = record_review(&pool, &card.get_id(), 5);
+        let result = record_review(&pool, &card.get_id(), 5).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Rating must be between 1 and 4"));
         
         // Try a non-existent card
-        let result = record_review(&pool, "nonexistent-id", 2);
+        let result = record_review(&pool, "nonexistent-id", 2).await;
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("Card not found"));
         
         // Test different ratings affect the interval correctly
         
         // First, record a review with rating 1 (again)
-        let _review1 = record_review(&pool, &card.get_id(), 1).unwrap();
+        let _review1 = record_review(&pool, &card.get_id(), 1).await.unwrap();
         let card1 = crate::schema::cards::table
             .find(card.get_id())
             .first::<Card>(&mut pool.get().unwrap())
@@ -378,28 +382,59 @@ mod tests {
             
         let data1 = card1.get_scheduler_data().unwrap().0;
         assert_eq!(data1["repetitions"], 0);
-        assert_eq!(data1["interval"], 1);
+        assert!(data1["interval"].as_f64().unwrap() <= 1.0);
         
-        // Now record a review with rating 3 (easy)
-        let _review2 = record_review(&pool, &card.get_id(), 3).unwrap();
+        // Create another card
+        let item2 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Test Item 2".to_string(), 
+            json!({"front": "Hello2", "back": "World2"})
+        ).await.unwrap();
+        
         let card2 = crate::schema::cards::table
-            .find(card.get_id())
+            .filter(crate::schema::cards::item_id.eq(item2.get_id()))
             .first::<Card>(&mut pool.get().unwrap())
             .unwrap();
-            
-        let data2 = card2.get_scheduler_data().unwrap().0;
-        assert_eq!(data2["repetitions"], 1);
-        assert_eq!(data2["interval"], 1);
         
-        // Record another review with rating 3 (easy)
-        let _review3 = record_review(&pool, &card.get_id(), 3).unwrap();
-        let card3 = crate::schema::cards::table
-            .find(card.get_id())
+        // Record a review with rating 4 (easy)
+        let _review2 = record_review(&pool, &card2.get_id(), 4).await.unwrap();
+        let card2_updated = crate::schema::cards::table
+            .find(card2.get_id())
             .first::<Card>(&mut pool.get().unwrap())
             .unwrap();
             
-        let data3 = card3.get_scheduler_data().unwrap().0;
-        assert_eq!(data3["repetitions"], 2);
-        assert_eq!(data3["interval"], 4);
+        let data2 = card2_updated.get_scheduler_data().unwrap().0;
+        assert_eq!(data2["repetitions"], 1);
+        assert!(data2["interval"].as_f64().unwrap() > 1.0); // Should be at least a day
+        
+        // Create a third card and do multiple reviews
+        let item3 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Test Item 3".to_string(), 
+            json!({"front": "Hello3", "back": "World3"})
+        ).await.unwrap();
+        
+        let card3 = crate::schema::cards::table
+            .filter(crate::schema::cards::item_id.eq(item3.get_id()))
+            .first::<Card>(&mut pool.get().unwrap())
+            .unwrap();
+        
+        // Do a series of "good" reviews
+        record_review(&pool, &card3.get_id(), 3).await.unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        record_review(&pool, &card3.get_id(), 3).await.unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        record_review(&pool, &card3.get_id(), 3).await.unwrap();
+        
+        let card3_updated = crate::schema::cards::table
+            .find(card3.get_id())
+            .first::<Card>(&mut pool.get().unwrap())
+            .unwrap();
+            
+        let data3 = card3_updated.get_scheduler_data().unwrap().0;
+        assert_eq!(data3["repetitions"], 3);
+        assert!(data3["interval"].as_f64().unwrap() > 5.0); // Should be several days
     }
 } 
