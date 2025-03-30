@@ -27,7 +27,7 @@ use axum::{
 };
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tower::ServiceExt;
+use tower::{Service, ServiceExt};
 use uuid;
 
 
@@ -74,7 +74,7 @@ fn create_test_app() -> Router {
 /// ### Returns
 ///
 /// The created ItemType with its ID and creation timestamp
-async fn create_item_type(app: &Router, name: String) -> ItemType {
+async fn create_item_type(app: &mut Router, name: String) -> ItemType {
     // Create a request to create an item type
     let request = Request::builder()
         .uri("/item_types")
@@ -89,7 +89,7 @@ async fn create_item_type(app: &Router, name: String) -> ItemType {
         .unwrap();
     
     // Send the request and get the response
-    let response = app.clone().oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     assert_eq!(response.status(), StatusCode::OK);
     
     // Parse the response body
@@ -111,6 +111,48 @@ async fn create_item_type(app: &Router, name: String) -> ItemType {
 }
 
 
+/// Creates a tag via the API
+///
+/// This helper function:
+/// 1. Sends a POST request to /tags with the provided name
+/// 2. Verifies the response has a 200 OK status
+/// 3. Parses and returns the created tag ID
+///
+/// ### Arguments
+///
+/// * `app` - The test application
+/// * `name` - The name for the new tag
+///
+/// ### Returns
+///
+/// The ID of the created tag
+async fn create_tag(app: &mut Router, name: String) -> String {
+    // Create a request to create a tag
+    let request = Request::builder()
+        .uri("/tags")
+        .method("POST")
+        .header("Content-Type", "application/json")
+        .body(Body::from(
+            serde_json::to_string(&json!({
+                "name": name
+            }))
+            .unwrap(),
+        ))
+        .unwrap();
+    
+    // Send the request and get the response
+    let response = app.call(request).await.unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    
+    // Parse the response body
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let tag: Value = serde_json::from_slice(&body).unwrap();
+    
+    // Extract and return the tag ID
+    tag["id"].as_str().unwrap().to_string()
+}
+
+
 /// Tests creating a new item via the API
 ///
 /// This test verifies that:
@@ -121,10 +163,10 @@ async fn create_item_type(app: &Router, name: String) -> ItemType {
 #[tokio::test]
 async fn test_create_item() {
     // Create our test app with an in-memory database
-    let app = create_test_app();
+    let mut app = create_test_app();
     
     // First create an item type
-    let item_type = create_item_type(&app, "Test Item Type".to_string()).await;
+    let item_type = create_item_type(&mut app, "Test Item Type".to_string()).await;
     
     // Create a request to create an item with a JSON payload
     let request = Request::builder()
@@ -142,7 +184,7 @@ async fn test_create_item() {
         .unwrap();
     
     // Send the request to the application and get the response
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     
     // Check that the response has a 200 OK status
     assert_eq!(response.status(), StatusCode::OK);
@@ -172,10 +214,10 @@ async fn test_create_item() {
 #[tokio::test]
 async fn test_get_item() {
     // Create our test app with an in-memory database
-    let app = create_test_app();
+    let mut app = create_test_app();
     
     // First create an item type
-    let item_type = create_item_type(&app, "Test Item Type".to_string()).await;
+    let item_type = create_item_type(&mut app, "Test Item Type".to_string()).await;
     
     // First, create an item that we can later retrieve
     let request = Request::builder()
@@ -193,7 +235,7 @@ async fn test_get_item() {
         .unwrap();
     
     // Send the create request and parse the response to get the created item
-    let response = app.clone().oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let created_item: Item = serde_json::from_slice(&body).unwrap();
     
@@ -205,7 +247,7 @@ async fn test_get_item() {
         .unwrap();
     
     // Send the get request and get the response
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     
     // Check that the response has a 200 OK status
     assert_eq!(response.status(), StatusCode::OK);
@@ -235,10 +277,10 @@ async fn test_get_item() {
 #[tokio::test]
 async fn test_list_items() {
     // Create our test app with an in-memory database
-    let app = create_test_app();
+    let mut app = create_test_app();
     
     // First create an item type
-    let item_type = create_item_type(&app, "Test Item Type".to_string()).await;
+    let item_type = create_item_type(&mut app, "Test Item Type".to_string()).await;
     
     // Create several items to populate the database
     for i in 1..=3 {
@@ -257,7 +299,7 @@ async fn test_list_items() {
             .unwrap();
         
         // Send each create request (we don't need to check the responses here)
-        let response = app.clone().oneshot(request).await.unwrap();
+        let response = app.call(request).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK, "Item creation should succeed");
     }
     
@@ -269,7 +311,7 @@ async fn test_list_items() {
         .unwrap();
     
     // Send the list request and get the response
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     
     // Check that the response has a 200 OK status
     assert_eq!(response.status(), StatusCode::OK);
@@ -299,10 +341,10 @@ async fn test_list_items() {
 #[tokio::test]
 async fn test_create_review() {
     // Create our test app with an in-memory database
-    let app = create_test_app();
+    let mut app = create_test_app();
     
     // First create an item type
-    let item_type = create_item_type(&app, "Basic".to_string()).await;
+    let item_type = create_item_type(&mut app, "Basic".to_string()).await;
     
     // First, create an item that we can review
     let request = Request::builder()
@@ -320,7 +362,7 @@ async fn test_create_review() {
         .unwrap();
     
     // Send the create item request and parse the response to get the created item
-    let response = app.clone().oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let created_item: Item = serde_json::from_slice(&body).unwrap();
 
@@ -331,7 +373,7 @@ async fn test_create_review() {
         .body(Body::empty())
         .unwrap();
     
-    let response = app.clone().oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let cards: Vec<Card> = serde_json::from_slice(&body).unwrap();
     let card = &cards[0];
@@ -351,7 +393,7 @@ async fn test_create_review() {
         .unwrap();
     
     // Send the create review request and get the response
-    let response = app.clone().oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     
     // Check that the response has a 200 OK status
     assert_eq!(response.status(), StatusCode::OK);
@@ -374,7 +416,7 @@ async fn test_create_review() {
         .unwrap();
     
     // Send the get card request and parse the response
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let updated_card: Option<Card> = serde_json::from_slice(&body).unwrap();
     
@@ -400,7 +442,7 @@ async fn test_create_review() {
 #[tokio::test]
 async fn test_get_nonexistent_item() {
     // Create our test app with an in-memory database
-    let app = create_test_app();
+    let mut app = create_test_app();
     
     // Generate a random UUID for a non-existent item
     let non_existent_id = uuid::Uuid::new_v4().to_string();
@@ -413,7 +455,7 @@ async fn test_get_nonexistent_item() {
         .unwrap();
     
     // Send the request to the application and get the response
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     
     // Check that the response has a 200 OK status
     assert_eq!(response.status(), StatusCode::OK);
@@ -437,7 +479,7 @@ async fn test_get_nonexistent_item() {
 #[tokio::test]
 async fn test_create_review_for_nonexistent_item() {
     // Create our test app with an in-memory database
-    let app = create_test_app();
+    let mut app = create_test_app();
     
     // Generate a random UUID for a non-existent card
     let non_existent_card_id = uuid::Uuid::new_v4().to_string();
@@ -457,7 +499,7 @@ async fn test_create_review_for_nonexistent_item() {
         .unwrap();
     
     // Send the request to the application and get the response
-    let response = app.oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     
     // Check that the response has a 404 Not Found status
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
@@ -473,10 +515,10 @@ async fn test_create_review_for_nonexistent_item() {
 #[tokio::test]
 async fn test_create_review_with_invalid_rating() {
     // Set up the test app
-    let app = create_test_app();
+    let mut app = create_test_app();
     
     // First, create an item type
-    let item_type = create_item_type(&app, "Basic".to_string()).await;
+    let item_type = create_item_type(&mut app, "Basic".to_string()).await;
     
     // Create an item
     let request = Request::builder()
@@ -493,7 +535,7 @@ async fn test_create_review_with_invalid_rating() {
         ))
         .unwrap();
     
-    let response = app.clone().oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let created_item: Item = serde_json::from_slice(&body).unwrap();
     
@@ -504,7 +546,7 @@ async fn test_create_review_with_invalid_rating() {
         .body(Body::empty())
         .unwrap();
     
-    let response = app.clone().oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let cards: Vec<Card> = serde_json::from_slice(&body).unwrap();
     let card = &cards[0];
@@ -523,7 +565,7 @@ async fn test_create_review_with_invalid_rating() {
         ))
         .unwrap();
     
-    let response = app.clone().oneshot(request).await.unwrap();
+    let response = app.call(request).await.unwrap();
     
     // Check that the response has a 400 Bad Request status
     assert_eq!(response.status(), StatusCode::BAD_REQUEST);
@@ -536,4 +578,179 @@ async fn test_create_review_with_invalid_rating() {
     let error_message = error_response["error"].as_str().unwrap();
     assert!(error_message.contains("Rating must be between 1 and 4"), 
             "Error message should mention valid rating range, got: {}", error_message);
+}
+
+
+/// Tests listing all item types via the API
+///
+/// This test verifies that:
+/// 1. A GET request to /item_types returns all item types
+/// 2. The response has a 200 OK status
+/// 3. The response body contains a list of item types
+/// 4. The list includes the item type that was created
+#[tokio::test]
+async fn test_list_item_types() {
+    // Create our test app with an in-memory database
+    let mut app = create_test_app();
+    
+    // Create an item type
+    let item_type = create_item_type(&mut app, "Test Item Type for List".to_string()).await;
+    
+    // Create a request to list all item types
+    let request = Request::builder()
+        .uri("/item_types")
+        .method("GET")
+        .body(Body::empty())
+        .unwrap();
+    
+    // Send the request and get the response
+    let response = app.call(request).await.unwrap();
+    
+    // Check that the response has a 200 OK status
+    assert_eq!(response.status(), StatusCode::OK);
+    
+    // Convert the response body into bytes for parsing
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    
+    // Parse the body as JSON into a vector of Values (we don't have a Vec<ItemType> struct)
+    let item_types: Vec<Value> = serde_json::from_slice(&body).unwrap();
+    
+    // Check that at least one item type exists (the one we created)
+    assert!(!item_types.is_empty(), "Should have at least one item type");
+    
+    // Check that our created item type is in the list
+    let found = item_types.iter().any(|it| {
+        it["id"].as_str().unwrap() == item_type.get_id()
+    });
+    assert!(found, "Created item type should be in the list");
+}
+
+
+/// Tests retrieving a specific item type by ID via the API
+///
+/// This test verifies that:
+/// 1. A GET request to /item_types/{id} returns the correct item type
+/// 2. The response has a 200 OK status
+/// 3. The response body contains the item type with the correct name
+#[tokio::test]
+async fn test_get_item_type() {
+    // Create our test app with an in-memory database
+    let mut app = create_test_app();
+    
+    // Create an item type
+    let item_type = create_item_type(&mut app, "Test Item Type for Get".to_string()).await;
+    
+    // Create a request to get the item type by ID
+    let request = Request::builder()
+        .uri(format!("/item_types/{}", item_type.get_id()))
+        .method("GET")
+        .body(Body::empty())
+        .unwrap();
+    
+    // Send the request and get the response
+    let response = app.call(request).await.unwrap();
+    
+    // Check that the response has a 200 OK status
+    assert_eq!(response.status(), StatusCode::OK);
+    
+    // Convert the response body into bytes for parsing
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    
+    // Parse the body as JSON into a Value
+    let retrieved_item_type: Value = serde_json::from_slice(&body).unwrap();
+    
+    // Check that the item type has the correct ID and name
+    assert_eq!(retrieved_item_type["id"].as_str().unwrap(), item_type.get_id());
+    assert_eq!(retrieved_item_type["name"].as_str().unwrap(), "Test Item Type for Get");
+}
+
+/// Tests retrieving a non-existent item type via the API
+///
+/// This test verifies that:
+/// 1. A GET request to /item_types/{id} with a non-existent ID returns a 404
+/// 2. The API correctly validates that the item type exists
+#[tokio::test]
+async fn test_get_nonexistent_item_type() {
+    // Create our test app with an in-memory database
+    let mut app = create_test_app();
+    
+    // Generate a random UUID for a non-existent item type
+    let non_existent_id = uuid::Uuid::new_v4().to_string();
+    
+    // Create a request to get a non-existent item type
+    let request = Request::builder()
+        .uri(format!("/item_types/{}", non_existent_id))
+        .method("GET")
+        .body(Body::empty())
+        .unwrap();
+    
+    // Send the request and get the response
+    let response = app.call(request).await.unwrap();
+    
+    // Check that the response has a 404 Not Found status
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+
+/// Tests getting all items of a specific item type via the API
+///
+/// This test verifies that:
+/// 1. A GET request to /item_types/{id}/items returns all items of that type
+/// 2. The response has a 200 OK status
+/// 3. The response body contains a list of items
+/// 4. All items in the list have the correct item_type_id
+#[tokio::test]
+async fn test_get_items_by_item_type() {
+    // Create our test app with an in-memory database
+    let mut app = create_test_app();
+    
+    // Create an item type
+    let item_type = create_item_type(&mut app, "Test Item Type for Items".to_string()).await;
+    
+    // Create several items with the item type
+    for i in 1..=3 {
+        let request = Request::builder()
+            .uri("/items")
+            .method("POST")
+            .header("Content-Type", "application/json")
+            .body(Body::from(
+                serde_json::to_string(&json!({
+                    "item_type_id": item_type.get_id(),
+                    "title": format!("Test Item {} for Type", i),
+                    "item_data": null
+                }))
+                .unwrap(),
+            ))
+            .unwrap();
+        
+        let response = app.call(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK, "Item creation should succeed");
+    }
+    
+    // Create a request to get all items for the item type
+    let request = Request::builder()
+        .uri(format!("/item_types/{}/items", item_type.get_id()))
+        .method("GET")
+        .body(Body::empty())
+        .unwrap();
+    
+    // Send the request and get the response
+    let response = app.call(request).await.unwrap();
+    
+    // Check that the response has a 200 OK status
+    assert_eq!(response.status(), StatusCode::OK);
+    
+    // Convert the response body into bytes for parsing
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    
+    // Parse the body as JSON into a vector of Items
+    let items: Vec<Item> = serde_json::from_slice(&body).unwrap();
+    
+    // Check that we have at least the 3 items we created
+    assert!(items.len() >= 3, "Should have at least 3 items");
+    
+    // Check that all items have the correct item_type_id
+    for item in items {
+        assert_eq!(item.get_item_type(), item_type.get_id());
+    }
 }

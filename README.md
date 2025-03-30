@@ -44,14 +44,14 @@ The application exposes a RESTful API with the following endpoints:
 
 ### Item Types
 - `GET /item_types`: List all item types
-- `GET /item_types/{id}`: Get a specific item type
 - `POST /item_types`: Create a new item type
+- `GET /item_types/{id}`: Get a specific item type
 - `GET /item_types/{id}/items`: List items of a specific type
 
 ### Items
 - `GET /items`: List all items
-- `GET /items/{id}`: Get a specific item
 - `POST /items`: Create a new item
+- `GET /items/{id}`: Get a specific item
 - `GET /items/{id}/cards`: List cards for a specific item
 - `POST /items/{id}/cards`: Create a new card for an item
 - `GET /items/{item_id}/tags`: List all tags for an item
@@ -63,6 +63,7 @@ The application exposes a RESTful API with the following endpoints:
 - `GET /cards/{id}`: Get a specific card
 - `GET /cards/{card_id}/reviews`: List all reviews for a card
 - `PUT /cards/{card_id}/priority`: Update the priority of a card
+- `GET /cards/{card_id}/tags`: List all tags for a card
 
 ### Reviews
 - `POST /reviews`: Record a review for a card

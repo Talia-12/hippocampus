@@ -53,13 +53,16 @@ pub async fn get_item_type_handler(
     State(pool): State<Arc<DbPool>>,
     // Extract the item type ID from the URL path
     Path(id): Path<String>,
-) -> Result<Json<Option<ItemType>>, ApiError> {
+) -> Result<Json<ItemType>, ApiError> {
     // Call the repository function to get the item type
     let item_type = repo::get_item_type(&pool, &id)
         .map_err(ApiError::Database)?;
     
-    // Return the item type (or None) as JSON
-    Ok(Json(item_type))
+    // Return a NotFound error if the item type doesn't exist
+    match item_type {
+        Some(item_type) => Ok(Json(item_type)),
+        None => Err(ApiError::NotFound)
+    }
 }
 
 /// Handler for listing all item types
@@ -124,7 +127,7 @@ mod tests {
         ).await.unwrap();
         
         // Check the result
-        let retrieved_item_type = result.0.unwrap();
+        let retrieved_item_type = result.0;
         assert_eq!(retrieved_item_type.get_name(), "Type 1");
     }
     
@@ -136,10 +139,10 @@ mod tests {
         let result = get_item_type_handler(
             State(pool.clone()),
             Path("nonexistent".to_string()),
-        ).await.unwrap();
+        ).await.unwrap_err();
         
-        // Check that we got None
-        assert!(result.0.is_none());
+        // Check that we got a NotFound error
+        assert!(matches!(result, ApiError::NotFound));
     }
     
     #[tokio::test]

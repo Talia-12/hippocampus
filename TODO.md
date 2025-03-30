@@ -1,1 +1,3 @@
 - Add back in more commenting on tests.
+- Fix issues in common.rs where functions are claiming that they aren't being used when they clearly are.
+- Make it so that *whenever* there is a 500 internal server error this is logged.

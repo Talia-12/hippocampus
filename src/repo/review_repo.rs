@@ -32,8 +32,8 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
     let conn = &mut pool.get()?;
     
     // Validate the rating
-    if rating_val < 1 || rating_val > 3 {
-        return Err(anyhow!("Rating must be between 1 and 3, got {}", rating_val));
+    if rating_val < 1 || rating_val > 4 {
+        return Err(anyhow!("Rating must be between 1 and 4, got {}", rating_val));
     }
     
     // Verify that the card exists and get its current data
@@ -74,7 +74,7 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
 /// ### Arguments
 ///
 /// * `card` - The card being reviewed
-/// * `rating` - The rating given during the review (1-3)
+/// * `rating` - The rating given during the review (1-4)
 ///
 /// ### Returns
 ///
@@ -134,7 +134,7 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
             ease_factor = std::cmp::max((ease_factor - 0.15) as i32, 1) as f64;
         },
         3 => {
-            // Rating of 3 means "medium" - larger increase in interval
+            // Rating of 3 means "good" - larger increase in interval
             repetitions += 1;
             if repetitions == 1 {
                 interval = 1;
@@ -314,11 +314,11 @@ mod tests {
         // Try an invalid rating
         let result = record_review(&pool, &card.get_id(), 0);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Rating must be between 1 and 3"));
+        assert!(result.unwrap_err().to_string().contains("Rating must be between 1 and 4"));
         
-        let result = record_review(&pool, &card.get_id(), 4);
+        let result = record_review(&pool, &card.get_id(), 5);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Rating must be between 1 and 3"));
+        assert!(result.unwrap_err().to_string().contains("Rating must be between 1 and 4"));
         
         // Try a non-existent card
         let result = record_review(&pool, "nonexistent-id", 2);

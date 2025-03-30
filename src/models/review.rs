@@ -37,8 +37,8 @@ impl Review {
     /// This function will panic if the rating is not in the range 1-3.
     pub fn new(card_id: &str, rating: i32) -> Self {
         // Validate the rating
-        if rating < 1 || rating > 3 {
-            panic!("Rating must be between 1 and 3, got {}", rating);
+        if rating < 1 || rating > 4 {
+            panic!("Rating must be between 1 and 4, got {}", rating);
         }
         
         Self {
@@ -172,7 +172,7 @@ mod tests {
     }
     
     #[test]
-    #[should_panic(expected = "Rating must be between 1 and 3")]
+    #[should_panic(expected = "Rating must be between 1 and 4")]
     fn test_review_invalid_rating() {
         let card_id = Uuid::new_v4().to_string();
         let invalid_rating = 0;

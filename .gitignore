@@ -1,4 +1,4 @@
 /target
 .env
-srs_server.db
+*.db
 .helix/

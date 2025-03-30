@@ -38,6 +38,7 @@
 /// - GET /cards/{id}: Get a specific card (handlers::get_card_handler)
 /// - GET /cards/{card_id}/reviews: List all reviews for a card (handlers::list_reviews_by_card_handler)
 /// - PUT /cards/{card_id}/priority: Update the priority of a card (handlers::update_card_priority_handler)
+/// - GET /cards/{card_id}/tags: List all tags for a card (handlers::list_tags_for_card_handler)
 ///
 /// Routes for reviews:
 /// - POST /reviews: Create a new review (handlers::create_review_handler)
@@ -105,6 +106,7 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         .route("/cards/{id}", get(handlers::get_card_handler))
         .route("/cards/{card_id}/reviews", get(handlers::list_reviews_by_card_handler))
         .route("/cards/{card_id}/priority", put(handlers::update_card_priority_handler))
+        .route("/cards/{card_id}/tags", get(handlers::list_tags_for_card_handler))
         
         // Routes for reviews
         .route("/reviews", post(handlers::create_review_handler))
