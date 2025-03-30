@@ -33,7 +33,7 @@ pub async fn create_item_type_handler(
     info!("Creating new item type");
     
     // Call the repository function to create the item type
-    let item_type = repo::create_item_type(&pool, payload.name)
+    let item_type = repo::create_item_type(&pool, payload.name).await
         .map_err(ApiError::Database)?;
 
     info!("Successfully created item type with id: {}", item_type.get_id());
@@ -138,7 +138,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type to get
-        let created_item_type = repo::create_item_type(&pool, "Type 1".to_string()).unwrap();
+        let created_item_type = repo::create_item_type(&pool, "Type 1".to_string()).await.unwrap();
         
         // Call the handler
         let result = get_item_type_handler(
@@ -170,8 +170,8 @@ mod tests {
         let pool = setup_test_db();
         
         // Create some item types
-        let item_type1 = repo::create_item_type(&pool, "Type 1".to_string()).unwrap();
-        let item_type2 = repo::create_item_type(&pool, "Type 2".to_string()).unwrap();
+        let item_type1 = repo::create_item_type(&pool, "Type 1".to_string()).await.unwrap();
+        let item_type2 = repo::create_item_type(&pool, "Type 2".to_string()).await.unwrap();
         
         // Call the handler
         let result = list_item_types_handler(

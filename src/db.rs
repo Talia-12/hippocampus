@@ -6,7 +6,6 @@
 use diesel::sqlite::SqliteConnection;
 use diesel::r2d2::{Pool, ConnectionManager};
 use diesel::result::{DatabaseErrorKind, Error as DieselError};
-use diesel::query_dsl::methods::LoadQuery;
 use diesel::query_dsl::load_dsl::ExecuteDsl;
 use diesel::RunQueryDsl;
 use std::time::Duration;
@@ -130,65 +129,6 @@ pub trait ExecuteWithRetry: RunQueryDsl<SqliteConnection> + ExecuteDsl<SqliteCon
 
 // Automatically implement the trait for any type that meets the bounds.
 impl<T> ExecuteWithRetry for T where T: RunQueryDsl<SqliteConnection> + ExecuteDsl<SqliteConnection> + Clone + Send + Sync + 'static {}
-
-/// An async trait for executing Diesel queries with automatic retries on transient errors.
-pub trait LoadWithRetry<'a>: RunQueryDsl<SqliteConnection> + Clone + Send + Sync + 'static {
-    /// Loads the query results, retrying with exponential backoff if a transient error occurs.
-    ///
-    /// ### Arguments
-    ///
-    /// * `conn` - A mutable reference to the SQLite connection.
-    ///
-    /// ### Returns
-    ///
-    /// A `Result` containing the loaded results on success, or a `DieselError`
-    /// if the operation fails after exhausting retries or encounters a non-retryable error.
-    ///
-    /// ### Panics
-    ///
-    /// This function itself doesn't panic, but the underlying `load` call might
-    /// depending on the Diesel operation.
-    async fn load_with_retry<U>(&self, conn: &mut SqliteConnection) -> Result<Vec<U>, DieselError>
-    where
-        Self: LoadQuery<'a, SqliteConnection, U>;
-}
-
-impl<'a, T> LoadWithRetry<'a> for T
-where
-    T: RunQueryDsl<SqliteConnection> + Clone + Send + Sync + 'static,
-{
-    async fn load_with_retry<U>(&self, conn: &mut SqliteConnection) -> Result<Vec<U>, DieselError>
-    where
-        Self: LoadQuery<'a, SqliteConnection, U>,
-    {
-        let mut attempts = 0;
-        let mut delay = Duration::from_millis(INITIAL_DELAY_MS);
-
-        loop {
-            // Clone the query builder for this attempt, as `load` consumes it.
-            let query_clone = self.clone();
-
-            // Execute the query
-            let result = query_clone.load(conn);
-
-            match result {
-                Ok(loaded_results) => return Ok(loaded_results),
-                Err(e) => {
-                    if attempts >= MAX_RETRIES || !is_retryable_error(&e) {
-                        // If max retries reached or error is not retryable, return the error
-                        return Err(e);
-                    }
-                    // Log the retry attempt (optional, but good practice)
-                    // tracing::warn!(error = ?e, attempt = attempts + 1, delay_ms = delay.as_millis(), "Query failed, retrying after delay...");
-
-                    attempts += 1;
-                    sleep(delay).await;
-                    delay *= 2; // Double the delay for the next attempt
-                }
-            }
-        }
-    }
-}
 
 
 #[cfg(test)]

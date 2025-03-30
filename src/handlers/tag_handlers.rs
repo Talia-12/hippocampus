@@ -33,7 +33,7 @@ pub async fn create_tag_handler(
     info!("Creating new tag");
     
     // Call the repository function to create the tag
-    let tag = repo::create_tag(&pool, payload.name, payload.visible)
+    let tag = repo::create_tag(&pool, payload.name, payload.visible).await
         .map_err(ApiError::Database)?;
 
     info!("Successfully created tag with id: {}", tag.get_id());
@@ -92,7 +92,7 @@ pub async fn add_tag_to_item_handler(
     info!("Adding tag to item");
     
     // Call the repository function to add the tag to the item
-    match repo::add_tag_to_item(&pool, &tag_id, &item_id) {
+    match repo::add_tag_to_item(&pool, &tag_id, &item_id).await {
         Ok(_) => {
             info!("Successfully added tag {} to item {}", tag_id, item_id);
             Ok(())
@@ -131,7 +131,7 @@ pub async fn remove_tag_from_item_handler(
     info!("Removing tag from item");
     
     // Call the repository function to remove the tag from the item
-    match repo::remove_tag_from_item(&pool, &tag_id, &item_id) {
+    match repo::remove_tag_from_item(&pool, &tag_id, &item_id).await {
         Ok(_) => {
             info!("Successfully removed tag {} from item {}", tag_id, item_id);
             Ok(())
@@ -228,6 +228,7 @@ mod tests {
     use super::*;
     use crate::tests::setup_test_db;
     use crate::repo;
+    use axum::extract::Path;
     use serde_json::json;
     
 
@@ -259,8 +260,8 @@ mod tests {
         let pool = setup_test_db();
         
         // Create some tags
-        let tag1 = repo::create_tag(&pool, "Important".to_string(), true).unwrap();
-        let tag2 = repo::create_tag(&pool, "Difficult".to_string(), false).unwrap();
+        let tag1 = repo::create_tag(&pool, "Important".to_string(), true).await.unwrap();
+        let tag2 = repo::create_tag(&pool, "Difficult".to_string(), false).await.unwrap();
         
         // Call the handler
         let result = list_tags_handler(
@@ -280,15 +281,16 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
-        let tag = repo::create_tag(&pool, "Important".to_string(), true).unwrap();
+        // Create a tag
+        let tag = repo::create_tag(&pool, "Important".to_string(), true).await.unwrap();
         
         // Call the handler
         let result = add_tag_to_item_handler(
@@ -328,21 +330,24 @@ mod tests {
     async fn test_remove_tag_from_item_handler() {
         let pool = setup_test_db();
         
-        // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        // Create an item type
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+        
+        // Create an item
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
-        let tag = repo::create_tag(&pool, "Important".to_string(), true).unwrap();
+        // Create a tag
+        let tag = repo::create_tag(&pool, "Important".to_string(), true).await.unwrap();
         
         // Add the tag to the item
-        repo::add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).unwrap();
+        repo::add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).await.unwrap();
         
-        // Verify that the tag was added
+        // Verify the tag was added
         let tags_before = repo::list_tags_for_item(&pool, &item.get_id()).unwrap();
         assert_eq!(tags_before.len(), 1);
         
@@ -384,20 +389,20 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
-        let tag1 = repo::create_tag(&pool, "Important".to_string(), true).unwrap();
-        let tag2 = repo::create_tag(&pool, "Difficult".to_string(), false).unwrap();
+        let tag1 = repo::create_tag(&pool, "Important".to_string(), true).await.unwrap();
+        let tag2 = repo::create_tag(&pool, "Difficult".to_string(), false).await.unwrap();
         
         // Add the tags to the item
-        repo::add_tag_to_item(&pool, &tag1.get_id(), &item.get_id()).unwrap();
-        repo::add_tag_to_item(&pool, &tag2.get_id(), &item.get_id()).unwrap();
+        repo::add_tag_to_item(&pool, &tag1.get_id(), &item.get_id()).await.unwrap();
+        repo::add_tag_to_item(&pool, &tag2.get_id(), &item.get_id()).await.unwrap();
         
         // Call the handler
         let result = list_tags_for_item_handler(
@@ -435,30 +440,30 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Get the card created for the item
         let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
         let card = &cards[0];
         
         // Create some tags
-        let tag1 = repo::create_tag(&pool, "Important".to_string(), true).unwrap();
-        let tag2 = repo::create_tag(&pool, "Difficult".to_string(), false).unwrap();
+        let tag1 = repo::create_tag(&pool, "Important".to_string(), true).await.unwrap();
+        let tag2 = repo::create_tag(&pool, "Difficult".to_string(), false).await.unwrap();
         
         // Add tags to the item
-        repo::add_tag_to_item(&pool, &tag1.get_id(), &item.get_id()).unwrap();
-        repo::add_tag_to_item(&pool, &tag2.get_id(), &item.get_id()).unwrap();
+        repo::add_tag_to_item(&pool, &tag1.get_id(), &item.get_id()).await.unwrap();
+        repo::add_tag_to_item(&pool, &tag2.get_id(), &item.get_id()).await.unwrap();
         
         // Call the handler
         let result = list_tags_for_card_handler(
             State(pool.clone()),
-            Path(card.get_id().to_string()),
+            Path(card.get_id()),
         ).await.unwrap();
         
         // Check the result

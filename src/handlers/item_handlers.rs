@@ -33,7 +33,7 @@ pub async fn create_item_handler(
     info!("Creating new item");
     
     // Call the repository function to create the item
-    let item = repo::create_item(&pool, &payload.item_type_id, payload.title, payload.item_data)
+    let item = repo::create_item(&pool, &payload.item_type_id, payload.title, payload.item_data).await
         .map_err(ApiError::Database)?;
 
     info!("Successfully created item with id: {}", item.get_id());
@@ -154,7 +154,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type first
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Create a test payload
         let payload = CreateItemDto {
@@ -184,7 +184,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Create some items
         let item1 = repo::create_item(
@@ -192,14 +192,14 @@ mod tests {
             &item_type.get_id(),
             "Item 1".to_string(),
             json!({"front": "F1", "back": "B1"}),
-        ).unwrap();
+        ).await.unwrap();
         
         let item2 = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Item 2".to_string(),
             json!({"front": "F2", "back": "B2"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Call the handler
         let result = list_items_handler(
@@ -218,7 +218,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Create an item
         let item = repo::create_item(
@@ -226,7 +226,7 @@ mod tests {
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Call the handler
         let result = get_item_handler(
@@ -244,44 +244,44 @@ mod tests {
     async fn test_list_items_by_item_type_handler() {
         let pool = setup_test_db();
         
-        // Create some item types
-        let vocab_type = repo::create_item_type(&pool, "Test Vocabulary".to_string()).unwrap();
-        let grammar_type = repo::create_item_type(&pool, "Test Grammar".to_string()).unwrap();
+        // Create two item types
+        let type1 = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let type2 = repo::create_item_type(&pool, "Test Type 2".to_string()).await.unwrap();
         
         // Create items of different types
-        let vocab_item1 = repo::create_item(
+        let type1_item1 = repo::create_item(
             &pool,
-            &vocab_type.get_id(),
-            "Vocab 1".to_string(),
+            &type1.get_id(),
+            "Type 1 Item 1".to_string(),
             json!({"front": "F1", "back": "B1"}),
-        ).unwrap();
+        ).await.unwrap();
         
-        let vocab_item2 = repo::create_item(
+        let type1_item2 = repo::create_item(
             &pool,
-            &vocab_type.get_id(),
-            "Vocab 2".to_string(),
+            &type1.get_id(),
+            "Type 1 Item 2".to_string(),
             json!({"front": "F2", "back": "B2"}),
-        ).unwrap();
+        ).await.unwrap();
         
-        let grammar_item = repo::create_item(
+        let type2_item = repo::create_item(
             &pool,
-            &grammar_type.get_id(),
-            "Grammar Item".to_string(),
+            &type2.get_id(),
+            "Type 2 Item".to_string(),
             json!({"front": "F3", "back": "B3"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Call the handler for vocabulary items
         let result = list_items_by_item_type_handler(
             State(pool.clone()),
-            Path(vocab_type.get_id()),
+            Path(type1.get_id()),
         ).await.unwrap();
         
         // Check the result
-        let vocab_items = result.0;
-        assert_eq!(vocab_items.len(), 2);
-        assert!(vocab_items.iter().any(|i| i.get_id() == vocab_item1.get_id()));
-        assert!(vocab_items.iter().any(|i| i.get_id() == vocab_item2.get_id()));
-        assert!(!vocab_items.iter().any(|i| i.get_id() == grammar_item.get_id()));
+        let items = result.0;
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().any(|i| i.get_id() == type1_item1.get_id()));
+        assert!(items.iter().any(|i| i.get_id() == type1_item2.get_id()));
+        assert!(!items.iter().any(|i| i.get_id() == type2_item.get_id()));
     }
     
     #[tokio::test]

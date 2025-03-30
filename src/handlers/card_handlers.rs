@@ -41,7 +41,7 @@ pub async fn create_card_handler(
         .ok_or(ApiError::NotFound)?;
     
     // Call the repository function to create the card
-    let card = repo::create_card(&pool, &item.get_id(), payload.card_index, payload.priority)
+    let card = repo::create_card(&pool, &item.get_id(), payload.card_index, payload.priority).await
         .map_err(ApiError::Database)?;
 
     info!("Successfully created card with id: {}", card.get_id());
@@ -191,7 +191,7 @@ pub async fn update_card_priority_handler(
         .ok_or(ApiError::NotFound)?;
 
     // Call the repository function to update the card's priority
-    let card = repo::update_card_priority(&pool, &id, payload.priority)
+    let card = repo::update_card_priority(&pool, &id, payload.priority).await
         .map_err(ApiError::Database)?;
     
     info!("Successfully updated card priority to {}", payload.priority);
@@ -213,7 +213,7 @@ mod tests {
         let pool = setup_test_db();
         
         // First create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Then create an item of that type
         let item = repo::create_item(
@@ -221,7 +221,7 @@ mod tests {
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Create a payload for the card
         let payload = CreateCardDto {
@@ -270,7 +270,7 @@ mod tests {
         let pool = setup_test_db();
         
         // First create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
         // Then create an item of that type
         let item = repo::create_item(
@@ -278,10 +278,10 @@ mod tests {
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Create a card for the item
-        let card = repo::create_card(&pool, &item.get_id(), 3, 0.5).unwrap();
+        let card = repo::create_card(&pool, &item.get_id(), 3, 0.5).await.unwrap();
         
         // Call the handler
         let result = get_card_handler(
@@ -314,17 +314,17 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up some test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Create some cards
-        let card1 = repo::create_card(&pool, &item.get_id(), 3, 0.5).unwrap();
-        let card2 = repo::create_card(&pool, &item.get_id(), 4, 0.5).unwrap();
+        let card1 = repo::create_card(&pool, &item.get_id(), 3, 0.5).await.unwrap();
+        let card2 = repo::create_card(&pool, &item.get_id(), 4, 0.5).await.unwrap();
         
         // Call the handler with no filters
         let result = list_cards_handler(
@@ -344,24 +344,24 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up some test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         let item1 = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Item 1".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         let item2 = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Item 2".to_string(),
             json!({"front": "Goodbye", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Create cards for the items
-        let card1 = repo::create_card(&pool, &item1.get_id(), 3, 0.5).unwrap();
-        let card2 = repo::create_card(&pool, &item2.get_id(), 3, 0.5).unwrap();
+        let card1 = repo::create_card(&pool, &item1.get_id(), 3, 0.5).await.unwrap();
+        let card2 = repo::create_card(&pool, &item2.get_id(), 3, 0.5).await.unwrap();
         
         // Call the handler
         let result = list_cards_by_item_handler(
@@ -398,17 +398,17 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Create a card with initial priority
         let initial_priority = 0.5;
-        let card = repo::create_card(&pool, &item.get_id(), 2, initial_priority).unwrap();
+        let card = repo::create_card(&pool, &item.get_id(), 2, initial_priority).await.unwrap();
         
         // Update the card's priority
         let new_priority = 0.8;
@@ -431,15 +431,15 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
-        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).unwrap();
+        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).await.unwrap();
         
         // Test minimum valid priority (0.0)
         let min_priority = 0.0;
@@ -474,15 +474,15 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
-        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).unwrap();
+        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).await.unwrap();
         
         // Test priority below valid range
         let below_min_priority = -0.1;
@@ -505,15 +505,15 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
-        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).unwrap();
+        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).await.unwrap();
         
         // Test priority above valid range
         let above_max_priority = 1.1;

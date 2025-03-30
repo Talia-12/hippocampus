@@ -42,7 +42,7 @@ pub async fn create_review_handler(
     }
     
     // Call the repository function to record the review
-    match repo::record_review(&pool, &payload.card_id, payload.rating) {
+    match repo::record_review(&pool, &payload.card_id, payload.rating).await {
         Ok(review) => {
             info!("Successfully created review with id: {}", review.get_id());
             Ok(Json(review))
@@ -109,13 +109,13 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up test data
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Get the card created for the item
         let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
@@ -144,14 +144,14 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up test data
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Get the card created for the item
         let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
@@ -200,25 +200,25 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up test data
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
             "Test Item".to_string(),
             json!({"front": "Hello", "back": "World"}),
-        ).unwrap();
+        ).await.unwrap();
         
         // Get the card created for the item
         let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
         let card = &cards[0];
         
         // Create some reviews
-        let review1 = repo::record_review(&pool, &card.get_id(), 2).unwrap();
+        let review1 = repo::record_review(&pool, &card.get_id(), 2).await.unwrap();
         
         // We need to wait a moment to ensure the timestamps are different
         std::thread::sleep(std::time::Duration::from_millis(10));
         
-        let review2 = repo::record_review(&pool, &card.get_id(), 3).unwrap();
+        let review2 = repo::record_review(&pool, &card.get_id(), 3).await.unwrap();
         
         // Call the handler
         let result = list_reviews_by_card_handler(

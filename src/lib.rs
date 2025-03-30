@@ -267,7 +267,7 @@ mod tests {
         let app = create_app(pool.clone());
         
         // Create an item type first
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
         
         // Create a request with a JSON body
         let request = Request::builder()
@@ -306,17 +306,17 @@ mod tests {
         let app = create_app(pool.clone());
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool, 
             &item_type.get_id(), 
             "Test Item".to_string(), 
             serde_json::json!({"front": "Hello", "back": "World"})
-        ).unwrap();
+        ).await.unwrap();
         
         // Create a card with initial priority
         let initial_priority = 0.5;
-        let card = repo::create_card(&pool, &item.get_id(), 2, initial_priority).unwrap();
+        let card = repo::create_card(&pool, &item.get_id(), 2, initial_priority).await.unwrap();
         
         // Create a request to update the card's priority
         let new_priority = 0.8;
@@ -354,15 +354,15 @@ mod tests {
         let app = create_app(pool.clone());
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool, 
             &item_type.get_id(), 
             "Test Item".to_string(), 
             serde_json::json!({"front": "Hello", "back": "World"})
-        ).unwrap();
+        ).await.unwrap();
         
-        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).unwrap();
+        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).await.unwrap();
         
         // Test minimum valid priority (0.0)
         let min_priority = 0.0;
@@ -435,15 +435,15 @@ mod tests {
         let app = create_app(pool.clone());
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool, 
             &item_type.get_id(), 
             "Test Item".to_string(), 
             serde_json::json!({"front": "Hello", "back": "World"})
-        ).unwrap();
+        ).await.unwrap();
         
-        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).unwrap();
+        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).await.unwrap();
         
         // Test with priority > 1.0 (invalid)
         let invalid_priority = 1.5;
@@ -482,12 +482,12 @@ mod tests {
         // Set up a test database
         let pool = setup_test_db();
 
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
         
         // Create a few items first
         let titles = vec!["Item 1", "Item 2", "Item 3"];
         for title in &titles {
-            repo::create_item(&pool, &item_type.get_id(), title.to_string(), serde_json::Value::Null).unwrap();
+            repo::create_item(&pool, &item_type.get_id(), title.to_string(), serde_json::Value::Null).await.unwrap();
         }
         
         // Create the application
@@ -537,8 +537,8 @@ mod tests {
         
         // Create an item first
         let title = "Item to Get".to_string();
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), title.clone(), serde_json::Value::Null).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), title.clone(), serde_json::Value::Null).await.unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
@@ -580,8 +580,8 @@ mod tests {
         
         // Create an item first
         let title = "Item to Review".to_string();
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), title.clone(), serde_json::Value::Null).unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
+        let item = repo::create_item(&pool, &item_type.get_id(), title.clone(), serde_json::Value::Null).await.unwrap();
         let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
         let card = cards.first().unwrap();
         
@@ -691,7 +691,7 @@ mod tests {
         
         // Create an item type first
         let name = "Item Type to Get".to_string();
-        let item_type = repo::create_item_type(&pool, name.clone()).unwrap();
+        let item_type = repo::create_item_type(&pool, name.clone()).await.unwrap();
         
         // Create the application
         let app = create_app(pool.clone());
