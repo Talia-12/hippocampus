@@ -3,6 +3,7 @@ use crate::models::{Item, JsonValue};
 use crate::schema::items;
 use diesel::prelude::*;
 use anyhow::Result;
+use tracing::{instrument, debug, info};
 
 use super::card_repo::create_cards_for_item;
 
@@ -24,12 +25,17 @@ use super::card_repo::create_cards_for_item;
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
+#[instrument(skip(pool, item_data), fields(item_type_id = %item_type_id, title = %new_title))]
 pub fn create_item(pool: &DbPool, item_type_id: &str, new_title: String, item_data: serde_json::Value) -> Result<Item> {
+    debug!("Creating new item");
+    
     // Get a connection from the pool
     let mut conn = pool.get()?;
     
     // Create a new item with the provided title
     let new_item = Item::new(item_type_id.to_string(), new_title, JsonValue(item_data));
+    
+    debug!("Inserting item into database with id: {}", new_item.get_id());
     
     // Insert the new item into the database
     diesel::insert_into(items::table)
@@ -39,11 +45,15 @@ pub fn create_item(pool: &DbPool, item_type_id: &str, new_title: String, item_da
     // Drop the connection back to the pool
     drop(conn);
 
+    debug!("Creating cards for item");
+    
     // Create all necessary cards for the item
     create_cards_for_item(pool, &new_item)?;
 
     // TODO: If there's an error, we should delete the item and all its cards
 
+    info!("Successfully created item with id: {}", new_item.get_id());
+    
     // Return the newly created item
     Ok(new_item)
 }
@@ -64,7 +74,10 @@ pub fn create_item(pool: &DbPool, item_type_id: &str, new_title: String, item_da
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database query fails for reasons other than the item not existing
+#[instrument(skip(pool), fields(item_id = %item_id))]
 pub fn get_item(pool: &DbPool, item_id: &str) -> Result<Option<Item>> {
+    debug!("Retrieving item by id");
+    
     // Get a connection from the pool
     let conn = &mut pool.get()?;
     
@@ -73,6 +86,12 @@ pub fn get_item(pool: &DbPool, item_id: &str) -> Result<Option<Item>> {
         .filter(items::id.eq(item_id))
         .first::<Item>(conn)
         .optional()?;
+    
+    if let Some(ref item) = result {
+        debug!("Item found with id: {}", item.get_id());
+    } else {
+        debug!("Item not found");
+    }
     
     // Return the result (Some(Item) if found, None if not)
     Ok(result)
@@ -93,13 +112,18 @@ pub fn get_item(pool: &DbPool, item_id: &str) -> Result<Option<Item>> {
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database query fails
+#[instrument(skip(pool))]
 pub fn list_items(pool: &DbPool) -> Result<Vec<Item>> {
+    debug!("Listing all items");
+    
     // Get a connection from the pool
     let conn = &mut pool.get()?;
     
     // Query the database for all items
     let result = items::table
         .load::<Item>(conn)?;
+    
+    info!("Retrieved {} items", result.len());
     
     // Return the list of items
     Ok(result)
@@ -121,7 +145,10 @@ pub fn list_items(pool: &DbPool) -> Result<Vec<Item>> {
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database query fails
+#[instrument(skip(pool), fields(item_type_id = %item_type_id))]
 pub fn get_items_by_type(pool: &DbPool, item_type_id: &str) -> Result<Vec<Item>> {
+    debug!("Getting items by type");
+    
     // Get a connection from the pool
     let conn = &mut pool.get()?;
     
@@ -129,6 +156,8 @@ pub fn get_items_by_type(pool: &DbPool, item_type_id: &str) -> Result<Vec<Item>>
     let result = items::table
         .filter(items::item_type.eq(item_type_id))
         .load::<Item>(conn)?;
+    
+    info!("Retrieved {} items of type {}", result.len(), item_type_id);
     
     // Return the list of items
     Ok(result)

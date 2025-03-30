@@ -3,6 +3,7 @@ use axum::{
     Json,
 };
 use std::sync::Arc;
+use tracing::{instrument, debug, info};
 
 use crate::db::DbPool;
 use crate::dto::CreateTagDto;
@@ -22,16 +23,21 @@ use crate::repo;
 /// ### Returns
 ///
 /// The newly created tag as JSON
+#[instrument(skip(pool), fields(name = %payload.name, visible = %payload.visible))]
 pub async fn create_tag_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract and deserialize the JSON request body
     Json(payload): Json<CreateTagDto>,
 ) -> Result<Json<Tag>, ApiError> {
+    info!("Creating new tag");
+    
     // Call the repository function to create the tag
     let tag = repo::create_tag(&pool, payload.name, payload.visible)
         .map_err(ApiError::Database)?;
 
+    info!("Successfully created tag with id: {}", tag.get_id());
+    
     // Return the created tag as JSON
     Ok(Json(tag))
 }
@@ -47,13 +53,18 @@ pub async fn create_tag_handler(
 /// ### Returns
 ///
 /// A list of all tags as JSON
+#[instrument(skip(pool))]
 pub async fn list_tags_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
 ) -> Result<Json<Vec<Tag>>, ApiError> {
+    debug!("Listing all tags");
+    
     // Call the repository function to list all tags
     let tags = repo::list_tags(&pool)
         .map_err(ApiError::Database)?;
+    
+    info!("Retrieved {} tags", tags.len());
     
     // Return the list of tags as JSON
     Ok(Json(tags))
@@ -71,18 +82,25 @@ pub async fn list_tags_handler(
 /// ### Returns
 ///
 /// A 204 No Content response if successful
+#[instrument(skip(pool), fields(item_id = %item_id, tag_id = %tag_id))]
 pub async fn add_tag_to_item_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the item ID and tag ID from the URL path
     Path((item_id, tag_id)): Path<(String, String)>,
 ) -> Result<(), ApiError> {
+    info!("Adding tag to item");
+    
     // Call the repository function to add the tag to the item
     match repo::add_tag_to_item(&pool, &tag_id, &item_id) {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            info!("Successfully added tag {} to item {}", tag_id, item_id);
+            Ok(())
+        },
         Err(e) => {
             // Check if the error is due to item or tag not found
             if e.to_string().contains("FOREIGN KEY constraint failed") {
+                debug!("Failed to add tag: item or tag not found");
                 Err(ApiError::NotFound)
             } else {
                 Err(ApiError::Database(e))
@@ -103,18 +121,25 @@ pub async fn add_tag_to_item_handler(
 /// ### Returns
 ///
 /// A 204 No Content response if successful
+#[instrument(skip(pool), fields(item_id = %item_id, tag_id = %tag_id))]
 pub async fn remove_tag_from_item_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the item ID and tag ID from the URL path
     Path((item_id, tag_id)): Path<(String, String)>,
 ) -> Result<(), ApiError> {
+    info!("Removing tag from item");
+    
     // Call the repository function to remove the tag from the item
     match repo::remove_tag_from_item(&pool, &tag_id, &item_id) {
-        Ok(_) => Ok(()),
+        Ok(_) => {
+            info!("Successfully removed tag {} from item {}", tag_id, item_id);
+            Ok(())
+        },
         Err(e) => {
             // Check if the error is due to item or tag not found
             if e.to_string().contains("Tag not found") {
+                debug!("Failed to remove tag: item or tag not found");
                 Err(ApiError::NotFound)
             } else {
                 Err(ApiError::Database(e))    
@@ -135,18 +160,25 @@ pub async fn remove_tag_from_item_handler(
 /// ### Returns
 ///
 /// A list of tags for the specified card as JSON
+#[instrument(skip(pool), fields(card_id = %card_id))]
 pub async fn list_tags_for_card_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the card ID from the URL path
     Path(card_id): Path<String>,
 ) -> Result<Json<Vec<Tag>>, ApiError> {
+    debug!("Listing tags for card");
+    
     // Call the repository function to list tags for the card
     match crate::repo::list_tags_for_card(&pool, &card_id) {
-        Ok(tags) => Ok(Json(tags)),
+        Ok(tags) => {
+            info!("Retrieved {} tags for card {}", tags.len(), card_id);
+            Ok(Json(tags))
+        },
         Err(e) => {
             // Check if the error is due to card not found
             if e.to_string().contains("Card not found") {
+                debug!("Card not found");
                 Err(ApiError::NotFound)
             } else {
                 Err(ApiError::Database(e))
@@ -167,12 +199,15 @@ pub async fn list_tags_for_card_handler(
 /// ### Returns
 ///
 /// A list of tags for the specified item as JSON
+#[instrument(skip(pool), fields(item_id = %item_id))]
 pub async fn list_tags_for_item_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the item ID from the URL path
     Path(item_id): Path<String>,
 ) -> Result<Json<Vec<Tag>>, ApiError> {
+    debug!("Listing tags for item");
+    
     // First check if the item exists
     repo::get_item(&pool, &item_id)
         .map_err(ApiError::Database)?
@@ -181,6 +216,8 @@ pub async fn list_tags_for_item_handler(
     // Call the repository function to list tags for the item
     let tags = repo::list_tags_for_item(&pool, &item_id)
         .map_err(ApiError::Database)?;
+    
+    info!("Retrieved {} tags for item {}", tags.len(), item_id);
     
     // Return the list of tags as JSON
     Ok(Json(tags))

@@ -3,6 +3,7 @@ use axum::{
     Json,
 };
 use std::sync::Arc;
+use tracing::{instrument, debug, info};
 
 use crate::db::DbPool;
 use crate::dto::CreateItemDto;
@@ -22,16 +23,21 @@ use crate::repo;
 /// ### Returns
 ///
 /// The newly created item as JSON
+#[instrument(skip(pool, payload), fields(item_type_id = %payload.item_type_id, title = %payload.title))]
 pub async fn create_item_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract and deserialize the JSON request body
     Json(payload): Json<CreateItemDto>,
 ) -> Result<Json<Item>, ApiError> {
+    info!("Creating new item");
+    
     // Call the repository function to create the item
     let item = repo::create_item(&pool, &payload.item_type_id, payload.title, payload.item_data)
         .map_err(ApiError::Database)?;
 
+    info!("Successfully created item with id: {}", item.get_id());
+    
     // Return the created item as JSON
     Ok(Json(item))
 }
@@ -48,15 +54,25 @@ pub async fn create_item_handler(
 /// ### Returns
 ///
 /// The requested item as JSON, or null if not found
+#[instrument(skip(pool), fields(item_id = %item_id))]
 pub async fn get_item_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the item ID from the URL path
     Path(item_id): Path<String>,
 ) -> Result<Json<Option<Item>>, ApiError> {
+    debug!("Retrieving item");
+    
     // Call the repository function to get the item
     let item = repo::get_item(&pool, &item_id)
         .map_err(ApiError::Database)?;
+    
+    if let Some(ref item) = item {
+        debug!("Item found with id: {}", item.get_id());
+    } else {
+        debug!("Item not found");
+    }
+    
     // Return the item (or None) as JSON
     Ok(Json(item))
 }
@@ -72,13 +88,19 @@ pub async fn get_item_handler(
 /// ### Returns
 ///
 /// A list of all items as JSON
+#[instrument(skip(pool))]
 pub async fn list_items_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
 ) -> Result<Json<Vec<Item>>, ApiError> {
+    debug!("Listing all items");
+    
     // Call the repository function to list all items
     let items = repo::list_items(&pool)
         .map_err(ApiError::Database)?;
+    
+    info!("Retrieved {} items", items.len());
+    
     // Return the list of items as JSON
     Ok(Json(items))
 }
@@ -95,12 +117,15 @@ pub async fn list_items_handler(
 /// ### Returns
 ///
 /// A list of items with the specified item type as JSON
+#[instrument(skip(pool), fields(item_type_id = %id))]
 pub async fn list_items_by_item_type_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the item type ID from the URL path
     Path(id): Path<String>,
 ) -> Result<Json<Vec<Item>>, ApiError> {
+    debug!("Listing items by item type");
+    
     // Verify that the item type exists
     let item_type = repo::get_item_type(&pool, &id)
         .map_err(ApiError::Database)?
@@ -109,6 +134,8 @@ pub async fn list_items_by_item_type_handler(
     // Call the repository function to list items by type
     let items = repo::get_items_by_type(&pool, &item_type.get_id())
         .map_err(ApiError::Database)?;
+    
+    info!("Retrieved {} items for item type {}", items.len(), id);
     
     // Return the list of items as JSON
     Ok(Json(items))

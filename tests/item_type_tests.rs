@@ -11,8 +11,8 @@ use axum::{
     http::{Request, StatusCode},
 };
 use serde_json::{json, Value};
-use tower::{Service, ServiceExt};
-use hippocampus::models::{Item, ItemType};
+use tower::Service;
+use hippocampus::models::Item;
 
 mod common;
 use common::*;

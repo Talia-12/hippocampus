@@ -3,6 +3,7 @@ use axum::{
     Json,
 };
 use std::sync::Arc;
+use tracing::{instrument, debug, info, warn};
 
 use crate::db::DbPool;
 use crate::dto::CreateReviewDto;
@@ -22,14 +23,18 @@ use crate::repo;
 /// ### Returns
 ///
 /// The newly created review as JSON
+#[instrument(skip(pool), fields(card_id = %payload.card_id, rating = %payload.rating))]
 pub async fn create_review_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract and deserialize the JSON request body
     Json(payload): Json<CreateReviewDto>,
 ) -> Result<Json<Review>, ApiError> {
+    info!("Creating new review for card");
+    
     // Validate the rating range
     if payload.rating < 1 || payload.rating > 4 {
+        warn!("Invalid rating: {}", payload.rating);
         return Err(ApiError::InvalidRating(format!(
             "Rating must be between 1 and 4, got {}",
             payload.rating
@@ -38,10 +43,14 @@ pub async fn create_review_handler(
     
     // Call the repository function to record the review
     match repo::record_review(&pool, &payload.card_id, payload.rating) {
-        Ok(review) => Ok(Json(review)),
+        Ok(review) => {
+            info!("Successfully created review with id: {}", review.get_id());
+            Ok(Json(review))
+        },
         Err(e) => {
             // Check if the error is due to card not found
             if e.to_string().contains("Card not found") {
+                debug!("Card not found");
                 Err(ApiError::NotFound)
             } else {
                 Err(ApiError::Database(e))
@@ -62,20 +71,27 @@ pub async fn create_review_handler(
 /// ### Returns
 ///
 /// A list of reviews for the specified card as JSON
+#[instrument(skip(pool), fields(card_id = %card_id))]
 pub async fn list_reviews_by_card_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the card ID from the URL path
     Path(card_id): Path<String>,
 ) -> Result<Json<Vec<Review>>, ApiError> {
+    debug!("Listing reviews for card");
+    
     // First check if the card exists
     let card = repo::get_card(&pool, &card_id)
         .map_err(ApiError::Database)?
         .ok_or(ApiError::NotFound)?;
     
+    debug!("Card found with id: {}", card.get_id());
+    
     // Call the repository function to get all reviews for the card
     let reviews = repo::get_reviews_for_card(&pool, &card.get_id())
         .map_err(ApiError::Database)?;
+    
+    info!("Retrieved {} reviews for card {}", reviews.len(), card_id);
     
     // Return the list of reviews as JSON
     Ok(Json(reviews))

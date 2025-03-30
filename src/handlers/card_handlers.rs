@@ -3,6 +3,7 @@ use axum::{
     Json,
 };
 use std::sync::Arc;
+use tracing::{instrument, debug, info};
 
 use crate::db::DbPool;
 use crate::dto::{CreateCardDto, GetQueryDto, UpdateCardPriorityDto};
@@ -23,6 +24,7 @@ use crate::repo;
 /// ### Returns
 ///
 /// The newly created card as JSON
+#[instrument(skip(pool), fields(item_id = %item_id, card_index = %payload.card_index, priority = %payload.priority))]
 pub async fn create_card_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
@@ -31,6 +33,8 @@ pub async fn create_card_handler(
     // Extract and deserialize the JSON request body
     Json(payload): Json<CreateCardDto>,
 ) -> Result<Json<Card>, ApiError> {
+    info!("Creating new card for item");
+    
     // First check if the item exists
     let item = repo::get_item(&pool, &item_id)
         .map_err(ApiError::Database)?
@@ -40,6 +44,8 @@ pub async fn create_card_handler(
     let card = repo::create_card(&pool, &item.get_id(), payload.card_index, payload.priority)
         .map_err(ApiError::Database)?;
 
+    info!("Successfully created card with id: {}", card.get_id());
+    
     // Return the created card as JSON
     Ok(Json(card))
 }
@@ -57,15 +63,24 @@ pub async fn create_card_handler(
 /// ### Returns
 ///
 /// The requested card as JSON, or null if not found
+#[instrument(skip(pool), fields(card_id = %id))]
 pub async fn get_card_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the card ID from the URL path
     Path(id): Path<String>,
 ) -> Result<Json<Option<Card>>, ApiError> {
+    debug!("Getting card");
+    
     // Call the repository function to get the card
     let card = repo::get_card(&pool, &id)
         .map_err(ApiError::Database)?;
+    
+    if let Some(ref card) = card {
+        debug!("Card found with id: {}", card.get_id());
+    } else {
+        debug!("Card not found");
+    }
     
     // Return the card (or None) as JSON
     Ok(Json(card))
@@ -84,15 +99,20 @@ pub async fn get_card_handler(
 /// ### Returns
 ///
 /// A list of cards matching the filter criteria as JSON
+#[instrument(skip(pool, query))]
 pub async fn list_cards_handler(
     // Extract the database connection pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract and parse query parameters
     Query(query): Query<GetQueryDto>,
 ) -> Result<Json<Vec<Card>>, ApiError> {
+    debug!("Listing cards with filters: {:?}", query);
+    
     // Call the repository function to list cards with the specified filters
     let cards = repo::list_cards_with_filters(&pool, &query)
         .map_err(ApiError::Database)?;
+    
+    info!("Retrieved {} cards", cards.len());
     
     // Return the list of cards as JSON
     Ok(Json(cards))
@@ -111,12 +131,15 @@ pub async fn list_cards_handler(
 /// ### Returns
 ///
 /// A list of cards for the specified item as JSON
+#[instrument(skip(pool), fields(item_id = %item_id))]
 pub async fn list_cards_by_item_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the item ID from the URL path
     Path(item_id): Path<String>,
 ) -> Result<Json<Vec<Card>>, ApiError> {
+    debug!("Listing cards for item");
+    
     // First check if the item exists
     repo::get_item(&pool, &item_id)
         .map_err(ApiError::Database)?
@@ -125,6 +148,8 @@ pub async fn list_cards_by_item_handler(
     // Call the repository function to get all cards for the item
     let cards = repo::get_cards_for_item(&pool, &item_id)
         .map_err(ApiError::Database)?;
+    
+    info!("Retrieved {} cards for item {}", cards.len(), item_id);
     
     // Return the list of cards as JSON
     Ok(Json(cards))
@@ -144,6 +169,7 @@ pub async fn list_cards_by_item_handler(
 /// ### Returns
 ///
 /// The updated card as JSON
+#[instrument(skip(pool), fields(card_id = %id, priority = %payload.priority))]
 pub async fn update_card_priority_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
@@ -152,6 +178,8 @@ pub async fn update_card_priority_handler(
     // Extract and deserialize the JSON request body
     Json(payload): Json<UpdateCardPriorityDto>,
 ) -> Result<Json<Card>, ApiError> {
+    info!("Updating card priority");
+    
     // Check if the priority is valid
     if payload.priority < 0.0 || payload.priority > 1.0 {
         return Err(ApiError::InvalidPriority(format!("Priority must be between 0 and 1, got {}", payload.priority)));
@@ -165,6 +193,8 @@ pub async fn update_card_priority_handler(
     // Call the repository function to update the card's priority
     let card = repo::update_card_priority(&pool, &id, payload.priority)
         .map_err(ApiError::Database)?;
+    
+    info!("Successfully updated card priority to {}", payload.priority);
 
     // Return the updated card as JSON
     Ok(Json(card))

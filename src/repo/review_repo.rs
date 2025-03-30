@@ -5,6 +5,7 @@ use diesel::prelude::*;
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use chrono::Duration;
+use tracing::{instrument, debug, info, warn};
 
 /// Records a review for a card
 ///
@@ -28,11 +29,15 @@ use chrono::Duration;
 /// - The database operations fail
 /// - The card does not exist
 /// - The rating is invalid (not 1-3)
+#[instrument(skip(pool), fields(card_id = %card_id, rating = %rating_val))]
 pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Review> {
+    debug!("Recording new review for card");
+    
     let conn = &mut pool.get()?;
     
     // Validate the rating
     if rating_val < 1 || rating_val > 4 {
+        warn!("Invalid rating provided: {}", rating_val);
         return Err(anyhow!("Rating must be between 1 and 4, got {}", rating_val));
     }
     
@@ -40,7 +45,12 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
     let card = cards::table
         .find(card_id)
         .first::<Card>(conn)
-        .map_err(|_| anyhow!("Card not found"))?;
+        .map_err(|_| {
+            debug!("Card not found");
+            anyhow!("Card not found")
+        })?;
+    
+    debug!("Found card, creating review");
     
     // Create the review
     let new_review = Review::new(card_id, rating_val);
@@ -50,8 +60,12 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
         .values(&new_review)
         .execute(conn)?;
     
+    debug!("Calculating next review date");
+    
     // Update the card's scheduling information
     let (next_review, scheduler_data) = calculate_next_review(&card, rating_val)?;
+    
+    debug!("Next review scheduled for: {}", next_review);
     
     // Update the card in the database
     diesel::update(cards::table.find(card_id))
@@ -61,6 +75,8 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
             cards::scheduler_data.eq(Some(scheduler_data)),
         ))
         .execute(conn)?;
+    
+    info!("Successfully recorded review with id: {}", new_review.get_id());
     
     // Return the review
     Ok(new_review)
@@ -85,17 +101,23 @@ pub fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Re
 /// Returns an error if:
 /// - The rating is invalid (not 1-4)
 /// - The card's scheduler data is invalid
+#[instrument(skip_all, fields(card_id = %card.get_id(), rating = %rating))]
 fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<Utc>, JsonValue)> {
+    debug!("Calculating next review date with SM-2 algorithm");
+    
     use serde_json::json;
     
     // Get the current scheduler data or use default values
     let current_data = match card.get_scheduler_data() {
         Some(data) => data,
-        None => JsonValue(json!({
-            "ease_factor": 2.5,
-            "interval": 1,
-            "repetitions": 0,
-        })),
+        None => {
+            debug!("No existing scheduler data, using defaults");
+            JsonValue(json!({
+                "ease_factor": 2.5,
+                "interval": 1,
+                "repetitions": 0,
+            }))
+        },
     };
     
     let data = current_data.0.as_object().ok_or_else(|| anyhow!("Invalid scheduler data"))?;
@@ -113,16 +135,21 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
         .and_then(|v| v.as_i64())
         .unwrap_or(0) as i32;
     
+    debug!("Current values: ease_factor={}, interval={}, repetitions={}", 
+           ease_factor, interval, repetitions);
+    
     // Calculate new values based on the rating
     match rating {
         1 => {
             // Rating of 1 means "again" - reset progress
+            debug!("Rating 1 (again): Resetting progress");
             repetitions = 0;
             interval = 1;
             ease_factor = std::cmp::max((ease_factor - 0.2) as i32, 1) as f64;
         },
         2 => {
             // Rating of 2 means "hard" - small increase in interval
+            debug!("Rating 2 (hard): Small increase in interval");
             repetitions += 1;
             if repetitions == 1 {
                 interval = 1;
@@ -135,6 +162,7 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
         },
         3 => {
             // Rating of 3 means "good" - larger increase in interval
+            debug!("Rating 3 (good): Larger increase in interval");
             repetitions += 1;
             if repetitions == 1 {
                 interval = 1;
@@ -147,6 +175,7 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
         },
         4 => {
             // Rating of 4 means "easy" - largest increase in interval
+            debug!("Rating 4 (easy): Largest increase in interval");
             repetitions += 1;
             if repetitions == 1 {
                 interval = 1;
@@ -157,8 +186,14 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
             }
             ease_factor += 0.15;
         },
-        _ => return Err(anyhow!("Invalid rating: {}", rating)),
+        _ => {
+            warn!("Invalid rating: {}", rating);
+            return Err(anyhow!("Invalid rating: {}", rating));
+        }
     }
+    
+    debug!("New values: ease_factor={}, interval={}, repetitions={}", 
+           ease_factor, interval, repetitions);
     
     // Calculate the next review date
     let next_review = Utc::now() + Duration::days(interval as i64);
@@ -169,6 +204,8 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
         "interval": interval,
         "repetitions": repetitions,
     }));
+    
+    debug!("Next review scheduled for: {}", next_review);
     
     Ok((next_review, scheduler_data))
 }
@@ -190,13 +227,18 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database query fails
+#[instrument(skip(pool), fields(card_id = %card_id))]
 pub fn get_reviews_for_card(pool: &DbPool, card_id: &str) -> Result<Vec<Review>> {
+    debug!("Getting reviews for card");
+    
     let conn = &mut pool.get()?;
     
     let reviews = reviews::table
         .filter(reviews::card_id.eq(card_id))
         .order_by(reviews::review_timestamp.desc())
         .load::<Review>(conn)?;
+    
+    info!("Retrieved {} reviews for card {}", reviews.len(), card_id);
     
     Ok(reviews)
 }

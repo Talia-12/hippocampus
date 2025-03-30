@@ -2,6 +2,7 @@ use crate::db::DbPool;
 use crate::models::ItemType;
 use diesel::prelude::*;
 use anyhow::Result;
+use tracing::{instrument, debug, info};
 
 /// Creates a new item type in the database
 ///
@@ -19,7 +20,10 @@ use anyhow::Result;
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
+#[instrument(skip(pool), fields(name = %name))]
 pub fn create_item_type(pool: &DbPool, name: String) -> Result<ItemType> {
+    debug!("Creating new item type");
+    
     // Get a connection from the pool
     let conn = &mut pool.get()?;
 
@@ -38,6 +42,8 @@ pub fn create_item_type(pool: &DbPool, name: String) -> Result<ItemType> {
     diesel::insert_into(crate::schema::item_types::table)
         .values(&new_item_type)
         .execute(conn)?;
+    
+    info!("Successfully created item type with id: {}", new_item_type.get_id());
     
     // Return the newly created item type
     Ok(new_item_type)
@@ -59,7 +65,10 @@ pub fn create_item_type(pool: &DbPool, name: String) -> Result<ItemType> {
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database query fails for reasons other than the item type not existing
+#[instrument(skip(pool), fields(item_type_id = %id))]
 pub fn get_item_type(pool: &DbPool, id: &str) -> Result<Option<ItemType>> {
+    debug!("Retrieving item type");
+    
     // Get a connection from the pool
     let conn = &mut pool.get()?;
     
@@ -68,6 +77,12 @@ pub fn get_item_type(pool: &DbPool, id: &str) -> Result<Option<ItemType>> {
         .find(id)
         .first::<ItemType>(conn)
         .optional()?;
+    
+    if result.is_some() {
+        debug!("Item type found");
+    } else {
+        debug!("Item type not found");
+    }
     
     // Return the item type if found, or None if not found
     Ok(result)
@@ -88,13 +103,18 @@ pub fn get_item_type(pool: &DbPool, id: &str) -> Result<Option<ItemType>> {
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database query fails
+#[instrument(skip(pool))]
 pub fn list_item_types(pool: &DbPool) -> Result<Vec<ItemType>> {
+    debug!("Listing all item types");
+    
     // Get a connection from the pool
     let conn = &mut pool.get()?;
     
     // Query the database for all item types
     let result = crate::schema::item_types::table
         .load::<ItemType>(conn)?;
+    
+    info!("Retrieved {} item types", result.len());
     
     // Return the list of item types
     Ok(result)

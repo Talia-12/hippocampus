@@ -4,6 +4,7 @@ use crate::schema::{cards, item_tags};
 use crate::GetQueryDto;
 use diesel::prelude::*;
 use anyhow::{Result, anyhow};
+use tracing::{instrument, debug, info, warn};
 
 /// Creates cards for an item
 ///
@@ -24,10 +25,15 @@ use anyhow::{Result, anyhow};
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
+#[instrument(skip(pool, item), fields(item_id = %item.get_id(), item_type = %item.get_item_type()))]
 pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
+    debug!("Creating cards for item");
+    
     // Get the item type to determine how many cards to create
     let item_type = super::get_item_type(pool, &item.get_item_type())?
         .ok_or_else(|| anyhow!("Item type not found"))?;
+    
+    debug!("Item type: {}", item_type.get_name());
     
     // Vector to store the created cards
     let mut cards = Vec::new();
@@ -35,28 +41,34 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
     // Determine how many cards to create based on the item type
     match item_type.get_name().as_str() {
         "Basic" => {
+            debug!("Creating basic card (front/back)");
             // Basic items have just one card (front/back)
             let card = create_card(pool, &item.get_id(), 0, 0.5)?;
             cards.push(card);
         },
         "Cloze" => {
+            debug!("Creating cloze deletion cards");
             // Cloze items might have multiple cards (one per cloze deletion)
             let data = item.get_data();
             let cloze_deletions = data.0["clozes"].clone();
             let cloze_deletions = cloze_deletions.as_array()
                 .ok_or_else(|| anyhow!("cloze deletion must be an array"))?;
+            
+            debug!("Creating {} cloze cards", cloze_deletions.len());
             for (index, _) in cloze_deletions.iter().enumerate() {
                 let card = create_card(pool, &item.get_id(), index as i32, 0.5)?;
                 cards.push(card);
             }
         },
         "Todo" => {
+            debug!("Creating todo card");
             // Todo items have 1 card (each todo is a card)
             let card = create_card(pool, &item.get_id(), 0, 0.5)?;
             cards.push(card);
         },
         // TODO: this is a hack
         name if name.contains("Test") => {
+            debug!("Creating test cards");
             // Test item types have 2 cards
             for i in 0..2 {
                 let card = create_card(pool, &item.get_id(), i, 0.5)?;
@@ -64,14 +76,16 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
             }
         },
         _ => {
+            warn!("Unknown item type: {}", item_type.get_name());
             // Return an error for unknown item types
             return Err(anyhow!("Unable to construct cards for unknown item type: {}", item_type.get_name()));
         }
     }
     
+    info!("Created {} cards for item {}", cards.len(), item.get_id());
+    
     // Return all created cards
     Ok(cards)
-
 }
 
 
@@ -92,16 +106,23 @@ pub fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Card>> {
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
+#[instrument(skip(pool), fields(item_id = %item_id, card_index = %card_index, priority = %priority))]
 pub fn create_card(pool: &DbPool, item_id: &str, card_index: i32, priority: f32) -> Result<Card> {
+    debug!("Creating new card");
+    
     let conn = &mut pool.get()?;
     
     // Create a new card for the item
     let new_card = Card::new(item_id.to_string(), card_index, priority);
     
+    debug!("Inserting card into database with id: {}", new_card.get_id());
+    
     // Insert the new card into the database
     diesel::insert_into(cards::table)
         .values(&new_card)
         .execute(conn)?;
+    
+    info!("Successfully created card with id: {}", new_card.get_id());
     
     // Return the newly created card
     Ok(new_card)
@@ -124,13 +145,22 @@ pub fn create_card(pool: &DbPool, item_id: &str, card_index: i32, priority: f32)
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database query fails for reasons other than the card not existing
+#[instrument(skip(pool), fields(card_id = %card_id))]
 pub fn get_card(pool: &DbPool, card_id: &str) -> Result<Option<Card>> {
+    debug!("Retrieving card by id");
+    
     let conn = &mut pool.get()?;
     
     let result = cards::table
         .find(card_id)
         .first::<Card>(conn)
         .optional()?;
+    
+    if let Some(ref card) = result {
+        debug!("Card found with id: {}", card.get_id());
+    } else {
+        debug!("Card not found");
+    }
     
     Ok(result)
 }
@@ -152,7 +182,10 @@ pub fn get_card(pool: &DbPool, card_id: &str) -> Result<Option<Card>> {
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database query fails
+#[instrument(skip(pool, query))]
 pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec<Card>> {
+    debug!("Listing cards with filters: {:?}", query);
+    
     let conn = &mut pool.get()?;
     
     // Start with a base query that joins cards with items
@@ -160,6 +193,7 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
     
     // Apply filter by item type, if specified
     if let Some(item_type_id) = &query.item_type_id {
+        debug!("Filtering by item type: {}", item_type_id);
         card_query = card_query.filter(
             cards::item_id.eq_any(
                 crate::schema::items::table
@@ -171,6 +205,7 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
     
     // Apply filter by review date, if specified
     if let Some(review_date) = query.next_review_before {
+        debug!("Filtering by review date before: {}", review_date);
         card_query = card_query.filter(
             cards::next_review.lt(review_date.naive_utc()).and(cards::next_review.is_not_null())
         );
@@ -183,6 +218,7 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
     // Note: This is a bit inefficient as we're filtering in Rust rather than SQL,
     // but it's simpler than constructing a complex query with multiple joins.
     if !query.tag_ids.is_empty() {
+        debug!("Filtering by tags: {:?}", query.tag_ids);
         // Get all item_ids that have all the requested tags
         let mut item_ids_with_tags = Vec::new();
         
@@ -198,16 +234,18 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
             *item_tag_counts.entry(item_id).or_insert(0) += 1;
         }
         
-        // Only keep items that have all requested tags
+        // Only keep items that have all the requested tags
         for (item_id, count) in item_tag_counts {
-            if count as usize == query.tag_ids.len() {
+            if count == query.tag_ids.len() {
                 item_ids_with_tags.push(item_id);
             }
         }
         
-        // Filter cards to only those belonging to items with all required tags
+        // Filter the results to only include cards from items with all the requested tags
         results.retain(|card| item_ids_with_tags.contains(&card.get_item_id()));
     }
+    
+    info!("Retrieved {} cards matching filters", results.len());
     
     Ok(results)
 }

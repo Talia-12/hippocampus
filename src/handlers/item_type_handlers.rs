@@ -3,6 +3,7 @@ use axum::{
     Json,
 };
 use std::sync::Arc;
+use tracing::{instrument, debug, info};
 
 use crate::db::DbPool;
 use crate::dto::CreateItemTypeDto;
@@ -22,16 +23,21 @@ use crate::repo;
 /// ### Returns
 ///
 /// The newly created item type as JSON
+#[instrument(skip(pool), fields(name = %payload.name))]
 pub async fn create_item_type_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract and deserialize the JSON request body
     Json(payload): Json<CreateItemTypeDto>,
 ) -> Result<Json<ItemType>, ApiError> {
+    info!("Creating new item type");
+    
     // Call the repository function to create the item type
     let item_type = repo::create_item_type(&pool, payload.name)
         .map_err(ApiError::Database)?;
 
+    info!("Successfully created item type with id: {}", item_type.get_id());
+    
     // Return the created item type as JSON
     Ok(Json(item_type))
 }
@@ -48,20 +54,29 @@ pub async fn create_item_type_handler(
 /// ### Returns
 ///
 /// The requested item type as JSON, or null if not found
+#[instrument(skip(pool), fields(item_type_id = %id))]
 pub async fn get_item_type_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the item type ID from the URL path
     Path(id): Path<String>,
 ) -> Result<Json<ItemType>, ApiError> {
+    debug!("Retrieving item type");
+    
     // Call the repository function to get the item type
     let item_type = repo::get_item_type(&pool, &id)
         .map_err(ApiError::Database)?;
     
     // Return a NotFound error if the item type doesn't exist
     match item_type {
-        Some(item_type) => Ok(Json(item_type)),
-        None => Err(ApiError::NotFound)
+        Some(item_type) => {
+            debug!("Item type found with id: {}", item_type.get_id());
+            Ok(Json(item_type))
+        },
+        None => {
+            debug!("Item type not found");
+            Err(ApiError::NotFound)
+        }
     }
 }
 
@@ -76,13 +91,18 @@ pub async fn get_item_type_handler(
 /// ### Returns
 ///
 /// A list of all item types as JSON
+#[instrument(skip(pool))]
 pub async fn list_item_types_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
 ) -> Result<Json<Vec<ItemType>>, ApiError> {
+    debug!("Listing all item types");
+    
     // Call the repository function to list all item types
     let item_types = repo::list_item_types(&pool)
         .map_err(ApiError::Database)?;
+    
+    info!("Retrieved {} item types", item_types.len());
     
     // Return the list of item types as JSON
     Ok(Json(item_types))

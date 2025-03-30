@@ -8,8 +8,10 @@
 /// in a spaced repetition system, which helps users memorize information
 /// more effectively by scheduling reviews at optimal intervals.
 use hippocampus::*;
-use std::{env, sync::Arc, net::SocketAddr};
-use tracing_subscriber;
+use std::{env, sync::Arc, net::SocketAddr, path::Path};
+use tracing::{info, error};
+use tracing_subscriber::{self, fmt, prelude::*, filter::LevelFilter, Registry};
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
 
 /// Main function - entry point of the application
 ///
@@ -22,19 +24,26 @@ use tracing_subscriber;
 #[tokio::main]
 async fn main() {
 	// Initialize logging for better debugging and monitoring
-	tracing_subscriber::fmt::init();
+	println!("Initializing logging");
+	init_tracing();
+	
+	info!("Starting Hippocampus SRS Server");
 
 	// Load environment variables from .env file if it exists
 	if std::fs::metadata(".env").is_ok() {
-		println!("Loading .env file");
+		info!("Loading .env file");
 		dotenv::dotenv().ok();
 	}
 	
 	// Get the database URL from environment variables or use a default
-	let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| "srs_server.db".to_string());
+	let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
+		info!("DATABASE_URL not set, using default: srs_server.db");
+		"srs_server.db".to_string()
+	});
 	
 	// Initialize the database connection pool
 	// This pool will be shared across all request handlers
+	info!("Initializing database connection pool");
 	let pool = Arc::new(db::init_pool(&database_url));
 	
 	// Build our application with routes
@@ -43,18 +52,89 @@ async fn main() {
 
 	// Define the address to listen on (localhost:3000)
 	let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-	println!("Listening on {}", addr);
+	info!("Listening on {}", addr);
 	
 	// Start the server and wait for connections
-	println!("Starting server, press Ctrl+C to stop");
+	info!("Starting server, press Ctrl+C to stop");
 	
 	// Create a TCP listener bound to the specified address
-	let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
-	
-	// Start serving requests
-	// This will run until the program is terminated
-	axum::serve(listener, app).await.unwrap();
+	match tokio::net::TcpListener::bind(addr).await {
+		Ok(listener) => {
+			// Start serving requests
+			// This will run until the program is terminated
+			if let Err(e) = axum::serve(listener, app).await {
+				error!("Server error: {}", e);
+			}
+		},
+		Err(e) => {
+			error!("Failed to bind to address {}: {}", addr, e);
+		}
+	}
 }
+
+
+/// Initialize tracing with both console and file outputs
+///
+/// This follows the tracing-subscriber layer pattern where:
+/// 1. The Registry is the root subscriber
+/// 2. Multiple layers are composed together using the `with` method
+/// 3. Each layer can have its own filter
+/// 
+/// Console output shows INFO level and above by default,
+/// while the file output captures all levels of logs.
+/// 
+/// A special debug layer can be enabled by setting the HIPPOCAMPUS_DEBUG
+/// environment variable, which will output DEBUG-level logs to the console.
+fn init_tracing() {
+    // Create a directory for logs if it doesn't exist
+    if !Path::new("logs").exists() {
+        std::fs::create_dir("logs").expect("Failed to create logs directory");
+    }
+
+    // Setup a file appender for all log levels
+    let file_appender = RollingFileAppender::new(
+        Rotation::DAILY,
+        "logs",
+        "hippocampus.log"
+    );
+    
+    // Non-blocking writer for better performance
+    let (file_writer, _guard) = tracing_appender::non_blocking(file_appender);
+
+    println!("Initializing tracing subscriber");
+    
+    // Create file layer with appropriate filter
+    let file_layer = fmt::layer()
+        .with_ansi(false)  // No ANSI color codes in log files
+        .with_writer(file_writer)
+        .with_filter(LevelFilter::TRACE);
+    
+    // Determine which console output layer to use based on debug mode
+    let debug_mode = env::var("HIPPOCAMPUS_DEBUG").is_ok();
+    let console_layer = if debug_mode {
+        println!("Debug mode enabled - verbose logs will be shown");
+        fmt::layer()
+            .pretty()
+            .with_writer(std::io::stdout)
+            .with_filter(LevelFilter::DEBUG)
+    } else {
+        fmt::layer()
+            .pretty()
+            .with_writer(std::io::stdout)
+            .with_filter(LevelFilter::WARN)
+    };
+	
+    // Initialize the global subscriber by composing layers with a Registry
+    // The Registry is the root subscriber that's responsible for collecting spans
+    let subscriber = Registry::default()
+        .with(console_layer)
+        .with(file_layer);
+    
+    subscriber.init();
+
+    println!("Tracing subscriber initialized");
+}
+
 
 #[cfg(test)]
 mod tests {
