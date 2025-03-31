@@ -1,2 +1,6 @@
 - Add back in more commenting on tests.
 - Fix issues in common.rs where functions are claiming that they aren't being used when they clearly are.
+- Add flag to control database path.
+- Add flag to control logging level.
+- Add a route to mark a card as suspended
+  - Do this by adding a suspended-on date field, and using that to track suspension.
