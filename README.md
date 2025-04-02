@@ -1,15 +1,6 @@
 # Hippocampus: A Spaced Repetition System
 
-Hippocampus is a Rust-based spaced repetition server designed to help users memorize information more effectively by scheduling reviews at optimal intervals. The name "Hippocampus" refers to the part of the brain involved in memory formation, which is fitting for a system designed to enhance learning and retention.
-
-## Features
-
-- **Core Spaced Repetition Functionality**: Schedule items for review using scientifically-backed spaced repetition algorithms
-- **Multiple Item Types**: Support for different kinds of learning material (flashcards, etc.)
-- **Tagging System**: Organize items with tags, including hidden system tags
-- **Card Priority Management**: Adjust review priority of cards independently
-- **RESTful API**: Complete API for item management, reviews, and scheduling
-- **SQLite Database**: Persistent storage with Diesel ORM
+Hippocampus is designed primarily as an implementation of the idea Andy Matuschak called an [OS-level spaced repetition system](https://notes.andymatuschak.org/zNLoqjEVe5dheMKmTTyB9E3). It functions as a server running in the background which any app can push items to study into, and a frontend that will request cards for review from (I am in the process of building this frontend). Use cases which I intend to support are study with spaced repetition, incremental reading, and attenuating todos.
 
 ## Project Structure
 
@@ -159,4 +150,4 @@ Planned enhancements include:
 
 ## License
 
-[MIT License](LICENSE)
+[Apache 2.0 + Common Clause License](LICENSE.txt)
