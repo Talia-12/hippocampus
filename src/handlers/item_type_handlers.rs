@@ -54,17 +54,17 @@ pub async fn create_item_type_handler(
 /// ### Returns
 ///
 /// The requested item type as JSON, or null if not found
-#[instrument(skip(pool), fields(item_type_id = %id))]
+#[instrument(skip(pool), fields(item_type_id = %item_type_id))]
 pub async fn get_item_type_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the item type ID from the URL path
-    Path(id): Path<String>,
+    Path(item_type_id): Path<String>,
 ) -> Result<Json<ItemType>, ApiError> {
     debug!("Retrieving item type");
     
     // Call the repository function to get the item type
-    let item_type = repo::get_item_type(&pool, &id)
+    let item_type = repo::get_item_type(&pool, &item_type_id)
         .map_err(ApiError::Database)?;
     
     // Return a NotFound error if the item type doesn't exist

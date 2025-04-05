@@ -30,7 +30,11 @@ pub struct Card {
 
     /// The priority of the card, between 0 and 1
     priority: f32,
+
+    /// When this card was suspended (or null if it isn't suspended)
+    suspended: Option<NaiveDateTime>
 }
+
 
 impl Card {
     /// Creates a new card for an item
@@ -52,6 +56,7 @@ impl Card {
             last_review: None,
             scheduler_data: None,
             priority,
+            suspended: None,
         }
     }
     
@@ -77,6 +82,7 @@ impl Card {
         last_review: Option<DateTime<Utc>>,
         scheduler_data: Option<JsonValue>,
         priority: f32,
+        suspended: Option<DateTime<Utc>>,
     ) -> Self {
         Self {
             id,
@@ -86,6 +92,7 @@ impl Card {
             last_review: last_review.map(|dt| dt.naive_utc()),
             scheduler_data,
             priority,
+            suspended: suspended.map(|dt| dt.naive_utc()),
         }
     }
     
@@ -222,6 +229,34 @@ impl Card {
     /// * `priority` - The new priority for the card
     pub fn set_priority(&mut self, priority: f32) {
         self.priority = priority;
+    }
+
+
+    /// Gets the card's suspend timestamp as a DateTime<Utc>
+    ///
+    /// ### Returns
+    ///
+    /// The timestamp when this card was suspended, or None if never suspended
+    pub fn get_suspended(&self) -> Option<DateTime<Utc>> {
+        self.suspended.map(|dt| DateTime::from_naive_utc_and_offset(dt, Utc))
+    }
+    
+    /// Gets the card's raw suspended timestamp
+    ///
+    /// ### Returns
+    ///
+    /// The raw NaiveDateTime when this card was suspended, or None if never suspended
+    pub fn get_suspended_raw(&self) -> Option<NaiveDateTime> {
+        self.suspended
+    }
+    
+    /// Sets the card's suspended timestamp
+    ///
+    /// ### Arguments
+    ///
+    /// * `suspended` - The new suspended timestamp for the card
+    pub fn set_suspended(&mut self, suspended: Option<DateTime<Utc>>) {
+        self.suspended = suspended.map(|dt| dt.naive_utc());
     }
 }
 

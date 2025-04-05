@@ -91,22 +91,23 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
     Router::new()
         // Routes for item types
         .route("/item_types", post(handlers::create_item_type_handler).get(handlers::list_item_types_handler))
-        .route("/item_types/{id}", get(handlers::get_item_type_handler))
-        .route("/item_types/{id}/items", get(handlers::list_items_by_item_type_handler))
+        .route("/item_types/{item_type_id}", get(handlers::get_item_type_handler))
+        .route("/item_types/{item_type_id}/items", get(handlers::list_items_by_item_type_handler))
         
         // Routes for items
         .route("/items", post(handlers::create_item_handler).get(handlers::list_items_handler))
-        .route("/items/{id}", get(handlers::get_item_handler))
-        .route("/items/{id}/cards", post(handlers::create_card_handler).get(handlers::list_cards_by_item_handler))
+        .route("/items/{item_id}", get(handlers::get_item_handler))
+        .route("/items/{item_id}/cards", post(handlers::create_card_handler).get(handlers::list_cards_by_item_handler))
         .route("/items/{item_id}/tags", get(handlers::list_tags_for_item_handler))
         .route("/items/{item_id}/tags/{tag_id}", put(handlers::add_tag_to_item_handler).delete(handlers::remove_tag_from_item_handler))
         
         // Routes for cards
         .route("/cards", get(handlers::list_cards_handler))
-        .route("/cards/{id}", get(handlers::get_card_handler))
+        .route("/cards/{card_id}", get(handlers::get_card_handler))
         .route("/cards/{card_id}/reviews", get(handlers::list_reviews_by_card_handler))
         .route("/cards/{card_id}/priority", put(handlers::update_card_priority_handler))
         .route("/cards/{card_id}/tags", get(handlers::list_tags_for_card_handler))
+        .route("/cards/{card_id}/suspend", post(handlers::suspend_card_handler))
         
         // Routes for reviews
         .route("/reviews", post(handlers::create_review_handler))

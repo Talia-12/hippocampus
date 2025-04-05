@@ -93,3 +93,35 @@ pub struct UpdateCardPriorityDto {
     /// The new priority for the card, between 0 and 1
     pub priority: f32,
 }
+
+
+use std::fmt;
+
+impl fmt::Display for GetQueryDto {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "GetQueryDto {{ ")?;
+        
+        if let Some(item_type) = &self.item_type_id {
+            write!(f, "item_type_id: {}, ", item_type)?;
+        } else {
+            write!(f, "item_type_id: None, ")?;
+        }
+        
+        write!(f, "tag_ids: [")?;
+        for (i, tag_id) in self.tag_ids.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write!(f, "{}", tag_id)?;
+        }
+        write!(f, "], ")?;
+        
+        if let Some(review_date) = self.next_review_before {
+            write!(f, "next_review_before: {} ", review_date)?;
+        } else {
+            write!(f, "next_review_before: None ")?;
+        }
+        
+        write!(f, "}}")
+    }
+}

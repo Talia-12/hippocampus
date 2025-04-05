@@ -2,6 +2,7 @@ use crate::db::{DbPool, ExecuteWithRetry};
 use crate::models::{Card, Item};
 use crate::schema::{cards, item_tags};
 use crate::GetQueryDto;
+use chrono::Utc;
 use diesel::prelude::*;
 use anyhow::{Result, anyhow};
 use tracing::{instrument, debug, info, warn};
@@ -183,7 +184,7 @@ pub fn get_card(pool: &DbPool, card_id: &str) -> Result<Option<Card>> {
 /// Returns an error if:
 /// - Unable to get a connection from the pool
 /// - The database query fails
-#[instrument(skip(pool, query))]
+#[instrument(skip(pool), fields(query = %query))]
 pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec<Card>> {
     debug!("Listing cards with filters: {:?}", query);
     
@@ -298,6 +299,53 @@ pub fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
 }
 
 
+/// Sets a card's suspension state
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `card_id` - The ID of the card to update
+/// * `suspended` - The new suspension state for the card
+///
+/// ### Returns
+///
+/// A Result indicating success (Ok(())) or an error
+///
+/// ### Errors
+///
+/// Returns an error if:
+/// - Unable to get a connection from the pool
+/// - The database update operation fails
+/// - The card does not exist
+#[instrument(skip(pool), fields(card_id = %card_id, suspended = %suspended))]
+pub async fn set_card_suspended(pool: &DbPool, card_id: &str, suspended: bool) -> Result<()> {
+    debug!("Setting suspension of card to state: {}, {}", card_id, suspended);
+
+    let card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
+
+    // Check if the suspension state is already correct
+    if card.get_suspended().is_some() == suspended {
+        debug!("Already at correct suspension state.");
+        return Ok(());
+    }
+
+    // Set the new suspension state
+    let new_suspended = if suspended { Some(Utc::now().naive_utc()) } else { None };
+    debug!("Setting suspension of card to state: {}, {:?}", card_id, new_suspended);
+
+    let conn = &mut pool.get()?;
+
+    // Execute the update
+    diesel::update(cards::table.find(card_id.to_string()))
+        .set(cards::suspended.eq(new_suspended))
+        .execute_with_retry(conn).await?;
+
+    debug!("Successfully set suspension of card to state: {}, {:?}", card_id, new_suspended);
+
+    Ok(())
+}
+
+
 /// Updates a card in the database
 ///
 /// ### Arguments
@@ -328,6 +376,7 @@ pub async fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
             cards::last_review.eq(card.get_last_review_raw()),
             cards::scheduler_data.eq(card.get_scheduler_data()),
             cards::priority.eq(card.get_priority()),
+            cards::suspended.eq(card.get_suspended_raw()),
         ))
         .execute_with_retry(conn).await?;
 

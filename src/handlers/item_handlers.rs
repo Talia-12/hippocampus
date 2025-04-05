@@ -117,17 +117,17 @@ pub async fn list_items_handler(
 /// ### Returns
 ///
 /// A list of items with the specified item type as JSON
-#[instrument(skip(pool), fields(item_type_id = %id))]
+#[instrument(skip(pool), fields(item_type_id = %item_type_id))]
 pub async fn list_items_by_item_type_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the item type ID from the URL path
-    Path(id): Path<String>,
+    Path(item_type_id): Path<String>,
 ) -> Result<Json<Vec<Item>>, ApiError> {
     debug!("Listing items by item type");
     
     // Verify that the item type exists
-    let item_type = repo::get_item_type(&pool, &id)
+    let item_type = repo::get_item_type(&pool, &item_type_id)
         .map_err(ApiError::Database)?
         .ok_or(ApiError::NotFound)?;
     
@@ -135,7 +135,7 @@ pub async fn list_items_by_item_type_handler(
     let items = repo::get_items_by_type(&pool, &item_type.get_id())
         .map_err(ApiError::Database)?;
     
-    info!("Retrieved {} items for item type {}", items.len(), id);
+    info!("Retrieved {} items for item type {}", items.len(), item_type_id);
     
     // Return the list of items as JSON
     Ok(Json(items))

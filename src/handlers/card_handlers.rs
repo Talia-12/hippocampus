@@ -63,17 +63,17 @@ pub async fn create_card_handler(
 /// ### Returns
 ///
 /// The requested card as JSON, or null if not found
-#[instrument(skip(pool), fields(card_id = %id))]
+#[instrument(skip(pool), fields(card_id = %card_id))]
 pub async fn get_card_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the card ID from the URL path
-    Path(id): Path<String>,
+    Path(card_id): Path<String>,
 ) -> Result<Json<Option<Card>>, ApiError> {
     debug!("Getting card");
     
     // Call the repository function to get the card
-    let card = repo::get_card(&pool, &id)
+    let card = repo::get_card(&pool, &card_id)
         .map_err(ApiError::Database)?;
     
     if let Some(ref card) = card {
@@ -153,6 +153,47 @@ pub async fn list_cards_by_item_handler(
     
     // Return the list of cards as JSON
     Ok(Json(cards))
+}
+
+
+/// Handler for updating a card's suspension state
+///
+/// This function handles POST requests to `/cards/{id}/suspend`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `id` - The ID of the card to update
+/// * `payload` - The request payload containing the new suspension state
+///
+/// ### Returns
+///
+/// The updated card as JSON
+#[instrument(skip(pool), fields(card_id = %id))]
+pub async fn suspend_card_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<DbPool>>,
+    // Extract the card ID from the URL path
+    Path(id): Path<String>,
+    // Extract and deserialize the JSON request body
+    Json(payload): Json<bool>,
+) -> Result<(), ApiError> {
+    if payload {
+        debug!("Suspending card");
+    } else {
+        debug!("Resuming card");
+    }
+
+    repo::set_card_suspended(&pool, &id, payload).await
+        .map_err(ApiError::Database)?;
+
+    if payload {
+        info!("Successfully suspended card");
+    } else {
+        info!("Successfully resumed card");
+    }
+
+    Ok(())
 }
 
 

@@ -1,0 +1,2 @@
+-- Your SQL goes here
+ALTER TABLE cards ADD COLUMN suspended TIMESTAMP DEFAULT NULL;
