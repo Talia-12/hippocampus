@@ -209,7 +209,7 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
     if let Some(review_date) = query.next_review_before {
         debug!("Filtering by review date before: {}", review_date);
         card_query = card_query.filter(
-            cards::next_review.lt(review_date.naive_utc()).and(cards::next_review.is_not_null())
+            cards::next_review.lt(review_date.naive_utc()).and(cards::next_review.is_not_null()).and(cards::suspended.is_null())
         );
     }
     
