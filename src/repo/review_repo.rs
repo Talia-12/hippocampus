@@ -287,12 +287,11 @@ mod tests {
             .unwrap();
         
         assert!(updated_card.get_last_review().is_some());
-        assert!(updated_card.get_next_review().is_some());
         assert!(updated_card.get_scheduler_data().is_some());
         
         // The next review should be in the future
         let now = Utc::now();
-        let next_review = updated_card.get_next_review().unwrap();
+        let next_review = updated_card.get_next_review();
         assert!(next_review > now);
     }
     

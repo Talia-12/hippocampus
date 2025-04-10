@@ -114,7 +114,7 @@ pub async fn create_card(pool: &DbPool, item_id: &str, card_index: i32, priority
     let conn = &mut pool.get()?;
     
     // Create a new card for the item
-    let new_card = Card::new(item_id.to_string(), card_index, priority);
+    let new_card = Card::new(item_id.to_string(), card_index, Utc::now(), priority);
     let new_card_id = new_card.get_id();
     
     debug!("Inserting card into database with id: {}", new_card_id);
@@ -724,10 +724,10 @@ mod tests {
         let yesterday = now - Duration::days(1);
         let tomorrow = now + Duration::days(1);
         
-        cards[0].set_next_review(Some(yesterday)); // Due
-        cards[1].set_next_review(Some(tomorrow));  // Not due
-        cards[2].set_next_review(None); // Card 3 has no next_review (null), so it's never due
-        cards[3].set_next_review(Some(yesterday)); // Due
+        cards[0].set_next_review(yesterday); // Due
+        cards[1].set_next_review(tomorrow);  // Not due
+        cards[2].set_suspended(Some(now)); // Card 3 has been suspended, so it's never due
+        cards[3].set_next_review(yesterday); // Due
 
         // Update the cards in the database
         for card in &cards {
@@ -750,7 +750,7 @@ mod tests {
         let due_card_ids: Vec<String> = due_cards.iter().map(|c| c.get_id()).collect();
         assert!(due_card_ids.contains(&cards[0].get_id())); // Card 1 is due
         assert!(!due_card_ids.contains(&cards[1].get_id())); // Card 2 is not due
-        assert!(!due_card_ids.contains(&cards[2].get_id())); // Card 3 is not due (no next_review)
+        assert!(!due_card_ids.contains(&cards[2].get_id())); // Card 3 is not due (suspended)
         assert!(due_card_ids.contains(&cards[3].get_id())); // Card 4 is due
     }
     
@@ -798,9 +798,9 @@ mod tests {
         let yesterday = now - Duration::days(1);
         let tomorrow = now + Duration::days(1);
         
-        type1_card1.set_next_review(Some(yesterday)); // Due
-        type1_card2.set_next_review(Some(tomorrow));  // Not due
-        type2_card.set_next_review(Some(tomorrow)); // Not due
+        type1_card1.set_next_review(yesterday); // Due
+        type1_card2.set_next_review(tomorrow);  // Not due
+        type2_card.set_next_review(tomorrow); // Not due
         
         // Update the cards in the database
         update_card(&pool, &type1_card1).await.unwrap();

@@ -20,7 +20,7 @@ pub struct Card {
     card_index: i32,
     
     /// When this card should next be reviewed
-    next_review: Option<NaiveDateTime>,
+    next_review: NaiveDateTime,
     
     /// When this card was last reviewed
     last_review: Option<NaiveDateTime>,
@@ -43,16 +43,18 @@ impl Card {
     ///
     /// * `item_id` - The ID of the item this card belongs to
     /// * `card_index` - The index of this card within its item
+    /// * `next_review` - When this card should next be reviewed
+    /// * `priority` - The priority of the card, between 0 and 1
     ///
     /// ### Returns
     ///
     /// A new `Card` instance with the specified item ID and card index
-    pub fn new(item_id: String, card_index: i32, priority: f32) -> Self {
+    pub fn new(item_id: String, card_index: i32, next_review: DateTime<Utc>, priority: f32) -> Self {
         Self {
             id: Uuid::new_v4().to_string(),
             item_id,
             card_index,
-            next_review: None,
+            next_review: next_review.naive_utc(),
             last_review: None,
             scheduler_data: None,
             priority,
@@ -78,7 +80,7 @@ impl Card {
         id: String,
         item_id: String,
         card_index: i32,
-        next_review: Option<DateTime<Utc>>,
+        next_review: DateTime<Utc>,
         last_review: Option<DateTime<Utc>>,
         scheduler_data: Option<JsonValue>,
         priority: f32,
@@ -88,7 +90,7 @@ impl Card {
             id,
             item_id,
             card_index,
-            next_review: next_review.map(|dt| dt.naive_utc()),
+            next_review: next_review.naive_utc(),
             last_review: last_review.map(|dt| dt.naive_utc()),
             scheduler_data,
             priority,
@@ -146,8 +148,8 @@ impl Card {
     /// ### Returns
     ///
     /// The timestamp when this card should next be reviewed, or None if not scheduled
-    pub fn get_next_review(&self) -> Option<DateTime<Utc>> {
-        self.next_review.map(|dt| DateTime::from_naive_utc_and_offset(dt, Utc))
+    pub fn get_next_review(&self) -> DateTime<Utc> {
+        DateTime::from_naive_utc_and_offset(self.next_review, Utc)
     }
     
     /// Gets the card's raw next review timestamp
@@ -155,7 +157,7 @@ impl Card {
     /// ### Returns
     ///
     /// The raw NaiveDateTime when this card should next be reviewed, or None if not scheduled
-    pub fn get_next_review_raw(&self) -> Option<NaiveDateTime> {
+    pub fn get_next_review_raw(&self) -> NaiveDateTime {
         self.next_review
     }
     
@@ -164,8 +166,8 @@ impl Card {
     /// ### Arguments
     ///
     /// * `next_review` - The new next review timestamp for the card
-    pub fn set_next_review(&mut self, next_review: Option<DateTime<Utc>>) {
-        self.next_review = next_review.map(|dt| dt.naive_utc());
+    pub fn set_next_review(&mut self, next_review: DateTime<Utc>) {
+        self.next_review = next_review.naive_utc();
     }
     
     /// Gets the card's last review timestamp as a DateTime<Utc>
@@ -269,13 +271,14 @@ mod tests {
     fn test_card_new() {
         let item_id = Uuid::new_v4().to_string();
         let card_index = 1;
+        let next_review = Utc::now();
         
-        let card = Card::new(item_id.clone(), card_index, 0.5);
+        let card = Card::new(item_id.clone(), card_index, next_review, 0.5);
         
         assert_eq!(card.get_item_id(), item_id);
         assert_eq!(card.get_card_index(), card_index);
         assert!(Uuid::parse_str(&card.get_id()).is_ok());
-        assert_eq!(card.get_next_review(), None);
+        assert_eq!(card.get_next_review(), next_review);
         assert_eq!(card.get_last_review(), None);
         assert_eq!(card.get_scheduler_data(), None);
     }
@@ -284,13 +287,14 @@ mod tests {
     fn test_card_scheduler_data() {
         let item_id = Uuid::new_v4().to_string();
         let card_index = 1;
+        let next_review = Utc::now();
         let scheduler_data = Some(JsonValue(json!({
             "ease_factor": 2.5,
             "interval": 1,
             "repetitions": 0,
         })));
         
-        let mut card = Card::new(item_id, card_index, 0.5);
+        let mut card = Card::new(item_id, card_index, next_review, 0.5);
         card.set_scheduler_data(scheduler_data.clone());
         
         assert_eq!(card.get_scheduler_data(), scheduler_data);

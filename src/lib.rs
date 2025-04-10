@@ -146,6 +146,7 @@ mod tests {
     use super::*;
     use axum::body::Body;
     use axum::http::{Request, StatusCode};
+    use chrono::Utc;
     use diesel::connection::SimpleConnection;
     use diesel::{SqliteConnection, RunQueryDsl, Connection};
     use serde_json::Value;
@@ -615,7 +616,7 @@ mod tests {
         // Check that the item was updated with review information
         let updated_card = repo::get_card(&pool, &card.get_id()).unwrap().unwrap();
         assert!(updated_card.get_last_review().is_some());
-        assert!(updated_card.get_next_review().is_some());
+        assert!(updated_card.get_next_review() > Utc::now());
     }
     
 
