@@ -52,3 +52,4 @@ tokio-test = "0.4.4"
 reqwest = { version = "0.12.12", features = ["json"] }
 tower = "0.5.2"
 serde_html_form = "0.2.7"
+tempfile = "3.9.0"

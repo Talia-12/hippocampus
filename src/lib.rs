@@ -141,6 +141,206 @@ pub fn run_migrations(conn: &mut diesel::SqliteConnection) {
         .expect("Failed to run migrations");
 }
 
+
+/// Enum representing the type of backup
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum BackupType {
+    Startup,
+    Periodic,
+}
+
+/// Backs up the SQLite database file
+///
+/// This function creates a backup of the database if it's a local file (not an in-memory database).
+/// The backup is stored in a folder called `backups` at the same level as the database file.
+///
+/// ### Arguments
+///
+/// * `database_path` - The path to the database file
+/// * `backup_type` - The type of backup: Startup or Periodic
+///
+/// ### Returns
+///
+/// A `Result` indicating success or failure, with an error message on failure
+///
+/// ### Notes
+///
+/// Startup backups are all kept, but there will be at most five periodic backups at any time.
+pub fn backup_database(database_path: &str, backup_type: BackupType) -> Result<(), String> {
+    // Skip if using in-memory database
+    if database_path == ":memory:" {
+        return Ok(());
+    }
+
+    use std::fs::{self, File};
+    use std::io::{Read, Write};
+    use std::path::{Path, PathBuf};
+    use std::time::{SystemTime, UNIX_EPOCH};
+    use tracing::{debug, info};
+
+    // Get the directory containing the database
+    let db_path = Path::new(database_path);
+    if !db_path.exists() {
+        // Database doesn't exist yet, nothing to back up
+        debug!("Database file doesn't exist yet, skipping backup");
+        return Ok(());
+    }
+
+    // Create backup directory if it doesn't exist
+    let backup_dir = if let Some(parent) = db_path.parent() {
+        parent.join("backups")
+    } else {
+        PathBuf::from("backups")
+    };
+
+    if !backup_dir.exists() {
+        debug!("Creating backup directory: {:?}", backup_dir);
+        fs::create_dir_all(&backup_dir).map_err(|e| format!("Failed to create backup directory: {}", e))?;
+    }
+
+    // Generate timestamp for backup file
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
+        .as_secs();
+
+    // Generate backup file name with db name and timestamp
+    let db_filename = db_path.file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("database.db");
+
+    let backup_path = backup_dir.join(format!("{}.{}.{}.backup", db_filename, match backup_type { BackupType::Startup => "startup", BackupType::Periodic => "periodic" }, timestamp));
+    
+    debug!("Creating backup at {:?}", backup_path);
+
+    // TODO: this really should be thread locked so no other operations are happening on the database during backup
+    // but I'm not sure how to do that
+    // so instead we're accepting that some of the 20-minute backups will be corrupted and this is better than nothing
+
+    // Copy the database file to the backup location
+    let mut src = File::open(database_path).map_err(|e| format!("Failed to open database: {}", e))?;
+    let mut dst = File::create(&backup_path).map_err(|e| format!("Failed to create backup file: {}", e))?;
+    
+    let mut buffer = Vec::new();
+    src.read_to_end(&mut buffer).map_err(|e| format!("Failed to read database: {}", e))?;
+    dst.write_all(&buffer).map_err(|e| format!("Failed to write backup: {}", e))?;
+    
+    info!("Database backup created at {:?}", backup_path);
+
+    // If this is a periodic backup, check if we need to clean up old backups
+    if backup_type == BackupType::Periodic {
+        cleanup_periodic_backups(&backup_dir, db_filename)?;
+    }
+
+    Ok(())
+}
+
+/// Cleans up old periodic backups, keeping only the 5 most recent
+///
+/// ### Arguments
+///
+/// * `backup_dir` - Path to the backup directory
+/// * `db_filename` - Base filename of the database
+///
+/// ### Returns
+///
+/// A `Result` indicating success or failure, with an error message on failure
+fn cleanup_periodic_backups(backup_dir: &std::path::Path, db_filename: &str) -> Result<(), String> {
+    use std::fs;
+    use std::time::SystemTime;
+    use tracing::{debug, error};
+
+    // Find all periodic backups for this database
+    let pattern = format!("{}.periodic.", db_filename);
+    
+    let mut backups = match fs::read_dir(backup_dir) {
+        Ok(entries) => {
+            entries
+                .filter_map(Result::ok)
+                .filter(|entry| {
+                    if let Some(name) = entry.file_name().to_str() {
+                        name.contains(&pattern)
+                    } else {
+                        false
+                    }
+                })
+                .collect::<Vec<_>>()
+        }
+        Err(e) => {
+            error!("Failed to read backup directory: {}", e);
+            return Err(format!("Failed to read backup directory: {}", e));
+        }
+    };
+
+    // Sort backups by modification time (newest first)
+    backups.sort_by(|a, b| {
+        let time_a = a.metadata().and_then(|m| m.modified()).unwrap_or_else(|_| SystemTime::UNIX_EPOCH);
+        let time_b = b.metadata().and_then(|m| m.modified()).unwrap_or_else(|_| SystemTime::UNIX_EPOCH);
+        time_b.cmp(&time_a)
+    });
+
+    // Keep only the 5 newest backups
+    const MAX_PERIODIC_BACKUPS: usize = 5;
+    
+    if backups.len() > MAX_PERIODIC_BACKUPS {
+        for old_backup in backups.iter().skip(MAX_PERIODIC_BACKUPS) {
+            debug!("Removing old backup: {:?}", old_backup.path());
+            if let Err(e) = fs::remove_file(old_backup.path()) {
+                error!("Failed to remove old backup {:?}: {}", old_backup.path(), e);
+                // Continue with other deletions even if one fails
+            }
+        }
+    }
+
+    Ok(())
+}
+
+
+/// Starts a background task to periodically back up the database
+///
+/// This function spawns a background task that backs up the database every 20 minutes.
+///
+/// ### Arguments
+///
+/// * `database_path` - The path to the database file
+///
+/// ### Notes
+///
+/// This should only be called once at application startup.
+pub fn start_periodic_backup(database_path: String) {
+    // Skip for in-memory databases
+    if database_path == ":memory:" {
+        return;
+    }
+
+    use std::time::Duration;
+    use tokio::time;
+    use tracing::{info, error};
+
+    // Clone the database path for the async task
+    let db_path = database_path.clone();
+
+    // Spawn a background task for periodic backups
+    tokio::spawn(async move {
+        let mut interval = time::interval(Duration::from_secs(20 * 60)); // 20 minutes
+
+        info!("Starting periodic database backup task (every 20 minutes)");
+        
+        loop {
+            // Wait for the next interval tick
+            interval.tick().await;
+
+            // Perform the backup
+            info!("Performing periodic database backup");
+
+            if let Err(e) = backup_database(&db_path, BackupType::Periodic) {
+                error!("Periodic backup failed: {}", e);
+            }
+        }
+    });
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -718,5 +918,79 @@ mod tests {
         // Verify the response contains the correct item type
         assert_eq!(response_item_type["id"], item_type.get_id());
         assert_eq!(response_item_type["name"], name);
+    }
+
+
+    /// Tests the database backup functionality 
+    ///
+    /// This test verifies that:
+    /// 1. Backups can be created successfully for an existing database
+    /// 2. In-memory databases are skipped appropriately
+    /// 3. The backup directory is created if it doesn't exist
+    #[test]
+    fn test_database_backup() {
+        use std::fs::{self, File};
+        use std::io::Write;
+        use std::thread::sleep;
+        use std::time::Duration;
+        
+        // Create a temporary test database file
+        let test_db_dir = tempfile::tempdir().expect("Failed to create temp directory");
+        let test_db_path = test_db_dir.path().join("test_backup.db");
+        
+        // Create a dummy database file with some content
+        {
+            let mut file = File::create(&test_db_path).expect("Failed to create test database file");
+            file.write_all(b"Test database content").expect("Failed to write to test database");
+        }
+        
+        // Test backup creation
+        let db_path_str = test_db_path.to_str().unwrap();
+        let result = super::backup_database(db_path_str, BackupType::Startup);
+        assert!(result.is_ok(), "Backup should succeed");
+        
+        // Check that the backup directory was created
+        let backup_dir = test_db_dir.path().join("backups");
+        assert!(backup_dir.exists(), "Backup directory should exist");
+        
+        // Check that a backup file was created
+        let entries = fs::read_dir(&backup_dir).expect("Failed to read backup directory");
+        let backup_count = entries.count();
+        assert!(backup_count > 0, "At least one backup file should exist");
+        
+        // Test in-memory database
+        let result = super::backup_database(":memory:", BackupType::Startup);
+        assert!(result.is_ok(), "In-memory database backup should be skipped successfully");
+        
+        // Test cleanup of periodic backups
+        
+        // Create multiple periodic backups
+        let test_backups = 7; // More than MAX_PERIODIC_BACKUPS
+        for _ in 0..test_backups {
+            // Add a longer delay to ensure file modification times are distinct
+            // (because file timestamps are only accurate to the second, having a delay of less than a second will cause the backup to be overwritten)
+            // (and we double that to two seconds to be guaranteed that the backups will have different timestamps)
+            sleep(Duration::from_millis(2000));
+            let _ = super::backup_database(db_path_str, BackupType::Periodic);
+        }
+        
+        // Check for periodic backups
+        let periodic_backups: Vec<_> = fs::read_dir(&backup_dir)
+            .expect("Failed to read backup directory")
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry.file_name().to_str()
+                    .map(|name| name.contains("periodic"))
+                    .unwrap_or(false)
+            })
+            .collect();
+        
+        println!("Periodic backups: {:?}", 
+            periodic_backups.iter()
+                .map(|entry| entry.file_name())
+                .collect::<Vec<_>>()
+        );
+        
+        assert_eq!(periodic_backups.len(), 5, "Should keep exactly 5 periodic backups");
     }
 }

@@ -40,6 +40,24 @@ async fn main() {
 		info!("DATABASE_URL not set, using default: srs_server.db");
 		"srs_server.db".to_string()
 	});
+
+	// Backup the database if it is a local file
+	info!("Checking if database backup is needed");
+	match backup_database(&database_url, BackupType::Startup) {
+		Ok(_) => info!("Database backup completed successfully"),
+		Err(e) => {
+			error!("Database backup failed: {}", e);
+
+			// We want to panic here because if there is a problem with the database backup
+			// that we didn't know about, there could be other problems we don't know about
+			// and our backup system won't save us from data loss.
+			panic!("Database backup failed: {}", e);
+		}
+	}
+	
+	// Start periodic backup task (runs every 20 minutes)
+	info!("Starting periodic backup task");
+	start_periodic_backup(database_url.clone());
 	
 	// Initialize the database connection pool
 	// This pool will be shared across all request handlers

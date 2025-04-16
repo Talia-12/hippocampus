@@ -35,6 +35,7 @@ pub async fn create_item_handler(
     // Call the repository function to create the item
     let item = repo::create_item(&pool, &payload.item_type_id, payload.title, payload.item_data).await
         .map_err(ApiError::Database)?;
+    // TODO: make unique constraint errors map to an ApiError duplicate
 
     info!("Successfully created item with id: {}", item.get_id());
     
