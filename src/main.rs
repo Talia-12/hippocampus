@@ -41,6 +41,8 @@ async fn main() {
 		"srs_server.db".to_string()
 	});
 
+	info!("Using database at {}", database_url);
+
 	// Backup the database if it is a local file
 	info!("Checking if database backup is needed");
 	match backup_database(&database_url, BackupType::Startup) {

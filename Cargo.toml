@@ -17,6 +17,7 @@ axum = "0.8.1"
 axum-extra = { version = "0.10.0", features = ["query"] }
 tokio = { version = "1.43.0", features = ["full"] }
 hyper = "1.6.0" # for lower-level HTTP support if needed
+tower-http = { version = "0.6.2", features = ["cors"] } # For CORS support
 
 # Database
 diesel = { version = "2.2.8", features = ["sqlite", "r2d2", "returning_clauses_for_sqlite_3_35", "serde_json", "chrono", "uuid", "time"] }

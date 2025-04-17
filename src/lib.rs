@@ -72,6 +72,7 @@ use axum::{
     routing::{get, post, put}, Router
 };
 use std::sync::Arc;
+use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 pub use dto::*;
 pub use errors::ApiError;
@@ -88,6 +89,22 @@ pub use errors::ApiError;
 ///
 /// An Axum Router configured with all routes and the database pool as state
 pub fn create_app(pool: Arc<db::DbPool>) -> Router {
+    // Configure CORS to allow requests from any localhost origin
+    let cors = CorsLayer::new()
+        // Allow all methods
+        .allow_methods(Any)
+        // Allow any localhost origin with any port
+        .allow_origin(AllowOrigin::predicate(|origin, _request_parts| {
+            let origin = origin.as_bytes();
+            // Allow if origin starts with http://localhost: or http://127.0.0.1:
+            origin.starts_with(b"http://localhost:") || origin.starts_with(b"http://127.0.0.1:")
+        }))
+        // Allow all headers
+        .allow_headers(Any)
+        // Disallow credentials for now
+        // TODO: authentication
+        .allow_credentials(false);
+
     Router::new()
         // Routes for item types
         .route("/item_types", post(handlers::create_item_type_handler).get(handlers::list_item_types_handler))
@@ -114,6 +131,9 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         
         // Routes for tags
         .route("/tags", post(handlers::create_tag_handler).get(handlers::list_tags_handler))
+        
+        // Apply CORS middleware to all routes
+        .layer(cors)
         
         // Add the database pool to the application state
         .with_state(pool)
