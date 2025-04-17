@@ -113,7 +113,7 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         
         // Routes for items
         .route("/items", post(handlers::create_item_handler).get(handlers::list_items_handler))
-        .route("/items/{item_id}", get(handlers::get_item_handler))
+        .route("/items/{item_id}", get(handlers::get_item_handler).delete(handlers::delete_item_handler))
         .route("/items/{item_id}/cards", post(handlers::create_card_handler).get(handlers::list_cards_by_item_handler))
         .route("/items/{item_id}/tags", get(handlers::list_tags_for_item_handler))
         .route("/items/{item_id}/tags/{tag_id}", put(handlers::add_tag_to_item_handler).delete(handlers::remove_tag_from_item_handler))

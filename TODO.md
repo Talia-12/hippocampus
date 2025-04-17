@@ -4,3 +4,4 @@
 - Add flag to control logging level.
 - ensure that the review handling to update card review times doesn't touch the database, so that I can reuse the same code
   to display to the user how long each button will defer for.
+- Add a way to delete items

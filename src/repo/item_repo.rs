@@ -97,6 +97,37 @@ pub fn get_item(pool: &DbPool, item_id: &str) -> Result<Option<Item>> {
     Ok(result)
 }
 
+
+/// Deletes an item from the database by its ID
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `item_id` - The ID of the item to delete
+///
+/// ### Returns
+///
+/// A Result indicating success (Ok(())) or an error
+///
+/// ### Errors
+///
+/// Returns an error if:
+/// - Unable to get a connection from the pool
+/// - The database delete operation fails
+#[instrument(skip(pool), fields(item_id = %item_id))]
+pub async fn delete_item(pool: &DbPool, item_id: &str) -> Result<()> {
+    debug!("Deleting item by id");
+
+    let mut conn = pool.get()?;
+
+    diesel::delete(items::table.find(item_id.to_string()))
+        .execute_with_retry(&mut conn).await?;
+
+    debug!("Successfully deleted item with id: {}", item_id);
+    Ok(())
+}
+
+
 /// Retrieves all items from the database
 ///
 /// ### Arguments

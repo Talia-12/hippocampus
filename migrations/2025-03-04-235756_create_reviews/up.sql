@@ -5,7 +5,7 @@ CREATE TABLE reviews (
     -- Store as Unix timestamp (seconds since epoch)
     review_timestamp TIMESTAMP NOT NULL,
     
-    FOREIGN KEY (card_id) REFERENCES cards(id)
+    FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE
 );
 
 CREATE INDEX reviews_card_id_index ON reviews(card_id);
