@@ -1,7 +1,7 @@
 use crate::db::{DbPool, ExecuteWithRetry};
 use crate::models::{Card, Item};
 use crate::schema::{cards, item_tags};
-use crate::GetQueryDto;
+use crate::{GetQueryDto, SuspendedFilter};
 use chrono::Utc;
 use diesel::prelude::*;
 use anyhow::{Result, anyhow};
@@ -209,9 +209,40 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
     if let Some(review_date) = query.next_review_before {
         debug!("Filtering by review date before: {}", review_date);
         card_query = card_query.filter(
-            cards::next_review.lt(review_date.naive_utc()).and(cards::next_review.is_not_null()).and(cards::suspended.is_null())
+            cards::next_review.lt(review_date.naive_utc()).and(cards::next_review.is_not_null())
         );
     }
+
+    // Apply filter by last review date, if specified
+    if let Some(review_date) = query.last_review_after {
+        debug!("Filtering by last review date after: {}", review_date);
+        card_query = card_query.filter(
+            cards::last_review.gt(review_date.naive_utc()).and(cards::last_review.is_not_null())
+        );
+    }
+
+    // Apply filter to remove suspended cards, if specified
+    if query.suspended_filter == SuspendedFilter::Exclude {
+        card_query = card_query.filter(cards::suspended.is_null());
+    }
+
+    // Apply filter to only include suspended cards, if specified
+    if query.suspended_filter == SuspendedFilter::Only {
+        card_query = card_query.filter(cards::suspended.is_not_null());
+    }
+
+    // Apply filter by suspended date before, if specified
+    if let Some(suspended_date) = query.suspended_before {
+        debug!("Filtering by suspended date before: {}", suspended_date);
+        card_query = card_query.filter(cards::suspended.lt(suspended_date.naive_utc()));
+    }
+
+    // Apply filter by suspended date after, if specified
+    if let Some(suspended_date) = query.suspended_after {
+        debug!("Filtering by suspended date after: {}", suspended_date);
+        card_query = card_query.filter(cards::suspended.gt(suspended_date.naive_utc()));
+    }
+
     
     // Execute the query
     let mut results = card_query.load::<Card>(conn)?;
@@ -451,6 +482,7 @@ mod tests {
     use super::*;
     use crate::repo::tests::setup_test_db;
     use crate::repo::{create_item, create_item_type, create_tag, add_tag_to_item};
+    use crate::GetQueryDtoBuilder;
     use serde_json::json;
     use chrono::{Duration, Utc};
 
@@ -599,17 +631,13 @@ mod tests {
         ).await.unwrap();
         
         // Filter cards by item type
-        let query1 = GetQueryDto {
-            item_type_id: Some(type1_type.get_id()),
-            tag_ids: vec![],
-            next_review_before: None,
-        };
-        
-        let query2 = GetQueryDto {
-            item_type_id: Some(type2_type.get_id()),
-            tag_ids: vec![],
-            next_review_before: None,
-        };
+        let query1 = GetQueryDtoBuilder::new()
+            .item_type_id(type1_type.get_id())
+            .build();
+            
+        let query2 = GetQueryDtoBuilder::new()
+            .item_type_id(type2_type.get_id())
+            .build();
         
         let type1_cards = list_cards_with_filters(&pool, &query1).unwrap();
         let type2_cards = list_cards_with_filters(&pool, &query2).unwrap();
@@ -657,23 +685,17 @@ mod tests {
         // Item 3 has no tags
         
         // Filter cards by tags
-        let query1 = GetQueryDto {
-            item_type_id: None,
-            tag_ids: vec![tag1.get_id()],
-            next_review_before: None,
-        };
+        let query1 = GetQueryDtoBuilder::new()
+            .add_tag_id(tag1.get_id())
+            .build();
+
+        let query2 = GetQueryDtoBuilder::new()
+            .add_tag_id(tag2.get_id())
+            .build();
         
-        let query2 = GetQueryDto {
-            item_type_id: None,
-            tag_ids: vec![tag2.get_id()],
-            next_review_before: None,
-        };
-        
-        let query_both_tags = GetQueryDto {
-            item_type_id: None,
-            tag_ids: vec![tag1.get_id(), tag2.get_id()],
-            next_review_before: None,
-        };
+        let query_both_tags = GetQueryDtoBuilder::new()
+            .tag_ids(vec![tag1.get_id(), tag2.get_id()])
+            .build();
         
         let cards_tag1 = list_cards_with_filters(&pool, &query1).unwrap();
         let cards_tag2 = list_cards_with_filters(&pool, &query2).unwrap();
@@ -735,11 +757,9 @@ mod tests {
         }
         
         // Filter cards by next_review
-        let query = GetQueryDto {
-            item_type_id: None,
-            tag_ids: vec![],
-            next_review_before: Some(now),
-        };
+        let query = GetQueryDtoBuilder::new()
+            .next_review_before(now)
+            .build();
         
         let due_cards = list_cards_with_filters(&pool, &query).unwrap();
         
@@ -808,11 +828,11 @@ mod tests {
         update_card(&pool, &type2_card).await.unwrap();
         
         // Filter cards by multiple criteria
-        let query = GetQueryDto {
-            item_type_id: Some(type1_type.get_id()),
-            tag_ids: vec![important_tag.get_id()],
-            next_review_before: Some(now),
-        };
+        let query = GetQueryDtoBuilder::new()
+            .item_type_id(type1_type.get_id())
+            .add_tag_id(important_tag.get_id())
+            .next_review_before(now)
+            .build();
         
         let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
         
@@ -832,31 +852,24 @@ mod tests {
         let pool = setup_test_db();
         
         // Test with empty database
-        let query = GetQueryDto {
-            item_type_id: None,
-            tag_ids: vec![],
-            next_review_before: None,
-        };
+        let query = GetQueryDtoBuilder::new()
+            .build();
         
         let cards = list_cards_with_filters(&pool, &query).unwrap();
         assert_eq!(cards.len(), 0);
         
         // Test with non-existent item type
-        let query = GetQueryDto {
-            item_type_id: Some("nonexistent".to_string()),
-            tag_ids: vec![],
-            next_review_before: None,
-        };
-        
+        let query = GetQueryDtoBuilder::new()
+            .item_type_id("nonexistent".to_string())
+            .build();
+
         let cards = list_cards_with_filters(&pool, &query).unwrap();
         assert_eq!(cards.len(), 0);
         
         // Test with non-existent tag
-        let query = GetQueryDto {
-            item_type_id: None,
-            tag_ids: vec!["nonexistent".to_string()],
-            next_review_before: None,
-        };
+        let query = GetQueryDtoBuilder::new()
+            .add_tag_id("nonexistent".to_string())
+            .build();
         
         let cards = list_cards_with_filters(&pool, &query).unwrap();
         assert_eq!(cards.len(), 0);
@@ -948,5 +961,473 @@ mod tests {
         let nonexistent_card_id = "00000000-0000-0000-0000-000000000000";
         let result = update_card_priority(&pool, nonexistent_card_id, 0.5).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_filter_cards_by_suspended_state_exclude() {
+        let pool = setup_test_db();
+        
+        // Create an item type
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        
+        // Create some items
+        let item1 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Item 1".to_string(), 
+            json!({"front": "F1", "back": "B1"})
+        ).await.unwrap();
+        
+        // Get cards for the item
+        let mut cards = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        assert_eq!(cards.len(), 2);
+        
+        // Suspend one of the cards
+        let now = Utc::now();
+        cards[0].set_suspended(Some(now));
+        
+        // Update the cards in the database
+        for card in &cards {
+            update_card(&pool, card).await.unwrap();
+        }
+        
+        // Filter to exclude suspended cards (default behavior)
+        let query = GetQueryDtoBuilder::new()
+            .suspended_filter(SuspendedFilter::Exclude)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        
+        // Verify that we only got non-suspended cards
+        assert!(filtered_cards.iter().all(|c| c.get_suspended().is_none()));
+        assert!(filtered_cards.iter().any(|c| c.get_id() == cards[1].get_id()));
+        assert!(!filtered_cards.iter().any(|c| c.get_id() == cards[0].get_id()));
+    }
+    
+    #[tokio::test]
+    async fn test_filter_cards_by_suspended_state_only() {
+        let pool = setup_test_db();
+        
+        // Create an item type
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        
+        // Create some items
+        let item1 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Item 1".to_string(), 
+            json!({"front": "F1", "back": "B1"})
+        ).await.unwrap();
+        
+        // Get cards for the item
+        let mut cards = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        assert_eq!(cards.len(), 2);
+        
+        // Suspend one of the cards
+        let now = Utc::now();
+        cards[0].set_suspended(Some(now));
+        
+        // Update the cards in the database
+        for card in &cards {
+            update_card(&pool, card).await.unwrap();
+        }
+        
+        // Filter to only include suspended cards
+        let query = GetQueryDtoBuilder::new()
+            .suspended_filter(SuspendedFilter::Only)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        
+        // Verify that we only got suspended cards
+        assert_eq!(filtered_cards.len(), 1);
+        assert!(filtered_cards.iter().all(|c| c.get_suspended().is_some()));
+        assert!(filtered_cards.iter().any(|c| c.get_id() == cards[0].get_id()));
+        assert!(!filtered_cards.iter().any(|c| c.get_id() == cards[1].get_id()));
+    }
+    
+    #[tokio::test]
+    async fn test_filter_cards_by_suspended_state_include() {
+        let pool = setup_test_db();
+        
+        // Create an item type
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        
+        // Create some items
+        let item1 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Item 1".to_string(), 
+            json!({"front": "F1", "back": "B1"})
+        ).await.unwrap();
+        
+        // Get cards for the item
+        let mut cards = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        assert_eq!(cards.len(), 2);
+        
+        // Suspend one of the cards
+        let now = Utc::now();
+        cards[0].set_suspended(Some(now));
+        
+        // Update the cards in the database
+        for card in &cards {
+            update_card(&pool, card).await.unwrap();
+        }
+        
+        // Filter to include all cards (both suspended and not)
+        let query = GetQueryDtoBuilder::new()
+            .suspended_filter(SuspendedFilter::Include)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        
+        // Verify that we got all cards
+        assert_eq!(filtered_cards.len(), 2);
+        assert!(filtered_cards.iter().any(|c| c.get_id() == cards[0].get_id()));
+        assert!(filtered_cards.iter().any(|c| c.get_id() == cards[1].get_id()));
+    }
+    
+    #[tokio::test]
+    async fn test_filter_cards_by_suspended_date_before() {
+        let pool = setup_test_db();
+        
+        // Create an item type
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        
+        // Create some items
+        let item1 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Item 1".to_string(), 
+            json!({"front": "F1", "back": "B1"})
+        ).await.unwrap();
+        
+        // Get cards for the item
+        let mut cards = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        assert_eq!(cards.len(), 2);
+        
+        // Set different suspension times
+        let now = Utc::now();
+        let yesterday = now - chrono::Duration::days(1);
+        let two_days_ago = now - chrono::Duration::days(2);
+        
+        cards[0].set_suspended(Some(yesterday));
+        cards[1].set_suspended(Some(two_days_ago));
+        
+        // Update the cards in the database
+        for card in &cards {
+            update_card(&pool, card).await.unwrap();
+        }
+        
+        // Filter suspended cards by date before (include all suspended cards)
+        let query = GetQueryDtoBuilder::new()
+            .suspended_filter(SuspendedFilter::Only)
+            .suspended_before(now)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        assert_eq!(filtered_cards.len(), 2);
+        
+        // Filter cards suspended before yesterday (should only include the older one)
+        let query = GetQueryDtoBuilder::new()
+            .suspended_filter(SuspendedFilter::Only)
+            .suspended_before(yesterday)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        assert_eq!(filtered_cards.len(), 1);
+        assert_eq!(filtered_cards[0].get_id(), cards[1].get_id());
+    }
+    
+    #[tokio::test]
+    async fn test_filter_cards_by_suspended_date_after() {
+        let pool = setup_test_db();
+        
+        // Create an item type
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        
+        // Create some items
+        let item1 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Item 1".to_string(), 
+            json!({"front": "F1", "back": "B1"})
+        ).await.unwrap();
+        
+        // Get cards for the item
+        let mut cards = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        assert_eq!(cards.len(), 2);
+        
+        // Set different suspension times
+        let now = Utc::now();
+        let yesterday = now - chrono::Duration::days(1);
+        let two_days_ago = now - chrono::Duration::days(2);
+        
+        cards[0].set_suspended(Some(yesterday));
+        cards[1].set_suspended(Some(two_days_ago));
+        
+        // Update the cards in the database
+        for card in &cards {
+            update_card(&pool, card).await.unwrap();
+        }
+        
+        // Filter suspended cards by date after (include all suspended cards)
+        let query = GetQueryDtoBuilder::new()
+            .suspended_filter(SuspendedFilter::Only)
+            .suspended_after(two_days_ago - chrono::Duration::hours(1))
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        assert_eq!(filtered_cards.len(), 2);
+        
+        // Filter cards suspended after yesterday (should only include the newer one)
+        let query = GetQueryDtoBuilder::new()
+            .suspended_filter(SuspendedFilter::Only)
+            .suspended_after(yesterday)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        assert_eq!(filtered_cards.len(), 0); // None are suspended after yesterday exactly
+        
+        // Filter cards suspended after two days ago (should include the more recent one)
+        let query = GetQueryDtoBuilder::new()
+            .suspended_filter(SuspendedFilter::Only)
+            .suspended_after(two_days_ago)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        assert_eq!(filtered_cards.len(), 1);
+        assert_eq!(filtered_cards[0].get_id(), cards[0].get_id());
+    }
+    
+    #[tokio::test]
+    async fn test_filter_cards_by_last_review_date() {
+        let pool = setup_test_db();
+        
+        // Create an item type
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        
+        // Create some items
+        let item1 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Item 1".to_string(), 
+            json!({"front": "F1", "back": "B1"})
+        ).await.unwrap();
+        
+        let item2 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Item 2".to_string(), 
+            json!({"front": "F2", "back": "B2"})
+        ).await.unwrap();
+        
+        // Get cards for each item
+        let mut cards = vec![];
+        cards.append(&mut get_cards_for_item(&pool, &item1.get_id()).unwrap());
+        cards.append(&mut get_cards_for_item(&pool, &item2.get_id()).unwrap());
+        
+        // Set different last review times for the cards
+        let now = Utc::now();
+        let yesterday = now - chrono::Duration::days(1);
+        let two_days_ago = now - chrono::Duration::days(2);
+        
+        cards[0].set_last_review(Some(yesterday));
+        cards[1].set_last_review(Some(two_days_ago));
+        cards[2].set_last_review(None); // Never reviewed
+        cards[3].set_last_review(Some(now));
+        
+        // Update the cards in the database
+        for card in &cards {
+            update_card(&pool, card).await.unwrap();
+        }
+        
+        // Filter cards last reviewed after yesterday
+        let query = GetQueryDtoBuilder::new()
+            .last_review_after(yesterday)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        assert_eq!(filtered_cards.len(), 1); // Only card[3] was reviewed after yesterday
+        assert_eq!(filtered_cards[0].get_id(), cards[3].get_id());
+        
+        // Filter cards last reviewed after two days ago
+        let query = GetQueryDtoBuilder::new()
+            .last_review_after(two_days_ago)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        assert_eq!(filtered_cards.len(), 2); // cards[0] and cards[3] were reviewed after two days ago
+        assert!(filtered_cards.iter().any(|c| c.get_id() == cards[0].get_id()));
+        assert!(filtered_cards.iter().any(|c| c.get_id() == cards[3].get_id()));
+    }
+    
+    #[tokio::test]
+    async fn test_filter_cards_by_suspended_date_combined() {
+        let pool = setup_test_db();
+        
+        // Create an item type
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        
+        // Create some items
+        let item1 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Item 1".to_string(), 
+            json!({"front": "F1", "back": "B1"})
+        ).await.unwrap();
+        
+        // Get cards for the item
+        let mut cards = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        assert_eq!(cards.len(), 2);
+        
+        // Create two more items with cards
+        let item2 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Item 2".to_string(), 
+            json!({"front": "F2", "back": "B2"})
+        ).await.unwrap();
+        
+        let item3 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Item 3".to_string(), 
+            json!({"front": "F3", "back": "B3"})
+        ).await.unwrap();
+        
+        cards.append(&mut get_cards_for_item(&pool, &item2.get_id()).unwrap());
+        cards.append(&mut get_cards_for_item(&pool, &item3.get_id()).unwrap());
+        
+        // Now we have 6 cards, set up different suspension times
+        let now = Utc::now();
+        let yesterday = now - chrono::Duration::days(1);
+        let two_days_ago = now - chrono::Duration::days(2);
+        let three_days_ago = now - chrono::Duration::days(3);
+        
+        // Card 0: suspended yesterday
+        cards[0].set_suspended(Some(yesterday));
+        
+        // Card 1: not suspended
+        
+        // Card 2: suspended two days ago
+        cards[2].set_suspended(Some(two_days_ago));
+        
+        // Card 3: suspended three days ago
+        cards[3].set_suspended(Some(three_days_ago));
+        
+        // Cards 4 and 5: not suspended
+        
+        // Update the cards in the database
+        for card in &cards {
+            update_card(&pool, card).await.unwrap();
+        }
+        
+        // Filter suspended cards by date range (between two days ago and now)
+        let query = GetQueryDtoBuilder::new()
+            .suspended_filter(SuspendedFilter::Only)
+            .suspended_after(two_days_ago - chrono::Duration::hours(1))
+            .suspended_before(now + chrono::Duration::hours(1))
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        
+        // Should include cards suspended in the last two days
+        assert_eq!(filtered_cards.len(), 2);
+        assert!(filtered_cards.iter().any(|c| c.get_id() == cards[0].get_id())); // yesterday
+        assert!(filtered_cards.iter().any(|c| c.get_id() == cards[2].get_id())); // two days ago
+        
+        // Filter for cards suspended more than 2 days ago
+        let query = GetQueryDtoBuilder::new()
+            .suspended_filter(SuspendedFilter::Only)
+            .suspended_before(two_days_ago)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        
+        // Should only include the card suspended three days ago
+        assert_eq!(filtered_cards.len(), 1);
+        assert_eq!(filtered_cards[0].get_id(), cards[3].get_id());
+    }
+    
+    #[tokio::test]
+    async fn test_filter_cards_complex_query() {
+        let pool = setup_test_db();
+        
+        // Create an item type
+        let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        
+        // Create items
+        let item1 = create_item(
+            &pool, 
+            &item_type.get_id(), 
+            "Item 1".to_string(), 
+            json!({"front": "F1", "back": "B1"})
+        ).await.unwrap();
+        
+        // Get 2 cards for the item
+        let mut cards = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        
+        // Create a tag
+        let tag = create_tag(&pool, "Important".to_string(), true).await.unwrap();
+        
+        // Add tag to the item
+        add_tag_to_item(&pool, &tag.get_id(), &item1.get_id()).await.unwrap();
+        
+        // Set up card states
+        let now = Utc::now();
+        let yesterday = now - chrono::Duration::days(1);
+        
+        // Card 0: Last reviewed yesterday, not suspended, due tomorrow
+        cards[0].set_last_review(Some(yesterday));
+        cards[0].set_next_review(now + chrono::Duration::days(1));
+        
+        // Card 1: Suspended yesterday, last reviewed 3 days ago
+        cards[1].set_suspended(Some(yesterday));
+        cards[1].set_last_review(Some(now - chrono::Duration::days(3)));
+        
+        // Update the cards
+        for card in &cards {
+            update_card(&pool, card).await.unwrap();
+        }
+        
+        // Complex query 1: Get all suspended cards with the tag "Important"
+        let query = GetQueryDtoBuilder::new()
+            .add_tag_id(tag.get_id())
+            .suspended_filter(SuspendedFilter::Only)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        
+        // Should only include card 1
+        assert_eq!(filtered_cards.len(), 1);
+        assert_eq!(filtered_cards[0].get_id(), cards[1].get_id());
+        
+        // Complex query 2: Get all non-suspended cards last reviewed after a certain date with tag "Important"
+        let query = GetQueryDtoBuilder::new()
+            .add_tag_id(tag.get_id())
+            .suspended_filter(SuspendedFilter::Exclude)
+            .last_review_after(yesterday - chrono::Duration::hours(1))
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        
+        // Should only include card 0
+        assert_eq!(filtered_cards.len(), 1);
+        assert_eq!(filtered_cards[0].get_id(), cards[0].get_id());
+        
+        // Complex query 3: Get all cards (suspended or not) from item type "Test Type 1" with tag "Important"
+        let query = GetQueryDtoBuilder::new()
+            .add_tag_id(tag.get_id())
+            .item_type_id(item_type.get_id())
+            .suspended_filter(SuspendedFilter::Include)
+            .build();
+        
+        let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+        
+        // Should include both cards
+        assert_eq!(filtered_cards.len(), 2);
+        assert!(filtered_cards.iter().any(|c| c.get_id() == cards[0].get_id()));
+        assert!(filtered_cards.iter().any(|c| c.get_id() == cards[1].get_id()));
     }
 } 
