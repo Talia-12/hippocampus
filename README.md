@@ -17,6 +17,11 @@ Hippocampus is designed primarily as an implementation of the idea Andy Matuscha
     - `item_tag.rs`: Relationship between items and tags
     - `json_value.rs`: Support for storing JSON data
   - `repo/`: Repository layer for database operations
+    - `item_repo.rs`: Item CRUD operations
+    - `item_type_repo.rs`: Item type operations
+    - `card_repo.rs`: Card operations
+    - `review_repo.rs`: Review operations
+    - `tag_repo.rs`: Tag operations
   - `handlers/`: API request handlers
     - `item_handlers.rs`: Endpoints for managing items
     - `item_type_handlers.rs`: Endpoints for managing item types
@@ -43,6 +48,8 @@ The application exposes a RESTful API with the following endpoints:
 - `GET /items`: List all items
 - `POST /items`: Create a new item
 - `GET /items/{id}`: Get a specific item
+- `POST /items/{id}`: Update an item
+- `DELETE /items/{id}`: Delete an item
 - `GET /items/{id}/cards`: List cards for a specific item
 - `POST /items/{id}/cards`: Create a new card for an item
 - `GET /items/{item_id}/tags`: List all tags for an item
@@ -55,6 +62,7 @@ The application exposes a RESTful API with the following endpoints:
 - `GET /cards/{card_id}/reviews`: List all reviews for a card
 - `PUT /cards/{card_id}/priority`: Update the priority of a card
 - `GET /cards/{card_id}/tags`: List all tags for a card
+- `POST /cards/{card_id}/suspend`: Suspend a card
 
 ### Reviews
 - `POST /reviews`: Record a review for a card

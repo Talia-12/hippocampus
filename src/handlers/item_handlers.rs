@@ -5,7 +5,7 @@ use axum::{
 use std::sync::Arc;
 use tracing::{instrument, debug, info};
 
-use crate::db::DbPool;
+use crate::{db::DbPool, UpdateItemDto};
 use crate::dto::CreateItemDto;
 use crate::errors::ApiError;
 use crate::models::Item;
@@ -76,6 +76,48 @@ pub async fn get_item_handler(
     
     // Return the item (or None) as JSON
     Ok(Json(item))
+}
+
+
+/// Handler for updating a specific item
+///
+/// This function handles POST requests to `/items/{id}`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `item_id` - The ID of the item to update, extracted from the URL path
+/// * `payload` - The update data, extracted from the request body
+///
+/// ### Returns
+///
+/// The updated item as JSON
+#[instrument(skip(pool, payload), fields(item_id = %item_id))]
+pub async fn update_item_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<DbPool>>,
+    // Extract the item ID from the URL path
+    Path(item_id): Path<String>,
+    // Extract the payload from the request body
+    Json(payload): Json<UpdateItemDto>,
+) -> Result<Json<Item>, ApiError> {
+    info!("Updating item with id: {}", item_id);
+    
+    // First check if the item exists
+    let item = repo::get_item(&pool, &item_id)
+        .map_err(ApiError::Database)?
+        .ok_or(ApiError::NotFound)?;
+    
+    debug!("Found item to update: {}", item.get_id());
+    
+    // Call the repository function to update the item
+    let updated_item = repo::update_item(&pool, &item_id, payload.title, payload.item_data).await
+        .map_err(ApiError::Database)?;
+    
+    info!("Successfully updated item with id: {}", updated_item.get_id());
+    
+    // Return the updated item as JSON
+    Ok(Json(updated_item))
 }
 
 
@@ -182,6 +224,7 @@ pub async fn list_items_by_item_type_handler(
     // Return the list of items as JSON
     Ok(Json(items))
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -478,6 +521,7 @@ mod tests {
         assert_eq!(review_count, 0, "All reviews for the card should be deleted when the item is deleted");
     }
     
+
     #[tokio::test]
     async fn test_delete_item_with_tags() {
         let pool = setup_test_db();

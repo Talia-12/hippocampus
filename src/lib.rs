@@ -27,6 +27,8 @@
 /// - GET /items: List all items (handlers::list_items_handler)
 /// - POST /items: Create a new item (handlers::create_item_handler)
 /// - GET /items/{id}: Get a specific item (handlers::get_item_handler)
+/// - POST /items/{id}: Update an item (handlers::update_item_handler)
+/// - DELETE /items/{id}: Delete an item (handlers::delete_item_handler)
 /// - GET /items/{id}/cards: List all cards for an item (handlers::list_cards_by_item_handler)
 /// - POST /items/{id}/cards: Create a new card for an item (handlers::create_card_handler)
 /// - GET /items/{item_id}/tags: List all tags for an item (handlers::list_tags_for_item_handler)
@@ -39,6 +41,7 @@
 /// - GET /cards/{card_id}/reviews: List all reviews for a card (handlers::list_reviews_by_card_handler)
 /// - PUT /cards/{card_id}/priority: Update the priority of a card (handlers::update_card_priority_handler)
 /// - GET /cards/{card_id}/tags: List all tags for a card (handlers::list_tags_for_card_handler)
+/// - POST /cards/{card_id}/suspend: Suspend a card (handlers::suspend_card_handler)
 ///
 /// Routes for reviews:
 /// - POST /reviews: Create a new review (handlers::create_review_handler)
@@ -113,7 +116,7 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         
         // Routes for items
         .route("/items", post(handlers::create_item_handler).get(handlers::list_items_handler))
-        .route("/items/{item_id}", get(handlers::get_item_handler).delete(handlers::delete_item_handler))
+        .route("/items/{item_id}", get(handlers::get_item_handler).delete(handlers::delete_item_handler).post(handlers::update_item_handler))
         .route("/items/{item_id}/cards", post(handlers::create_card_handler).get(handlers::list_cards_by_item_handler))
         .route("/items/{item_id}/tags", get(handlers::list_tags_for_item_handler))
         .route("/items/{item_id}/tags/{tag_id}", put(handlers::add_tag_to_item_handler).delete(handlers::remove_tag_from_item_handler))

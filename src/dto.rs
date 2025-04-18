@@ -20,6 +20,20 @@ pub struct CreateItemDto {
     pub priority: f32,
 }
 
+
+/// Data transfer object for updating an item
+///
+/// This struct is used to deserialize JSON requests for updating items.
+#[derive(Deserialize, Debug)]
+pub struct UpdateItemDto {
+    /// The new title or content of the item to be remembered
+    pub title: Option<String>,
+    
+    /// The new additional data specific to the item type
+    pub item_data: Option<serde_json::Value>,
+}
+
+
 /// The default priority for an item
 fn default_priority() -> f32 { 0.5 }
 
