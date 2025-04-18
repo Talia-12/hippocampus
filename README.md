@@ -48,21 +48,22 @@ The application exposes a RESTful API with the following endpoints:
 - `GET /items`: List all items
 - `POST /items`: Create a new item
 - `GET /items/{id}`: Get a specific item
-- `POST /items/{id}`: Update an item
+- `PATCH /items/{id}`: Update an item
 - `DELETE /items/{id}`: Delete an item
 - `GET /items/{id}/cards`: List cards for a specific item
 - `POST /items/{id}/cards`: Create a new card for an item
 - `GET /items/{item_id}/tags`: List all tags for an item
-- `PUT /items/{item_id}/tags/{tag_id}`: Add a tag to an item
+- `PATCH /items/{item_id}/tags/{tag_id}`: Add a tag to an item
 - `DELETE /items/{item_id}/tags/{tag_id}`: Remove a tag from an item
 
 ### Cards
 - `GET /cards`: List all cards (with optional filtering)
 - `GET /cards/{id}`: Get a specific card
 - `GET /cards/{card_id}/reviews`: List all reviews for a card
-- `PUT /cards/{card_id}/priority`: Update the priority of a card
+- `PATCH /cards/{card_id}/priority`: Update the priority of a card
 - `GET /cards/{card_id}/tags`: List all tags for a card
-- `POST /cards/{card_id}/suspend`: Suspend a card
+- `PATCH /cards/{card_id}/suspend`: Suspend a card
+- `GET /cards/{card_id}/next_reviews`: Get all possible next reviews for a card
 
 ### Reviews
 - `POST /reviews`: Record a review for a card

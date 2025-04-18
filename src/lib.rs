@@ -27,21 +27,22 @@
 /// - GET /items: List all items (handlers::list_items_handler)
 /// - POST /items: Create a new item (handlers::create_item_handler)
 /// - GET /items/{id}: Get a specific item (handlers::get_item_handler)
-/// - POST /items/{id}: Update an item (handlers::update_item_handler)
+/// - PATCH /items/{id}: Update an item (handlers::update_item_handler)
 /// - DELETE /items/{id}: Delete an item (handlers::delete_item_handler)
 /// - GET /items/{id}/cards: List all cards for an item (handlers::list_cards_by_item_handler)
 /// - POST /items/{id}/cards: Create a new card for an item (handlers::create_card_handler)
 /// - GET /items/{item_id}/tags: List all tags for an item (handlers::list_tags_for_item_handler)
-/// - PUT /items/{item_id}/tags/{tag_id}: Add a tag to an item (handlers::add_tag_to_item_handler)
+/// - PATCH /items/{item_id}/tags/{tag_id}: Add a tag to an item (handlers::add_tag_to_item_handler)
 /// - DELETE /items/{item_id}/tags/{tag_id}: Remove a tag from an item (handlers::remove_tag_from_item_handler)
 ///
 /// Routes for cards:
 /// - GET /cards: List all cards (handlers::list_cards_handler)
 /// - GET /cards/{id}: Get a specific card (handlers::get_card_handler)
 /// - GET /cards/{card_id}/reviews: List all reviews for a card (handlers::list_reviews_by_card_handler)
-/// - PUT /cards/{card_id}/priority: Update the priority of a card (handlers::update_card_priority_handler)
+/// - PATCH /cards/{card_id}/priority: Update the priority of a card (handlers::update_card_priority_handler)
 /// - GET /cards/{card_id}/tags: List all tags for a card (handlers::list_tags_for_card_handler)
-/// - POST /cards/{card_id}/suspend: Suspend a card (handlers::suspend_card_handler)
+/// - PATCH /cards/{card_id}/suspend: Suspend a card (handlers::suspend_card_handler)
+/// - GET /cards/{card_id}/next_reviews: Get all possible next reviews for a card (handlers::get_all_next_reviews_for_card_handler)
 ///
 /// Routes for reviews:
 /// - POST /reviews: Create a new review (handlers::create_review_handler)
@@ -72,7 +73,7 @@ pub mod errors;
 pub mod dto;
 
 use axum::{
-    routing::{get, post, put}, Router
+    routing::{get, patch, post}, Router
 };
 use std::sync::Arc;
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
@@ -116,18 +117,19 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         
         // Routes for items
         .route("/items", post(handlers::create_item_handler).get(handlers::list_items_handler))
-        .route("/items/{item_id}", get(handlers::get_item_handler).delete(handlers::delete_item_handler).post(handlers::update_item_handler))
+        .route("/items/{item_id}", get(handlers::get_item_handler).delete(handlers::delete_item_handler).patch(handlers::update_item_handler))
         .route("/items/{item_id}/cards", post(handlers::create_card_handler).get(handlers::list_cards_by_item_handler))
         .route("/items/{item_id}/tags", get(handlers::list_tags_for_item_handler))
-        .route("/items/{item_id}/tags/{tag_id}", put(handlers::add_tag_to_item_handler).delete(handlers::remove_tag_from_item_handler))
+        .route("/items/{item_id}/tags/{tag_id}", patch(handlers::add_tag_to_item_handler).delete(handlers::remove_tag_from_item_handler))
         
         // Routes for cards
         .route("/cards", get(handlers::list_cards_handler))
         .route("/cards/{card_id}", get(handlers::get_card_handler))
         .route("/cards/{card_id}/reviews", get(handlers::list_reviews_by_card_handler))
-        .route("/cards/{card_id}/priority", put(handlers::update_card_priority_handler))
+        .route("/cards/{card_id}/priority", patch(handlers::update_card_priority_handler))
         .route("/cards/{card_id}/tags", get(handlers::list_tags_for_card_handler))
-        .route("/cards/{card_id}/suspend", post(handlers::suspend_card_handler))
+        .route("/cards/{card_id}/suspend", patch(handlers::suspend_card_handler))
+        .route("/cards/{card_id}/next_reviews", get(handlers::get_all_next_reviews_for_card_handler))
         
         // Routes for reviews
         .route("/reviews", post(handlers::create_review_handler))

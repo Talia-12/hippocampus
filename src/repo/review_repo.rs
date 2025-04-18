@@ -212,6 +212,66 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
 }
 
 
+/// Gets all possible next review dates for a card based on different rating values
+///
+/// This function calculates what the next review date and scheduler data would be
+/// for each possible rating (1-4) without actually recording a review.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `card_id` - The ID of the card to calculate next reviews for
+///
+/// ### Returns
+///
+/// A Result containing a vector of tuples (next_review_date, scheduler_data) for each rating
+///
+/// ### Errors
+///
+/// Returns an error if:
+/// - Unable to get a connection from the pool
+/// - The card is not found
+/// - The calculation fails for any rating
+#[instrument(skip(pool), fields(card_id = %card_id))]
+pub async fn get_all_next_reviews_for_card(pool: &DbPool, card_id: &str) -> Result<Vec<(chrono::DateTime<Utc>, JsonValue)>> {
+    debug!("Calculating all possible next review dates for card {}", card_id);
+    
+    let conn = &mut pool.get()?;
+    
+    // Get the card from the database
+    let card = cards::table
+        .find(card_id)
+        .first::<Card>(conn)
+        .map_err(|e| {
+            warn!("Failed to find card {}: {}", card_id, e);
+            anyhow!("Card not found: {}, error: {}", card_id, e)
+        })?;
+    
+    debug!("Found card, calculating next reviews for all possible ratings");
+    
+    // Calculate next review for each possible rating (1-4)
+    let mut results = Vec::with_capacity(4);
+    
+    for rating in 1..=4 {
+        debug!("Calculating next review for rating {}", rating);
+        match calculate_next_review(&card, rating) {
+            Ok((next_review, scheduler_data)) => {
+                debug!("Rating {}: next review at {}", rating, next_review);
+                results.push((next_review, scheduler_data));
+            },
+            Err(e) => {
+                warn!("Failed to calculate next review for rating {}: {}", rating, e);
+                return Err(anyhow!("Failed to calculate next review for rating {}: {}", rating, e));
+            }
+        }
+    }
+    
+    info!("Successfully calculated {} possible next reviews for card {}", results.len(), card_id);
+    
+    Ok(results)
+}
+
+
 /// Gets all reviews for a card
 ///
 /// ### Arguments

@@ -2,6 +2,7 @@ use axum::{
     extract::{Path, State},
     Json,
 };
+use chrono::Utc;
 use std::sync::Arc;
 use tracing::{instrument, debug, info, warn};
 
@@ -58,6 +59,40 @@ pub async fn create_review_handler(
         }
     }
 }
+
+/// Handler for getting all possible next reviews for a card
+///
+/// This function handles GET requests to `/cards/{card_id}/next_reviews`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `card_id` - The ID of the card to get next reviews for
+///
+/// ### Returns
+///
+/// A list of next reviews for the specified card as JSON
+#[instrument(skip(pool), fields(card_id = %card_id))]
+pub async fn get_all_next_reviews_for_card_handler(
+    // Extract the database pool from the application state
+    State(pool): State<Arc<DbPool>>,
+    // Extract the card ID from the URL path
+    Path(card_id): Path<String>,
+) -> Result<Json<Vec<(chrono::DateTime<Utc>, serde_json::Value)>>, ApiError> {
+    debug!("Getting all possible next reviews for card {}", card_id);
+
+    // Get the next reviews for the card
+    let next_reviews = repo::get_all_next_reviews_for_card(&pool, &card_id)
+        .await
+        .map_err(ApiError::Database)?
+        .into_iter()
+        .map(|(next_review, scheduler_data)| (next_review, scheduler_data.0))
+        .collect::<Vec<_>>();
+
+    info!("Retrieved {} possible next reviews for card {}", next_reviews.len(), card_id);
+    Ok(Json(next_reviews))
+}
+
 
 /// Handler for listing all reviews for a card
 ///
