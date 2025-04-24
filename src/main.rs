@@ -7,25 +7,28 @@
 /// The application provides a RESTful API for managing items and reviews
 /// in a spaced repetition system, which helps users memorize information
 /// more effectively by scheduling reviews at optimal intervals.
-use hippocampus::*;
-use std::{env, sync::Arc, net::SocketAddr, path::Path};
+use hippocampus::{config::CliArgs, *};
+use std::{sync::Arc, net::SocketAddr, path::Path};
 use tracing::{info, error};
 use tracing_subscriber::{self, fmt, prelude::*, filter::LevelFilter, Registry};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use clap::Parser;
 
 /// Main function - entry point of the application
 ///
 /// This async function:
 /// 1. Initializes logging
-/// 2. Loads environment variables
+/// 2. Loads configuration
 /// 3. Sets up the database connection pool
 /// 4. Creates the web application
 /// 5. Starts the web server
 #[tokio::main]
 async fn main() {
+	let args = CliArgs::parse();
+
 	// Initialize logging for better debugging and monitoring
 	println!("Initializing logging");
-	let _guard = init_tracing();
+	let _guard = init_tracing(args.debug);
 	
 	info!("Starting Hippocampus SRS Server");
 
@@ -35,17 +38,14 @@ async fn main() {
 		dotenv::dotenv().ok();
 	}
 	
-	// Get the database URL from environment variables or use a default
-	let database_url = env::var("DATABASE_URL").unwrap_or_else(|_| {
-		info!("DATABASE_URL not set, using default: srs_server.db");
-		"srs_server.db".to_string()
-	});
-
-	info!("Using database at {}", database_url);
+	// Load configuration from all sources
+	let config = config::get_config(args);
+	
+	info!("Using database at {}", config.database_url);
 
 	// Backup the database if it is a local file
 	info!("Checking if database backup is needed");
-	match backup_database(&database_url, BackupType::Startup) {
+	match backup_database(&config.database_url, BackupType::Startup, config.backup_count) {
 		Ok(_) => info!("Database backup completed successfully"),
 		Err(e) => {
 			error!("Database backup failed: {}", e);
@@ -57,14 +57,14 @@ async fn main() {
 		}
 	}
 	
-	// Start periodic backup task (runs every 20 minutes)
+	// Start periodic backup task
 	info!("Starting periodic backup task");
-	start_periodic_backup(database_url.clone());
+	start_periodic_backup(config.database_url.clone(), config.backup_interval(), config.backup_count);
 	
 	// Initialize the database connection pool
 	// This pool will be shared across all request handlers
 	info!("Initializing database connection pool");
-	let pool = Arc::new(db::init_pool(&database_url));
+	let pool = Arc::new(db::init_pool(&config.database_url));
 	
 	// Build our application with routes
 	// This sets up all the API endpoints
@@ -105,7 +105,7 @@ async fn main() {
 /// 
 /// A special debug layer can be enabled by setting the HIPPOCAMPUS_DEBUG
 /// environment variable, which will output DEBUG-level logs to the console.
-fn init_tracing() -> impl Drop {
+fn init_tracing(debug: bool) -> impl Drop {
     // Create a directory for logs if it doesn't exist
     if !Path::new("logs").exists() {
         std::fs::create_dir("logs").expect("Failed to create logs directory");
@@ -130,8 +130,7 @@ fn init_tracing() -> impl Drop {
         .with_filter(LevelFilter::TRACE);
     
     // Determine which console output layer to use based on debug mode
-    let debug_mode = env::var("HIPPOCAMPUS_DEBUG").is_ok();
-    let console_layer = if debug_mode {
+    let console_layer = if debug {
         println!("Debug mode enabled - verbose logs will be shown");
         fmt::layer()
             .pretty()

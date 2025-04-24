@@ -47,6 +47,11 @@ tracing-appender = "0.2.3"
 # For loading environment variables
 dotenv = "0.15.0"
 
+# For configuration management
+directories = "5.0.1"
+clap = { version = "4.5.4", features = ["derive", "env"] }
+toml = { version = "0.8.14", features = ["parse"] }
+
 [dev-dependencies]
 # For testing
 tokio-test = "0.4.4"

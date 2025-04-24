@@ -11,7 +11,11 @@
 /// - `db`: Database connection management
 /// - `models`: Data structures representing items and reviews
 /// - `repo`: Repository layer for database operations
-/// - `schema`: Database schema definitions
+/// - `schema`: Database schema 
+/// - `handlers`: API handlers for the web API
+/// - `errors`: API error types
+/// - `dto`: Data transfer objects
+/// - `config`: Configuration management
 ///
 /// ### Web API
 ///
@@ -72,10 +76,12 @@ pub mod errors;
 /// Data transfer objects module
 pub mod dto;
 
+pub mod config;
+
 use axum::{
     routing::{get, patch, post}, Router
 };
-use std::sync::Arc;
+use std::{sync::Arc, time::Duration};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
 
 pub use dto::*;
@@ -183,6 +189,7 @@ pub enum BackupType {
 ///
 /// * `database_path` - The path to the database file
 /// * `backup_type` - The type of backup: Startup or Periodic
+/// * `backup_count` - The maximum number of periodic backups to keep
 ///
 /// ### Returns
 ///
@@ -191,10 +198,10 @@ pub enum BackupType {
 /// ### Notes
 ///
 /// Startup backups are all kept, but there will be at most five periodic backups at any time.
-pub fn backup_database(database_path: &str, backup_type: BackupType) -> Result<(), String> {
+pub fn backup_database(database_path: &str, backup_type: BackupType, backup_count: u32) -> Result<bool, String> {
     // Skip if using in-memory database
     if database_path == ":memory:" {
-        return Ok(());
+        return Ok(false);
     }
 
     use std::fs::{self, File};
@@ -208,7 +215,7 @@ pub fn backup_database(database_path: &str, backup_type: BackupType) -> Result<(
     if !db_path.exists() {
         // Database doesn't exist yet, nothing to back up
         debug!("Database file doesn't exist yet, skipping backup");
-        return Ok(());
+        return Ok(false);
     }
 
     // Create backup directory if it doesn't exist
@@ -254,11 +261,12 @@ pub fn backup_database(database_path: &str, backup_type: BackupType) -> Result<(
 
     // If this is a periodic backup, check if we need to clean up old backups
     if backup_type == BackupType::Periodic {
-        cleanup_periodic_backups(&backup_dir, db_filename)?;
+        cleanup_periodic_backups(&backup_dir, db_filename, backup_count)?;
     }
 
-    Ok(())
+    Ok(true)
 }
+
 
 /// Cleans up old periodic backups, keeping only the 5 most recent
 ///
@@ -266,11 +274,12 @@ pub fn backup_database(database_path: &str, backup_type: BackupType) -> Result<(
 ///
 /// * `backup_dir` - Path to the backup directory
 /// * `db_filename` - Base filename of the database
+/// * `backup_count` - The maximum number of periodic backups to keep
 ///
 /// ### Returns
 ///
 /// A `Result` indicating success or failure, with an error message on failure
-fn cleanup_periodic_backups(backup_dir: &std::path::Path, db_filename: &str) -> Result<(), String> {
+fn cleanup_periodic_backups(backup_dir: &std::path::Path, db_filename: &str, backup_count: u32) -> Result<(), String> {
     use std::fs;
     use std::time::SystemTime;
     use tracing::{debug, error};
@@ -304,11 +313,9 @@ fn cleanup_periodic_backups(backup_dir: &std::path::Path, db_filename: &str) -> 
         time_b.cmp(&time_a)
     });
 
-    // Keep only the 5 newest backups
-    const MAX_PERIODIC_BACKUPS: usize = 5;
-    
-    if backups.len() > MAX_PERIODIC_BACKUPS {
-        for old_backup in backups.iter().skip(MAX_PERIODIC_BACKUPS) {
+    // Keep only the backup_count most recent backups
+    if backups.len() > backup_count as usize {
+        for old_backup in backups.iter().skip(backup_count as usize) {
             debug!("Removing old backup: {:?}", old_backup.path());
             if let Err(e) = fs::remove_file(old_backup.path()) {
                 error!("Failed to remove old backup {:?}: {}", old_backup.path(), e);
@@ -328,17 +335,18 @@ fn cleanup_periodic_backups(backup_dir: &std::path::Path, db_filename: &str) -> 
 /// ### Arguments
 ///
 /// * `database_path` - The path to the database file
+/// * `backup_duration` - The duration between backups
+/// * `backup_count` - The maximum number of backups to keep
 ///
 /// ### Notes
 ///
 /// This should only be called once at application startup.
-pub fn start_periodic_backup(database_path: String) {
+pub fn start_periodic_backup(database_path: String, backup_duration: Duration, backup_count: u32) {
     // Skip for in-memory databases
     if database_path == ":memory:" {
         return;
     }
 
-    use std::time::Duration;
     use tokio::time;
     use tracing::{info, error};
 
@@ -347,9 +355,9 @@ pub fn start_periodic_backup(database_path: String) {
 
     // Spawn a background task for periodic backups
     tokio::spawn(async move {
-        let mut interval = time::interval(Duration::from_secs(20 * 60)); // 20 minutes
+        let mut interval = time::interval(backup_duration);
 
-        info!("Starting periodic database backup task (every 20 minutes)");
+        info!("Starting periodic database backup task (every {} seconds)", backup_duration.as_secs());
         
         loop {
             // Wait for the next interval tick
@@ -358,8 +366,16 @@ pub fn start_periodic_backup(database_path: String) {
             // Perform the backup
             info!("Performing periodic database backup");
 
-            if let Err(e) = backup_database(&db_path, BackupType::Periodic) {
-                error!("Periodic backup failed: {}", e);
+            match backup_database(&db_path, BackupType::Periodic, backup_count) {
+                Ok(true) => {
+                    info!("Periodic backup completed successfully");
+                }
+                Ok(false) => {
+                    info!("Periodic backup not needed.");
+                }
+                Err(e) => {
+                    error!("Periodic backup failed: {}", e);
+                }
             }
         }
     });
@@ -971,7 +987,7 @@ mod tests {
         
         // Test backup creation
         let db_path_str = test_db_path.to_str().unwrap();
-        let result = super::backup_database(db_path_str, BackupType::Startup);
+        let result = super::backup_database(db_path_str, BackupType::Startup, 10);
         assert!(result.is_ok(), "Backup should succeed");
         
         // Check that the backup directory was created
@@ -984,10 +1000,11 @@ mod tests {
         assert!(backup_count > 0, "At least one backup file should exist");
         
         // Test in-memory database
-        let result = super::backup_database(":memory:", BackupType::Startup);
+        let result = super::backup_database(":memory:", BackupType::Startup, 10);
         assert!(result.is_ok(), "In-memory database backup should be skipped successfully");
         
         // Test cleanup of periodic backups
+        const MAX_PERIODIC_BACKUPS: u32 = 5;
         
         // Create multiple periodic backups
         let test_backups = 7; // More than MAX_PERIODIC_BACKUPS
@@ -996,7 +1013,7 @@ mod tests {
             // (because file timestamps are only accurate to the second, having a delay of less than a second will cause the backup to be overwritten)
             // (and we double that to two seconds to be guaranteed that the backups will have different timestamps)
             sleep(Duration::from_millis(2000));
-            let _ = super::backup_database(db_path_str, BackupType::Periodic);
+            let _ = super::backup_database(db_path_str, BackupType::Periodic, MAX_PERIODIC_BACKUPS);
         }
         
         // Check for periodic backups

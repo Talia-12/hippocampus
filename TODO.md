@@ -1,5 +1,3 @@
 - Add back in more commenting on tests.
 - Fix issues in common.rs where functions are claiming that they aren't being used when they clearly are.
-- Add flag to control database path.
-- Add flag to control logging level.
 - Probably swap creating tags back to a put rather than a post, since it is actually idempotent (sending multiple create requests should *not* update the create time, and hence there theoretically isn't actually anything changing in the system when a duplicate arrives)
