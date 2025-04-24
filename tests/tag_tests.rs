@@ -165,7 +165,7 @@ async fn test_add_tag_to_item() {
     // Create a request to add the tag to the item
     let request = Request::builder()
         .uri(format!("/items/{}/tags/{}", item.get_id(), tag.get_id()))
-        .method("PUT")
+        .method("POST")
         .body(Body::empty())
         .unwrap();
     
@@ -215,7 +215,7 @@ async fn test_remove_tag_from_item() {
     // First add the tag to the item
     let request = Request::builder()
         .uri(format!("/items/{}/tags/{}", item.get_id(), tag.get_id()))
-        .method("PUT")
+        .method("POST")
         .body(Body::empty())
         .unwrap();
     
@@ -274,7 +274,7 @@ async fn test_list_tags_for_item() {
     // Add both tags to item1
     let request = Request::builder()
         .uri(format!("/items/{}/tags/{}", item1.get_id(), tag1.get_id()))
-        .method("PUT")
+        .method("POST")
         .body(Body::empty())
         .unwrap();
     let response = app.call(request).await.unwrap();
@@ -282,7 +282,7 @@ async fn test_list_tags_for_item() {
     
     let request = Request::builder()
         .uri(format!("/items/{}/tags/{}", item1.get_id(), tag2.get_id()))
-        .method("PUT")
+        .method("POST")
         .body(Body::empty())
         .unwrap();
     let response = app.call(request).await.unwrap();
@@ -291,7 +291,7 @@ async fn test_list_tags_for_item() {
     // Add only tag1 to item2
     let request = Request::builder()
         .uri(format!("/items/{}/tags/{}", item2.get_id(), tag1.get_id()))
-        .method("PUT")
+        .method("POST")
         .body(Body::empty())
         .unwrap();
     let response = app.call(request).await.unwrap();
@@ -365,7 +365,7 @@ async fn test_list_tags_for_card() {
     // Add both tags to the item
     let request = Request::builder()
         .uri(format!("/items/{}/tags/{}", item.get_id(), tag1.get_id()))
-        .method("PUT")
+        .method("POST")
         .body(Body::empty())
         .unwrap();
     let response = app.call(request).await.unwrap();
@@ -373,7 +373,7 @@ async fn test_list_tags_for_card() {
     
     let request = Request::builder()
         .uri(format!("/items/{}/tags/{}", item.get_id(), tag2.get_id()))
-        .method("PUT")
+        .method("POST")
         .body(Body::empty())
         .unwrap();
     let response = app.call(request).await.unwrap();
@@ -415,7 +415,7 @@ async fn test_add_tag_to_nonexistent_item() {
     // Try to add the tag to a non-existent item
     let request = Request::builder()
         .uri(format!("/items/nonexistent-item-id/tags/{}", tag.get_id()))
-        .method("PUT")
+        .method("POST")
         .body(Body::empty())
         .unwrap();
     
@@ -441,7 +441,7 @@ async fn test_add_nonexistent_tag_to_item() {
     // Try to add a non-existent tag to the item
     let request = Request::builder()
         .uri(format!("/items/{}/tags/nonexistent-tag-id", item.get_id()))
-        .method("PUT")
+        .method("POST")
         .body(Body::empty())
         .unwrap();
     

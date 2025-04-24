@@ -44,12 +44,10 @@ async fn test_update_card_priority() {
     // Create a request to update the card's priority
     let request = Request::builder()
         .uri(format!("/cards/{}/priority", card.get_id()))
-        .method("PUT")
+        .method("PATCH")
         .header("Content-Type", "application/json")
         .body(Body::from(
-            serde_json::to_string(&json!({
-                "priority": new_priority
-            }))
+            serde_json::to_string(&json!(new_priority))
             .unwrap(),
         ))
         .unwrap();
@@ -100,12 +98,10 @@ async fn test_update_card_priority_boundary_values() {
     let min_priority = 0.0_f32;
     let request = Request::builder()
         .uri(format!("/cards/{}/priority", card.get_id()))
-        .method("PUT")
+        .method("PATCH")
         .header("Content-Type", "application/json")
         .body(Body::from(
-            serde_json::to_string(&json!({
-                "priority": min_priority
-            }))
+            serde_json::to_string(&json!(min_priority))
             .unwrap(),
         ))
         .unwrap();
@@ -125,12 +121,10 @@ async fn test_update_card_priority_boundary_values() {
     let max_priority = 1.0_f32;
     let request = Request::builder()
         .uri(format!("/cards/{}/priority", card.get_id()))
-        .method("PUT")
+        .method("PATCH")
         .header("Content-Type", "application/json")
         .body(Body::from(
-            serde_json::to_string(&json!({
-                "priority": max_priority
-            }))
+            serde_json::to_string(&json!(max_priority))
             .unwrap(),
         ))
         .unwrap();
@@ -173,12 +167,10 @@ async fn test_update_card_priority_invalid_values() {
     let too_low_priority = -0.1_f32;
     let request = Request::builder()
         .uri(format!("/cards/{}/priority", card.get_id()))
-        .method("PUT")
+        .method("PATCH")
         .header("Content-Type", "application/json")
         .body(Body::from(
-            serde_json::to_string(&json!({
-                "priority": too_low_priority
-            }))
+            serde_json::to_string(&json!(too_low_priority))
             .unwrap(),
         ))
         .unwrap();
@@ -190,12 +182,10 @@ async fn test_update_card_priority_invalid_values() {
     let too_high_priority = 1.1_f32;
     let request = Request::builder()
         .uri(format!("/cards/{}/priority", card.get_id()))
-        .method("PUT")
+        .method("PATCH")
         .header("Content-Type", "application/json")
         .body(Body::from(
-            serde_json::to_string(&json!({
-                "priority": too_high_priority
-            }))
+            serde_json::to_string(&json!(too_high_priority))
             .unwrap(),
         ))
         .unwrap();
@@ -219,12 +209,10 @@ async fn test_update_nonexistent_card_priority() {
     // Create a request to update the non-existent card's priority
     let request = Request::builder()
         .uri(format!("/cards/{}/priority", nonexistent_card_id))
-        .method("PUT")
+        .method("PATCH")
         .header("Content-Type", "application/json")
         .body(Body::from(
-            serde_json::to_string(&json!({
-                "priority": 0.5
-            }))
+            serde_json::to_string(&json!(0.5))
             .unwrap(),
         ))
         .unwrap();

@@ -549,9 +549,9 @@ mod tests {
         let new_priority = 0.8;
         let request = Request::builder()
             .uri(format!("/cards/{}/priority", card.get_id()))
-            .method("PUT")
+            .method("PATCH")
             .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{{"priority":{}}}"#, new_priority)))
+            .body(Body::from(format!(r#"{}"#, new_priority)))
             .unwrap();
         
         // Send the request to the app
@@ -595,9 +595,9 @@ mod tests {
         let min_priority = 0.0;
         let request = Request::builder()
             .uri(format!("/cards/{}/priority", card.get_id()))
-            .method("PUT")
+            .method("PATCH")
             .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{{"priority":{}}}"#, min_priority)))
+            .body(Body::from(format!(r#"{}"#, min_priority)))
             .unwrap();
         
         let response = app.clone().oneshot(request).await.unwrap();
@@ -611,9 +611,9 @@ mod tests {
         let max_priority = 1.0;
         let request = Request::builder()
             .uri(format!("/cards/{}/priority", card.get_id()))
-            .method("PUT")
+            .method("PATCH")
             .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{{"priority":{}}}"#, max_priority)))
+            .body(Body::from(format!(r#"{}"#, max_priority)))
             .unwrap();
         
         let response = app.oneshot(request).await.unwrap();
@@ -638,9 +638,9 @@ mod tests {
         // Create a request with a non-existent card ID
         let request = Request::builder()
             .uri("/cards/nonexistent-id/priority")
-            .method("PUT")
+            .method("PATCH")
             .header("Content-Type", "application/json")
-            .body(Body::from(r#"{"priority":0.7}"#))
+            .body(Body::from(r#"0.7"#))
             .unwrap();
         
         // Send the request to the app
@@ -676,9 +676,9 @@ mod tests {
         let invalid_priority = 1.5;
         let request = Request::builder()
             .uri(format!("/cards/{}/priority", card.get_id()))
-            .method("PUT")
+            .method("PATCH")
             .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{{"priority":{}}}"#, invalid_priority)))
+            .body(Body::from(format!(r#"{}"#, invalid_priority)))
             .unwrap();
         
         let response = app.clone().oneshot(request).await.unwrap();
@@ -688,9 +688,9 @@ mod tests {
         let invalid_priority = -0.5;
         let request = Request::builder()
             .uri(format!("/cards/{}/priority", card.get_id()))
-            .method("PUT")
+            .method("PATCH")
             .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{{"priority":{}}}"#, invalid_priority)))
+            .body(Body::from(format!(r#"{}"#, invalid_priority)))
             .unwrap();
         
         let response = app.oneshot(request).await.unwrap();
