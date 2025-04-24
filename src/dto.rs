@@ -208,16 +208,6 @@ impl GetQueryDtoBuilder {
 }
 
 
-/// Data transfer object for updating a card's priority
-///
-/// This struct is used to deserialize JSON requests for updating a card's priority.
-#[derive(Deserialize, Debug)]
-pub struct UpdateCardPriorityDto {
-    /// The new priority for the card, between 0 and 1
-    pub priority: f32,
-}
-
-
 use std::fmt;
 
 impl fmt::Display for GetQueryDto {

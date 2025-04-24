@@ -53,7 +53,7 @@ The application exposes a RESTful API with the following endpoints:
 - `GET /items/{id}/cards`: List cards for a specific item
 - `POST /items/{id}/cards`: Create a new card for an item
 - `GET /items/{item_id}/tags`: List all tags for an item
-- `PATCH /items/{item_id}/tags/{tag_id}`: Add a tag to an item
+- `POST /items/{item_id}/tags/{tag_id}`: Add a tag to an item
 - `DELETE /items/{item_id}/tags/{tag_id}`: Remove a tag from an item
 
 ### Cards

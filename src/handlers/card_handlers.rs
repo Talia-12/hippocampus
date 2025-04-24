@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tracing::{instrument, debug, info};
 
 use crate::db::DbPool;
-use crate::dto::{CreateCardDto, GetQueryDto, UpdateCardPriorityDto};
+use crate::dto::{CreateCardDto, GetQueryDto};
 use crate::errors::ApiError;
 use crate::models::Card;
 use crate::repo;
@@ -199,7 +199,7 @@ pub async fn suspend_card_handler(
 
 /// Handler for updating a card's priority
 ///
-/// This function handles PUT requests to `/cards/{id}/priority`.
+/// This function handles PATCH requests to `/cards/{id}/priority`.
 ///
 /// ### Arguments
 ///
@@ -210,20 +210,20 @@ pub async fn suspend_card_handler(
 /// ### Returns
 ///
 /// The updated card as JSON
-#[instrument(skip(pool), fields(card_id = %id, priority = %payload.priority))]
+#[instrument(skip(pool), fields(card_id = %id, priority = %priority))]
 pub async fn update_card_priority_handler(
     // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
     // Extract the card ID from the URL path
     Path(id): Path<String>,
     // Extract and deserialize the JSON request body
-    Json(payload): Json<UpdateCardPriorityDto>,
+    Json(priority): Json<f32>,
 ) -> Result<Json<Card>, ApiError> {
     info!("Updating card priority");
     
     // Check if the priority is valid
-    if payload.priority < 0.0 || payload.priority > 1.0 {
-        return Err(ApiError::InvalidPriority(format!("Priority must be between 0 and 1, got {}", payload.priority)));
+    if priority < 0.0 || priority > 1.0 {
+        return Err(ApiError::InvalidPriority(format!("Priority must be between 0 and 1, got {}", priority)));
     }
 
     // Check if the card exists
@@ -232,10 +232,10 @@ pub async fn update_card_priority_handler(
         .ok_or(ApiError::NotFound)?;
 
     // Call the repository function to update the card's priority
-    let card = repo::update_card_priority(&pool, &id, payload.priority).await
+    let card = repo::update_card_priority(&pool, &id, priority).await
         .map_err(ApiError::Database)?;
     
-    info!("Successfully updated card priority to {}", payload.priority);
+    info!("Successfully updated card priority to {}", priority);
 
     // Return the updated card as JSON
     Ok(Json(card))
@@ -453,7 +453,7 @@ mod tests {
         
         // Update the card's priority
         let new_priority = 0.8;
-        let payload = UpdateCardPriorityDto { priority: new_priority };
+        let payload = new_priority;
         
         let result = update_card_priority_handler(
             State(pool.clone()),
@@ -484,7 +484,7 @@ mod tests {
         
         // Test minimum valid priority (0.0)
         let min_priority = 0.0;
-        let payload = UpdateCardPriorityDto { priority: min_priority };
+        let payload = min_priority;
         
         let result = update_card_priority_handler(
             State(pool.clone()),
@@ -497,7 +497,7 @@ mod tests {
         
         // Test maximum valid priority (1.0)
         let max_priority = 1.0;
-        let payload = UpdateCardPriorityDto { priority: max_priority };
+        let payload = max_priority;
         
         let result = update_card_priority_handler(
             State(pool.clone()),
@@ -527,7 +527,7 @@ mod tests {
         
         // Test priority below valid range
         let below_min_priority = -0.1;
-        let payload = UpdateCardPriorityDto { priority: below_min_priority };
+        let payload = below_min_priority;
         
         let result = update_card_priority_handler(
             State(pool.clone()),
@@ -558,7 +558,7 @@ mod tests {
         
         // Test priority above valid range
         let above_max_priority = 1.1;
-        let payload = UpdateCardPriorityDto { priority: above_max_priority };
+        let payload = above_max_priority;
         
         let result = update_card_priority_handler(
             State(pool.clone()),
@@ -578,7 +578,7 @@ mod tests {
         
         // Try to update a card that doesn't exist
         let nonexistent_card_id = "00000000-0000-0000-0000-000000000000";
-        let payload = UpdateCardPriorityDto { priority: 0.5 };
+        let payload = 0.5;
         
         let result = update_card_priority_handler(
             State(pool.clone()),

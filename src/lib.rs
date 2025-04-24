@@ -32,7 +32,7 @@
 /// - GET /items/{id}/cards: List all cards for an item (handlers::list_cards_by_item_handler)
 /// - POST /items/{id}/cards: Create a new card for an item (handlers::create_card_handler)
 /// - GET /items/{item_id}/tags: List all tags for an item (handlers::list_tags_for_item_handler)
-/// - PATCH /items/{item_id}/tags/{tag_id}: Add a tag to an item (handlers::add_tag_to_item_handler)
+/// - POST /items/{item_id}/tags/{tag_id}: Add a tag to an item (handlers::add_tag_to_item_handler)
 /// - DELETE /items/{item_id}/tags/{tag_id}: Remove a tag from an item (handlers::remove_tag_from_item_handler)
 ///
 /// Routes for cards:
@@ -120,7 +120,7 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         .route("/items/{item_id}", get(handlers::get_item_handler).delete(handlers::delete_item_handler).patch(handlers::update_item_handler))
         .route("/items/{item_id}/cards", post(handlers::create_card_handler).get(handlers::list_cards_by_item_handler))
         .route("/items/{item_id}/tags", get(handlers::list_tags_for_item_handler))
-        .route("/items/{item_id}/tags/{tag_id}", patch(handlers::add_tag_to_item_handler).delete(handlers::remove_tag_from_item_handler))
+        .route("/items/{item_id}/tags/{tag_id}", post(handlers::add_tag_to_item_handler).delete(handlers::remove_tag_from_item_handler))
         
         // Routes for cards
         .route("/cards", get(handlers::list_cards_handler))
