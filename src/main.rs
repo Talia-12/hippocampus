@@ -73,8 +73,12 @@ async fn main() {
 	// This sets up all the API endpoints
 	let app = create_app(pool);
 
-	// Define the address to listen on (localhost:3000)
-	let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+	// Define the address to listen on (localhost:3000), or (localhost:3001) if we are running in debug mode
+	let addr = if cfg!(debug_assertions) {
+		SocketAddr::from(([127, 0, 0, 1], 3001))
+	} else {
+		SocketAddr::from(([127, 0, 0, 1], 3000))
+	};
 	info!("Listening on {}", addr);
 	
 	// Start the server and wait for connections
