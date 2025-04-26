@@ -113,6 +113,7 @@ pub fn config_from_file(config_path: Option<PathBuf>) -> Result<ConfigUpdate, St
     }
 }
 
+
 /// Loads configuration from command line arguments
 pub fn config_from_args(args: CliArgs) -> ConfigUpdate {
     ConfigUpdate {
@@ -122,10 +123,19 @@ pub fn config_from_args(args: CliArgs) -> ConfigUpdate {
     }
 }
 
-/// Gets the complete configuration by combining defaults with
-/// values from config file, environment variables, and command line arguments
-/// in order of increasing precedence
-pub fn get_config(args: CliArgs) -> Config {
+
+/// Gets the config directory path
+///
+/// This function returns the path to the config directory for the application
+/// based on the XDG base directory specification.
+/// 
+/// If the debug flag is set, the function will return None, so that we don't mess with any actual program data during development.
+pub fn get_config_dir_path() -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        info!("Debug build detected, skipping config file");
+        return None;
+    }
+
     let mut config_path = match ProjectDirs::from("com", "hippocampus", "hippocampus") {
         Some(proj_dirs) => {
             let config_dir = proj_dirs.config_dir();
@@ -137,7 +147,7 @@ pub fn get_config(args: CliArgs) -> Config {
             None
         }
     };
-    
+        
     config_path = config_path.and_then(|path| {
         if !path.exists() {
             info!("Config path not found at {:?}, using defaults", path);
@@ -147,17 +157,27 @@ pub fn get_config(args: CliArgs) -> Config {
         }
     });
 
+    config_path
+}
+
+
+/// Gets the complete configuration by combining defaults with
+/// values from config file, environment variables, and command line arguments
+/// in order of increasing precedence
+pub fn get_config(args: CliArgs) -> Result<Config, String> {
+    let config_path = get_config_dir_path().map(|path| path.join("config.toml"));
+
     let base = base_config(config_path.clone());
     
     // Apply updates in order of increasing precedence
     let config = base
-        .apply_update(config_from_file(config_path).unwrap_or_default())
+        .apply_update(config_from_file(config_path)?)
         .apply_update(config_from_args(args));
     
     info!("Final configuration: database_url={}, backup_interval={}min, backup_count={}", 
           config.database_url, config.backup_interval_minutes, config.backup_count);
     
-    config
+    Ok(config)
 }
 
 #[cfg(test)]

@@ -8,7 +8,7 @@
 /// in a spaced repetition system, which helps users memorize information
 /// more effectively by scheduling reviews at optimal intervals.
 use hippocampus::{config::CliArgs, *};
-use std::{sync::Arc, net::SocketAddr, path::Path};
+use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 use tracing::{info, error};
 use tracing_subscriber::{self, fmt, prelude::*, filter::LevelFilter, Registry};
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
@@ -39,7 +39,10 @@ async fn main() {
 	}
 	
 	// Load configuration from all sources
-	let config = config::get_config(args);
+	let config = config::get_config(args).unwrap_or_else(|e| {
+		error!("Failed to load configuration: {}", e);
+		panic!("Failed to load configuration: {}", e);
+	});
 	
 	info!("Using database at {}", config.database_url);
 
@@ -106,15 +109,20 @@ async fn main() {
 /// A special debug layer can be enabled by setting the HIPPOCAMPUS_DEBUG
 /// environment variable, which will output DEBUG-level logs to the console.
 fn init_tracing(debug: bool) -> impl Drop {
+	// If the config dir path is not None, we should do our logging in there
+	let config_dir_path = config::get_config_dir_path();
+
+	let log_dir_path = config_dir_path.map(|path| path.join("logs")).unwrap_or_else(|| PathBuf::from("logs"));
+
     // Create a directory for logs if it doesn't exist
-    if !Path::new("logs").exists() {
-        std::fs::create_dir("logs").expect("Failed to create logs directory");
+    if !log_dir_path.exists() {
+        std::fs::create_dir(log_dir_path.clone()).expect("Failed to create logs directory");
     }
 
     // Setup a file appender for all log levels
     let file_appender = RollingFileAppender::new(
         Rotation::DAILY,
-        "logs",
+        log_dir_path,
         "hippocampus.log"
     );
     
