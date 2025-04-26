@@ -1,4 +1,6 @@
 target/
+result
+
 logs/
 backups/
 .env
