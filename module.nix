@@ -7,10 +7,10 @@ inputs: {
     inherit (pkgs.stdenv.hostPlatform) system;
     inherit (lib) types;
 
-    cfg = config.programs.hippocampus;
+    cfg = config.services.hippocampus;
 in {
     options = {
-        programs.hippocampus = {
+        services.hippocampus = {
             enable = lib.mkOption {
                 type = lib.types.bool;
                 default = false;
@@ -47,7 +47,7 @@ in {
     
     config = lib.mkMerge [
         {
-            programs.hippocampus = {
+            services.hippocampus = {
                 package = lib.mkDefault inputs.self.packages.${system}.hippocampus;
             };
         }
@@ -55,6 +55,21 @@ in {
             home.packages = [ cfg.package ];
 
             xdg.configFile."hippocampus/config.toml".source = (pkgs.formats.toml { }).generate "config.toml" cfg.settings;
+
+            systemd.user.services.hippocampus = {
+                Unit = {
+                    Description = "Hippocampus spaced repetition system";
+                    After = [ "network.target" ];
+                };
+                Service = {
+                    ExecStart = "${cfg.package}/bin/hippocampus";
+                    # No automatic restart to prevent potential data loss
+                    Restart = "no";
+                };
+                Install = {
+                    WantedBy = [ "default.target" ];
+                };
+            };
         })
     ];
 }
