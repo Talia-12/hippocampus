@@ -70,9 +70,9 @@ impl Config {
 }
 
 /// Returns the base (default) configuration
-pub fn base_config(config_path: Option<PathBuf>) -> Config {
+pub fn base_config(config_dir_path: Option<PathBuf>) -> Config {
 
-    let database_url = config_path.map_or("srs_server.db".to_string(), |path| path.join("srs_server.db").to_string_lossy().to_string());
+    let database_url = config_dir_path.map_or("srs_server.db".to_string(), |path| path.join("srs_server.db").to_string_lossy().to_string());
 
     Config {
         database_url,
@@ -165,13 +165,13 @@ pub fn get_config_dir_path() -> Option<PathBuf> {
 /// values from config file, environment variables, and command line arguments
 /// in order of increasing precedence
 pub fn get_config(args: CliArgs) -> Result<Config, String> {
-    let config_path = get_config_dir_path().map(|path| path.join("config.toml"));
+    let config_dir_path = get_config_dir_path();
 
-    let base = base_config(config_path.clone());
+    let base = base_config(config_dir_path.clone());
     
     // Apply updates in order of increasing precedence
     let config = base
-        .apply_update(config_from_file(config_path)?)
+        .apply_update(config_from_file(config_dir_path.map(|path| path.join("config.toml")))?)
         .apply_update(config_from_args(args));
     
     info!("Final configuration: database_url={}, backup_interval={}min, backup_count={}", 

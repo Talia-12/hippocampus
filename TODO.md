@@ -1,3 +1,4 @@
 - Add back in more commenting on tests.
 - Fix issues in common.rs where functions are claiming that they aren't being used when they clearly are.
 - Probably swap creating tags back to a put rather than a post, since it is actually idempotent (sending multiple create requests should *not* update the create time, and hence there theoretically isn't actually anything changing in the system when a duplicate arrives)
+- currently the program doesn't initialise the database if there isn't one present when it starts. This, obviously, means it's unusable by anyone who isn't me
