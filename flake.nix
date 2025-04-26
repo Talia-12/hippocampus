@@ -13,6 +13,12 @@
   } @ inputs:
     flake-parts.lib.mkFlake { inherit inputs; } {
       systems = [ "x86_64-linux" ];
+      
+      flake = {
+        # Define homeManagerModules at the flake level
+        homeManagerModules.default = import ./module.nix inputs;
+      };
+      
       perSystem = { config, self', pkgs, lib, system, ... }:
         let
           diesel-cli = pkgs.diesel-cli.override {
@@ -66,8 +72,6 @@
           
           devShells.default = self'.devShells.nightly;
           devShells.nightly = (mkDevShell (pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default)));
-
-          homeManagerModules.default = import ./module.nix inputs;
         };
     };
 }

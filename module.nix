@@ -23,20 +23,22 @@ in {
 
             settings = lib.mkOption {
                 type = types.submodule {
-                    database_url = lib.mkOption {
-                        type = types.nullOr types.str;
-                        default = null;
-                        description = "The database URL to use";
-                    };
-                    backup_interval_minutes = lib.mkOption {
-                        type = types.nullOr types.int;
-                        default = null;
-                        description = "The interval between backups in minutes";
-                    };
-                    backup_count = lib.mkOption {
-                        type = types.nullOr types.int;
-                        default = null;
-                        description = "The number of backups to keep";
+                    options = {
+                        database_url = lib.mkOption {
+                            type = types.nullOr types.str;
+                            default = null;
+                            description = "The database URL to use";
+                        };
+                        backup_interval_minutes = lib.mkOption {
+                            type = types.nullOr types.int;
+                            default = null;
+                            description = "The interval between backups in minutes";
+                        };
+                        backup_count = lib.mkOption {
+                            type = types.nullOr types.int;
+                            default = null;
+                            description = "The number of backups to keep";
+                        };
                     };
                 };
                 default = {};
@@ -54,7 +56,8 @@ in {
         (lib.mkIf cfg.enable {
             home.packages = [ cfg.package ];
 
-            xdg.configFile."hippocampus/config.toml".source = (pkgs.formats.toml { }).generate "config.toml" cfg.settings;
+            xdg.configFile."hippocampus/config.toml".source = (pkgs.formats.toml { }).generate "config.toml" 
+                (lib.filterAttrs (_: v: v != null) cfg.settings);
 
             systemd.user.services.hippocampus = {
                 Unit = {
