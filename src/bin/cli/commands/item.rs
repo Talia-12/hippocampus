@@ -1,7 +1,7 @@
 use clap::Subcommand;
 
 use crate::client::HippocampusClient;
-use crate::output::{self, OutputFormat};
+use crate::output::{self, OutputConfig};
 
 /// Item management commands
 #[derive(Subcommand, Debug)]
@@ -54,12 +54,12 @@ pub enum ItemCommands {
 pub async fn execute(
     client: &HippocampusClient,
     cmd: ItemCommands,
-    format: OutputFormat,
+    config: &OutputConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match cmd {
         ItemCommands::List { item_type_id } => {
             let items = client.list_items(item_type_id.as_deref()).await?;
-            output::print_items(&items, format);
+            output::print_items(&items, config);
         }
         ItemCommands::Create {
             item_type_id,
@@ -71,12 +71,12 @@ pub async fn execute(
             let item = client
                 .create_item(item_type_id, title, item_data, priority)
                 .await?;
-            output::print_item(&item, format);
+            output::print_item(&item, config);
         }
         ItemCommands::Get { id } => {
             let item = client.get_item(&id).await?;
             match item {
-                Some(item) => output::print_item(&item, format),
+                Some(item) => output::print_item(&item, config),
                 None => {
                     eprintln!("Item not found: {}", id);
                     std::process::exit(1);
@@ -88,11 +88,11 @@ pub async fn execute(
                 .map(|d| serde_json::from_str(&d))
                 .transpose()?;
             let item = client.update_item(&id, title, item_data).await?;
-            output::print_item(&item, format);
+            output::print_item(&item, config);
         }
         ItemCommands::Delete { id } => {
             client.delete_item(&id).await?;
-            output::print_success(&format!("Deleted item {}", id), format);
+            output::print_success(&format!("Deleted item {}", id), config);
         }
     }
     Ok(())

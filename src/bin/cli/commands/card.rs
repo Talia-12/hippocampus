@@ -3,7 +3,7 @@ use clap::Subcommand;
 use hippocampus::dto::{GetQueryDto, SuspendedFilter};
 
 use crate::client::HippocampusClient;
-use crate::output::{self, OutputFormat};
+use crate::output::{self, OutputConfig};
 
 /// Card management commands
 #[derive(Subcommand, Debug)]
@@ -63,7 +63,7 @@ fn parse_suspended_filter(s: &str) -> SuspendedFilter {
 pub async fn execute(
     client: &HippocampusClient,
     cmd: CardCommands,
-    format: OutputFormat,
+    config: &OutputConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match cmd {
         CardCommands::List {
@@ -80,12 +80,12 @@ pub async fn execute(
                 ..Default::default()
             };
             let cards = client.list_cards(&query).await?;
-            output::print_cards(&cards, format);
+            output::print_cards(&cards, config);
         }
         CardCommands::Get { id } => {
             let card = client.get_card(&id).await?;
             match card {
-                Some(card) => output::print_card(&card, format),
+                Some(card) => output::print_card(&card, config),
                 None => {
                     eprintln!("Card not found: {}", id);
                     std::process::exit(1);
@@ -94,16 +94,16 @@ pub async fn execute(
         }
         CardCommands::Priority { id, value } => {
             let card = client.update_card_priority(&id, value).await?;
-            output::print_card(&card, format);
+            output::print_card(&card, config);
         }
         CardCommands::Suspend { id, suspend } => {
             client.suspend_card(&id, suspend).await?;
             let action = if suspend { "Suspended" } else { "Unsuspended" };
-            output::print_success(&format!("{} card {}", action, id), format);
+            output::print_success(&format!("{} card {}", action, id), config);
         }
         CardCommands::NextReviews { id } => {
             let next_reviews = client.get_next_reviews(&id).await?;
-            output::print_next_reviews(&next_reviews, format);
+            output::print_next_reviews(&next_reviews, config);
         }
     }
     Ok(())

@@ -4,7 +4,7 @@ use hippocampus::dto::{GetQueryDto, SuspendedFilter};
 use hippocampus::models::{Card, Item};
 
 use crate::client::HippocampusClient;
-use crate::output::{self, OutputFormat};
+use crate::output::{self, OutputConfig, OutputFormat};
 
 /// High-level todo workflow commands
 #[derive(Subcommand, Debug)]
@@ -160,7 +160,7 @@ async fn build_due_query(
 pub async fn execute(
     client: &HippocampusClient,
     cmd: TodoCommands,
-    format: OutputFormat,
+    config: &OutputConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match cmd {
         TodoCommands::Add {
@@ -183,14 +183,14 @@ pub async fn execute(
                 }
             }
 
-            output::print_item(&item, format);
+            output::print_item(&item, config);
         }
 
         TodoCommands::Due { item_type, tag } => {
             let query = build_due_query(client, item_type, &tag).await?;
             let cards = client.list_cards(&query).await?;
             let cards_with_items = fetch_cards_with_items(client, cards).await?;
-            output::print_todo_cards(&cards_with_items, format);
+            output::print_todo_cards(&cards_with_items, config);
         }
 
         TodoCommands::Completed { item_type } => {
@@ -206,28 +206,36 @@ pub async fn execute(
             };
             let cards = client.list_cards(&query).await?;
             let cards_with_items = fetch_cards_with_items(client, cards).await?;
-            output::print_todo_cards(&cards_with_items, format);
+            output::print_todo_cards(&cards_with_items, config);
         }
 
         TodoCommands::Complete { card_id } => {
             client.suspend_card(&card_id, true).await?;
-            output::print_success(&format!("Completed todo {}", card_id), format);
+            output::print_success(&format!("Completed todo {}", card_id), config);
         }
 
         TodoCommands::Uncomplete { card_id } => {
             client.suspend_card(&card_id, false).await?;
-            output::print_success(&format!("Uncompleted todo {}", card_id), format);
+            output::print_success(&format!("Uncompleted todo {}", card_id), config);
         }
 
         TodoCommands::Review { card_id, rating } => {
             let review = client.create_review(card_id, rating).await?;
-            output::print_review(&review, format);
+            output::print_review(&review, config);
         }
 
         TodoCommands::Count { item_type, tag } => {
             let query = build_due_query(client, item_type, &tag).await?;
             let cards = client.list_cards(&query).await?;
-            output::print_todo_count(cards.len(), format);
+            let count = cards.len();
+
+            // For waybar format, fetch item titles for the tooltip
+            let cards_with_items = match config.format {
+                OutputFormat::Waybar => Some(fetch_cards_with_items(client, cards).await?),
+                _ => None,
+            };
+
+            output::print_todo_count(count, cards_with_items.as_deref(), config);
         }
     }
     Ok(())

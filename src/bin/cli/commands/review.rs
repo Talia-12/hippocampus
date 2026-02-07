@@ -1,7 +1,7 @@
 use clap::Subcommand;
 
 use crate::client::HippocampusClient;
-use crate::output::{self, OutputFormat};
+use crate::output::{self, OutputConfig};
 
 /// Review management commands
 #[derive(Subcommand, Debug)]
@@ -21,12 +21,12 @@ pub enum ReviewCommands {
 pub async fn execute(
     client: &HippocampusClient,
     cmd: ReviewCommands,
-    format: OutputFormat,
+    config: &OutputConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match cmd {
         ReviewCommands::Create { card_id, rating } => {
             let review = client.create_review(card_id, rating).await?;
-            output::print_review(&review, format);
+            output::print_review(&review, config);
         }
     }
     Ok(())

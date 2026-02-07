@@ -13,16 +13,35 @@ pub enum OutputFormat {
     Waybar,
 }
 
+/// Bundled output configuration passed to all print functions
+#[derive(Debug, Clone, Copy)]
+pub struct OutputConfig {
+    /// The output format
+    pub format: OutputFormat,
+    /// When true, print minimal output (just IDs or counts)
+    pub quiet: bool,
+}
+
 /// Prints a list of item types in the specified format
-pub fn print_item_types(item_types: &[ItemType], format: OutputFormat) {
-    match format {
+pub fn print_item_types(item_types: &[ItemType], config: &OutputConfig) {
+    match config.format {
         OutputFormat::Human => {
             if item_types.is_empty() {
-                println!("No item types found.");
+                if !config.quiet {
+                    println!("No item types found.");
+                }
                 return;
             }
-            for item_type in item_types {
-                println!("{}\t{}", item_type.get_id(), item_type.get_name());
+            if config.quiet {
+                for it in item_types {
+                    println!("{}", it.get_id());
+                }
+                return;
+            }
+            let max_id = item_types.iter().map(|t| t.get_id().len()).max().unwrap_or(2);
+            println!("{:<width$}  NAME", "ID", width = max_id);
+            for it in item_types {
+                println!("{:<width$}  {}", it.get_id(), it.get_name(), width = max_id);
             }
         }
         OutputFormat::Json => {
@@ -35,9 +54,13 @@ pub fn print_item_types(item_types: &[ItemType], format: OutputFormat) {
 }
 
 /// Prints a single item type in the specified format
-pub fn print_item_type(item_type: &ItemType, format: OutputFormat) {
-    match format {
+pub fn print_item_type(item_type: &ItemType, config: &OutputConfig) {
+    match config.format {
         OutputFormat::Human => {
+            if config.quiet {
+                println!("{}", item_type.get_id());
+                return;
+            }
             println!("ID:      {}", item_type.get_id());
             println!("Name:    {}", item_type.get_name());
             println!("Created: {}", item_type.get_created_at());
@@ -52,15 +75,42 @@ pub fn print_item_type(item_type: &ItemType, format: OutputFormat) {
 }
 
 /// Prints a list of items in the specified format
-pub fn print_items(items: &[Item], format: OutputFormat) {
-    match format {
+pub fn print_items(items: &[Item], config: &OutputConfig) {
+    match config.format {
         OutputFormat::Human => {
             if items.is_empty() {
-                println!("No items found.");
+                if !config.quiet {
+                    println!("No items found.");
+                }
                 return;
             }
+            if config.quiet {
+                for item in items {
+                    println!("{}", item.get_id());
+                }
+                return;
+            }
+            let max_id = items.iter().map(|i| i.get_id().len()).max().unwrap_or(2);
+            let max_title = items
+                .iter()
+                .map(|i| i.get_title().len())
+                .max()
+                .unwrap_or(5);
+            println!(
+                "{:<id_w$}  {:<title_w$}",
+                "ID",
+                "TITLE",
+                id_w = max_id,
+                title_w = max_title,
+            );
             for item in items {
-                println!("{}\t{}", item.get_id(), item.get_title());
+                println!(
+                    "{:<id_w$}  {:<title_w$}",
+                    item.get_id(),
+                    item.get_title(),
+                    id_w = max_id,
+                    title_w = max_title,
+                );
             }
         }
         OutputFormat::Json => {
@@ -73,9 +123,13 @@ pub fn print_items(items: &[Item], format: OutputFormat) {
 }
 
 /// Prints a single item in the specified format
-pub fn print_item(item: &Item, format: OutputFormat) {
-    match format {
+pub fn print_item(item: &Item, config: &OutputConfig) {
+    match config.format {
         OutputFormat::Human => {
+            if config.quiet {
+                println!("{}", item.get_id());
+                return;
+            }
             println!("ID:        {}", item.get_id());
             println!("Type:      {}", item.get_item_type());
             println!("Title:     {}", item.get_title());
@@ -93,25 +147,46 @@ pub fn print_item(item: &Item, format: OutputFormat) {
 }
 
 /// Prints a list of cards in the specified format
-pub fn print_cards(cards: &[Card], format: OutputFormat) {
-    match format {
+pub fn print_cards(cards: &[Card], config: &OutputConfig) {
+    match config.format {
         OutputFormat::Human => {
             if cards.is_empty() {
-                println!("No cards found.");
+                if !config.quiet {
+                    println!("No cards found.");
+                }
                 return;
             }
+            if config.quiet {
+                for card in cards {
+                    println!("{}", card.get_id());
+                }
+                return;
+            }
+            let max_id = cards.iter().map(|c| c.get_id().len()).max().unwrap_or(2);
+            let max_item = cards.iter().map(|c| c.get_item_id().len()).max().unwrap_or(4);
+            println!(
+                "{:<id_w$}  {:<item_w$}  {:>8}  {:<16}  STATUS",
+                "ID",
+                "ITEM",
+                "PRIORITY",
+                "NEXT REVIEW",
+                id_w = max_id,
+                item_w = max_item,
+            );
             for card in cards {
-                let suspended = match card.get_suspended() {
+                let status = match card.get_suspended() {
                     Some(dt) => format!("suspended {}", dt.format("%Y-%m-%d %H:%M")),
                     None => "active".to_string(),
                 };
                 println!(
-                    "{}\titem:{}\tpri:{:.2}\tnext:{}\t{}",
+                    "{:<id_w$}  {:<item_w$}  {:>8.2}  {:<16}  {}",
                     card.get_id(),
                     card.get_item_id(),
                     card.get_priority(),
                     card.get_next_review().format("%Y-%m-%d %H:%M"),
-                    suspended,
+                    status,
+                    id_w = max_id,
+                    item_w = max_item,
                 );
             }
         }
@@ -125,9 +200,13 @@ pub fn print_cards(cards: &[Card], format: OutputFormat) {
 }
 
 /// Prints a single card in the specified format
-pub fn print_card(card: &Card, format: OutputFormat) {
-    match format {
+pub fn print_card(card: &Card, config: &OutputConfig) {
+    match config.format {
         OutputFormat::Human => {
+            if config.quiet {
+                println!("{}", card.get_id());
+                return;
+            }
             println!("ID:          {}", card.get_id());
             println!("Item ID:     {}", card.get_item_id());
             println!("Card Index:  {}", card.get_card_index());
@@ -152,20 +231,44 @@ pub fn print_card(card: &Card, format: OutputFormat) {
 }
 
 /// Prints a list of reviews in the specified format
-pub fn print_reviews(reviews: &[Review], format: OutputFormat) {
-    match format {
+pub fn print_reviews(reviews: &[Review], config: &OutputConfig) {
+    match config.format {
         OutputFormat::Human => {
             if reviews.is_empty() {
-                println!("No reviews found.");
+                if !config.quiet {
+                    println!("No reviews found.");
+                }
                 return;
             }
+            if config.quiet {
+                for review in reviews {
+                    println!("{}", review.get_id());
+                }
+                return;
+            }
+            let max_id = reviews.iter().map(|r| r.get_id().len()).max().unwrap_or(2);
+            let max_card = reviews
+                .iter()
+                .map(|r| r.get_card_id().len())
+                .max()
+                .unwrap_or(4);
+            println!(
+                "{:<id_w$}  {:<card_w$}  {:>6}  TIMESTAMP",
+                "ID",
+                "CARD",
+                "RATING",
+                id_w = max_id,
+                card_w = max_card,
+            );
             for review in reviews {
                 println!(
-                    "{}\tcard:{}\trating:{}\t{}",
+                    "{:<id_w$}  {:<card_w$}  {:>6}  {}",
                     review.get_id(),
                     review.get_card_id(),
                     review.get_rating(),
                     review.get_review_timestamp().format("%Y-%m-%d %H:%M"),
+                    id_w = max_id,
+                    card_w = max_card,
                 );
             }
         }
@@ -179,9 +282,13 @@ pub fn print_reviews(reviews: &[Review], format: OutputFormat) {
 }
 
 /// Prints a single review in the specified format
-pub fn print_review(review: &Review, format: OutputFormat) {
-    match format {
+pub fn print_review(review: &Review, config: &OutputConfig) {
+    match config.format {
         OutputFormat::Human => {
+            if config.quiet {
+                println!("{}", review.get_id());
+                return;
+            }
             println!("ID:        {}", review.get_id());
             println!("Card ID:   {}", review.get_card_id());
             println!("Rating:    {}", review.get_rating());
@@ -197,16 +304,40 @@ pub fn print_review(review: &Review, format: OutputFormat) {
 }
 
 /// Prints a list of tags in the specified format
-pub fn print_tags(tags: &[Tag], format: OutputFormat) {
-    match format {
+pub fn print_tags(tags: &[Tag], config: &OutputConfig) {
+    match config.format {
         OutputFormat::Human => {
             if tags.is_empty() {
-                println!("No tags found.");
+                if !config.quiet {
+                    println!("No tags found.");
+                }
                 return;
             }
+            if config.quiet {
+                for tag in tags {
+                    println!("{}", tag.get_id());
+                }
+                return;
+            }
+            let max_id = tags.iter().map(|t| t.get_id().len()).max().unwrap_or(2);
+            let max_name = tags.iter().map(|t| t.get_name().len()).max().unwrap_or(4);
+            println!(
+                "{:<id_w$}  {:<name_w$}  VISIBLE",
+                "ID",
+                "NAME",
+                id_w = max_id,
+                name_w = max_name,
+            );
             for tag in tags {
-                let vis = if tag.get_visible() { "visible" } else { "hidden" };
-                println!("{}\t{}\t{}", tag.get_id(), tag.get_name(), vis);
+                let vis = if tag.get_visible() { "yes" } else { "no" };
+                println!(
+                    "{:<id_w$}  {:<name_w$}  {}",
+                    tag.get_id(),
+                    tag.get_name(),
+                    vis,
+                    id_w = max_id,
+                    name_w = max_name,
+                );
             }
         }
         OutputFormat::Json => {
@@ -219,9 +350,13 @@ pub fn print_tags(tags: &[Tag], format: OutputFormat) {
 }
 
 /// Prints a single tag in the specified format
-pub fn print_tag(tag: &Tag, format: OutputFormat) {
-    match format {
+pub fn print_tag(tag: &Tag, config: &OutputConfig) {
+    match config.format {
         OutputFormat::Human => {
+            if config.quiet {
+                println!("{}", tag.get_id());
+                return;
+            }
             println!("ID:      {}", tag.get_id());
             println!("Name:    {}", tag.get_name());
             println!("Visible: {}", tag.get_visible());
@@ -239,12 +374,14 @@ pub fn print_tag(tag: &Tag, format: OutputFormat) {
 /// Prints next review possibilities in the specified format
 pub fn print_next_reviews(
     next_reviews: &[(DateTime<Utc>, serde_json::Value)],
-    format: OutputFormat,
+    config: &OutputConfig,
 ) {
-    match format {
+    match config.format {
         OutputFormat::Human => {
             if next_reviews.is_empty() {
-                println!("No next reviews available.");
+                if !config.quiet {
+                    println!("No next reviews available.");
+                }
                 return;
             }
             for (i, (dt, data)) in next_reviews.iter().enumerate() {
@@ -266,9 +403,13 @@ pub fn print_next_reviews(
 }
 
 /// Prints a simple success message (for operations that don't return data)
-pub fn print_success(message: &str, format: OutputFormat) {
-    match format {
-        OutputFormat::Human => println!("{}", message),
+pub fn print_success(message: &str, config: &OutputConfig) {
+    match config.format {
+        OutputFormat::Human => {
+            if !config.quiet {
+                println!("{}", message);
+            }
+        }
         OutputFormat::Json => {
             println!(
                 "{}",
@@ -287,24 +428,52 @@ pub fn print_success(message: &str, format: OutputFormat) {
 }
 
 /// Prints cards with their associated item titles for todo commands
-pub fn print_todo_cards(cards_with_items: &[(Card, Option<Item>)], format: OutputFormat) {
-    match format {
+pub fn print_todo_cards(cards_with_items: &[(Card, Option<Item>)], config: &OutputConfig) {
+    match config.format {
         OutputFormat::Human => {
             if cards_with_items.is_empty() {
-                println!("No todos found.");
+                if !config.quiet {
+                    println!("No todos found.");
+                }
                 return;
             }
-            for (card, item) in cards_with_items {
-                let title = item
-                    .as_ref()
-                    .map(|i| i.get_title())
-                    .unwrap_or_else(|| "???".to_string());
+            if config.quiet {
+                for (card, _) in cards_with_items {
+                    println!("{}", card.get_id());
+                }
+                return;
+            }
+            let titles: Vec<String> = cards_with_items
+                .iter()
+                .map(|(_, item)| {
+                    item.as_ref()
+                        .map(|i| i.get_title())
+                        .unwrap_or_else(|| "???".to_string())
+                })
+                .collect();
+            let max_id = cards_with_items
+                .iter()
+                .map(|(c, _)| c.get_id().len())
+                .max()
+                .unwrap_or(2);
+            let max_title = titles.iter().map(|t| t.len()).max().unwrap_or(5);
+            println!(
+                "{:<id_w$}  {:<title_w$}  {:<16}  PRIORITY",
+                "ID",
+                "TITLE",
+                "NEXT REVIEW",
+                id_w = max_id,
+                title_w = max_title,
+            );
+            for ((card, _), title) in cards_with_items.iter().zip(titles.iter()) {
                 println!(
-                    "{}\t{}\tnext:{}\tpri:{:.2}",
+                    "{:<id_w$}  {:<title_w$}  {:<16}  {:.2}",
                     card.get_id(),
                     title,
                     card.get_next_review().format("%Y-%m-%d %H:%M"),
                     card.get_priority(),
+                    id_w = max_id,
+                    title_w = max_title,
                 );
             }
         }
@@ -321,23 +490,21 @@ pub fn print_todo_cards(cards_with_items: &[(Card, Option<Item>)], format: Outpu
             println!("{}", serde_json::to_string_pretty(&data).unwrap());
         }
         OutputFormat::Waybar => {
-            let data: Vec<serde_json::Value> = cards_with_items
-                .iter()
-                .map(|(card, item)| {
-                    serde_json::json!({
-                        "card": card,
-                        "item": item,
-                    })
-                })
-                .collect();
-            println!("{}", serde_json::to_string(&data).unwrap());
+            print_waybar_todo_summary(cards_with_items);
         }
     }
 }
 
 /// Prints a count of due todos in the specified format
-pub fn print_todo_count(count: usize, format: OutputFormat) {
-    match format {
+///
+/// For waybar format, pass `cards_with_items` to include titles in the tooltip.
+/// For human/json format, `cards_with_items` is ignored.
+pub fn print_todo_count(
+    count: usize,
+    cards_with_items: Option<&[(Card, Option<Item>)]>,
+    config: &OutputConfig,
+) {
+    match config.format {
         OutputFormat::Human => println!("{}", count),
         OutputFormat::Json => {
             println!(
@@ -346,10 +513,65 @@ pub fn print_todo_count(count: usize, format: OutputFormat) {
             );
         }
         OutputFormat::Waybar => {
-            println!(
-                "{}",
-                serde_json::to_string(&serde_json::json!({"count": count})).unwrap()
-            );
+            if let Some(cards) = cards_with_items {
+                print_waybar_todo_summary(cards);
+            } else {
+                // Fallback without item titles
+                let (text, tooltip, class) = if count > 0 {
+                    (
+                        count.to_string(),
+                        format!("{} todos due", count),
+                        "has-items",
+                    )
+                } else {
+                    (String::new(), "No todos due".to_string(), "empty")
+                };
+                println!(
+                    "{}",
+                    serde_json::to_string(&serde_json::json!({
+                        "text": text,
+                        "tooltip": tooltip,
+                        "class": class,
+                    }))
+                    .unwrap()
+                );
+            }
         }
     }
+}
+
+/// Prints waybar-compatible JSON for todo summaries
+///
+/// Output: `{"text": "3", "tooltip": "3 todos due\n- Title 1\n- Title 2", "class": "has-items"}`
+/// Empty: `{"text": "", "tooltip": "No todos due", "class": "empty"}`
+fn print_waybar_todo_summary(cards_with_items: &[(Card, Option<Item>)]) {
+    let count = cards_with_items.len();
+    let (text, tooltip, class) = if count > 0 {
+        let titles: Vec<String> = cards_with_items
+            .iter()
+            .map(|(_, item)| {
+                item.as_ref()
+                    .map(|i| i.get_title())
+                    .unwrap_or_else(|| "???".to_string())
+            })
+            .collect();
+        let tooltip_lines: Vec<String> = titles.iter().map(|t| format!("- {}", t)).collect();
+        let tooltip = format!(
+            "{} todos due\n{}",
+            count,
+            tooltip_lines.join("\n")
+        );
+        (count.to_string(), tooltip, "has-items")
+    } else {
+        (String::new(), "No todos due".to_string(), "empty")
+    };
+    println!(
+        "{}",
+        serde_json::to_string(&serde_json::json!({
+            "text": text,
+            "tooltip": tooltip,
+            "class": class,
+        }))
+        .unwrap()
+    );
 }

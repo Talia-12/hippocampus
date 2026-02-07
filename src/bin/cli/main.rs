@@ -5,7 +5,7 @@ mod output;
 use clap::{Parser, Subcommand};
 use client::HippocampusClient;
 use hippocampus::config;
-use output::OutputFormat;
+use output::{OutputConfig, OutputFormat};
 use std::process;
 
 /// CLI for the Hippocampus spaced repetition system
@@ -23,6 +23,10 @@ struct Cli {
     /// Output format
     #[clap(long, value_enum, default_value_t = OutputFormat::Human, global = true)]
     format: OutputFormat,
+
+    /// Quiet mode: minimal output (just IDs or counts)
+    #[clap(short, long, global = true)]
+    quiet: bool,
 
     #[command(subcommand)]
     command: Commands,
@@ -74,23 +78,49 @@ fn resolve_server_url(cli_url: Option<String>) -> String {
     format!("http://localhost:{}", port)
 }
 
+/// Formats an error for human-readable stderr output
+fn format_error(err: &dyn std::error::Error) -> String {
+    // Check if it's a connection error by looking at the error chain
+    let err_string = err.to_string();
+    if err_string.contains("error sending request")
+        || err_string.contains("connection refused")
+        || err_string.contains("Connection refused")
+        || err_string.contains("tcp connect error")
+    {
+        return format!(
+            "Could not connect to server. Is hippocampus running?\n  {}",
+            err_string
+        );
+    }
+    if err_string.contains("HTTP status") {
+        return format!("Server returned an error: {}", err_string);
+    }
+    err_string
+}
+
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
     let server_url = resolve_server_url(cli.server_url);
     let client = HippocampusClient::new(server_url);
+    let output_config = OutputConfig {
+        format: cli.format,
+        quiet: cli.quiet,
+    };
 
     let result = match cli.command {
-        Commands::ItemType(cmd) => commands::item_type::execute(&client, cmd, cli.format).await,
-        Commands::Item(cmd) => commands::item::execute(&client, cmd, cli.format).await,
-        Commands::Card(cmd) => commands::card::execute(&client, cmd, cli.format).await,
-        Commands::Review(cmd) => commands::review::execute(&client, cmd, cli.format).await,
-        Commands::Tag(cmd) => commands::tag::execute(&client, cmd, cli.format).await,
-        Commands::Todo(cmd) => commands::todo::execute(&client, cmd, cli.format).await,
+        Commands::ItemType(cmd) => {
+            commands::item_type::execute(&client, cmd, &output_config).await
+        }
+        Commands::Item(cmd) => commands::item::execute(&client, cmd, &output_config).await,
+        Commands::Card(cmd) => commands::card::execute(&client, cmd, &output_config).await,
+        Commands::Review(cmd) => commands::review::execute(&client, cmd, &output_config).await,
+        Commands::Tag(cmd) => commands::tag::execute(&client, cmd, &output_config).await,
+        Commands::Todo(cmd) => commands::todo::execute(&client, cmd, &output_config).await,
     };
 
     if let Err(e) = result {
-        eprintln!("Error: {}", e);
+        eprintln!("Error: {}", format_error(e.as_ref()));
         process::exit(1);
     }
 }

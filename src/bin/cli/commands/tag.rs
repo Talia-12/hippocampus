@@ -1,7 +1,7 @@
 use clap::Subcommand;
 
 use crate::client::HippocampusClient;
-use crate::output::{self, OutputFormat};
+use crate::output::{self, OutputConfig};
 
 /// Tag management commands
 #[derive(Subcommand, Debug)]
@@ -42,34 +42,34 @@ pub enum TagCommands {
 pub async fn execute(
     client: &HippocampusClient,
     cmd: TagCommands,
-    format: OutputFormat,
+    config: &OutputConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match cmd {
         TagCommands::List => {
             let tags = client.list_tags().await?;
-            output::print_tags(&tags, format);
+            output::print_tags(&tags, config);
         }
         TagCommands::Create { name, visible } => {
             let tag = client.create_tag(name, visible).await?;
-            output::print_tag(&tag, format);
+            output::print_tag(&tag, config);
         }
         TagCommands::Add { item_id, tag_id } => {
             client.add_tag_to_item(&item_id, &tag_id).await?;
             output::print_success(
                 &format!("Added tag {} to item {}", tag_id, item_id),
-                format,
+                config,
             );
         }
         TagCommands::Remove { item_id, tag_id } => {
             client.remove_tag_from_item(&item_id, &tag_id).await?;
             output::print_success(
                 &format!("Removed tag {} from item {}", tag_id, item_id),
-                format,
+                config,
             );
         }
         TagCommands::ListForItem { item_id } => {
             let tags = client.list_tags_for_item(&item_id).await?;
-            output::print_tags(&tags, format);
+            output::print_tags(&tags, config);
         }
     }
     Ok(())

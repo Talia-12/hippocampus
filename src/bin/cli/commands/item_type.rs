@@ -1,7 +1,7 @@
 use clap::Subcommand;
 
 use crate::client::HippocampusClient;
-use crate::output::{self, OutputFormat};
+use crate::output::{self, OutputConfig};
 
 /// Item type management commands
 #[derive(Subcommand, Debug)]
@@ -25,20 +25,20 @@ pub enum ItemTypeCommands {
 pub async fn execute(
     client: &HippocampusClient,
     cmd: ItemTypeCommands,
-    format: OutputFormat,
+    config: &OutputConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
     match cmd {
         ItemTypeCommands::List => {
             let item_types = client.list_item_types().await?;
-            output::print_item_types(&item_types, format);
+            output::print_item_types(&item_types, config);
         }
         ItemTypeCommands::Create { name } => {
             let item_type = client.create_item_type(name).await?;
-            output::print_item_type(&item_type, format);
+            output::print_item_type(&item_type, config);
         }
         ItemTypeCommands::Get { id } => {
             let item_type = client.get_item_type(&id).await?;
-            output::print_item_type(&item_type, format);
+            output::print_item_type(&item_type, config);
         }
     }
     Ok(())
