@@ -20,15 +20,15 @@ test = []
 [dependencies]
 # Web framework (Axum or Warp; example uses Axum)
 axum = "0.8.1"
-axum-extra = { version = "0.10.0", features = ["query"] }
+axum-extra = { version = "0.12.5", features = ["query"] }
 tokio = { version = "1.43.0", features = ["full"] }
 hyper = "1.6.0" # for lower-level HTTP support if needed
 tower-http = { version = "0.6.2", features = ["cors"] } # For CORS support
 
 # Database
-diesel = { version = "2.2.8", features = ["sqlite", "r2d2", "returning_clauses_for_sqlite_3_35", "serde_json", "chrono", "uuid", "time"] }
-diesel_migrations = "2.2.0"
-libsqlite3-sys = { version = "0.31.0", features = ["bundled"] }
+diesel = { version = "2.3.6", features = ["sqlite", "r2d2", "returning_clauses_for_sqlite_3_35", "serde_json", "chrono", "uuid", "time"] }
+diesel_migrations = "2.3.1"
+libsqlite3-sys = { version = "0.35.0", features = ["bundled"] }
 r2d2 = "0.8.10"
 
 # Serde for serialization
@@ -54,16 +54,16 @@ tracing-appender = "0.2.3"
 dotenv = "0.15.0"
 
 # For configuration management
-directories = "5.0.1"
+directories = "6.0.0"
 clap = { version = "4.5.4", features = ["derive", "env"] }
-toml = { version = "0.8.14", features = ["parse"] }
+toml = { version = "0.9.11", features = ["parse"] }
 
 # HTTP client
-reqwest = { version = "0.12.12", features = ["json"] }
+reqwest = { version = "0.13.2", features = ["json", "query"] }
 
 [dev-dependencies]
 # For testing
 tokio-test = "0.4.4"
 tower = "0.5.2"
-serde_html_form = "0.2.7"
+serde_html_form = "0.4.0"
 tempfile = "3.9.0"

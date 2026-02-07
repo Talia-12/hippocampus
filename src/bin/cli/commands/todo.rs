@@ -4,7 +4,7 @@ use hippocampus::dto::{GetQueryDto, SuspendedFilter};
 use hippocampus::models::{Card, Item};
 
 use crate::client::HippocampusClient;
-use crate::output::{self, OutputConfig, OutputFormat};
+use crate::output::{self, OutputConfig};
 
 /// High-level todo workflow commands
 #[derive(Subcommand, Debug)]
@@ -54,15 +54,6 @@ pub enum TodoCommands {
         card_id: String,
         /// The rating (1-4)
         rating: i32,
-    },
-    /// Count due todos (useful for waybar)
-    Count {
-        /// Filter by item type name or ID
-        #[clap(long)]
-        item_type: Option<String>,
-        /// Filter by tag name or ID, can be specified multiple times
-        #[clap(long)]
-        tag: Vec<String>,
     },
 }
 
@@ -224,19 +215,6 @@ pub async fn execute(
             output::print_review(&review, config);
         }
 
-        TodoCommands::Count { item_type, tag } => {
-            let query = build_due_query(client, item_type, &tag).await?;
-            let cards = client.list_cards(&query).await?;
-            let count = cards.len();
-
-            // For waybar format, fetch item titles for the tooltip
-            let cards_with_items = match config.format {
-                OutputFormat::Waybar => Some(fetch_cards_with_items(client, cards).await?),
-                _ => None,
-            };
-
-            output::print_todo_count(count, cards_with_items.as_deref(), config);
-        }
     }
     Ok(())
 }

@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use hippocampus::dto::{
-    CreateCardDto, CreateItemDto, CreateItemTypeDto, CreateReviewDto, CreateTagDto, GetQueryDto,
+    CreateItemDto, CreateItemTypeDto, CreateReviewDto, CreateTagDto, GetQueryDto,
     SuspendedFilter, UpdateItemDto,
 };
 use hippocampus::models::{Card, Item, ItemType, Review, Tag};
@@ -196,29 +196,6 @@ impl HippocampusClient {
         response.json().await
     }
 
-    /// Lists cards for a specific item
-    pub async fn list_cards_by_item(&self, item_id: &str) -> Result<Vec<Card>, reqwest::Error> {
-        let url = format!("{}/items/{}/cards", self.base_url, item_id);
-        let response = self.client.get(&url).send().await?.error_for_status()?;
-        response.json().await
-    }
-
-    /// Creates a new card for an item
-    pub async fn create_card(
-        &self,
-        item_id: &str,
-        card_index: i32,
-        priority: f32,
-    ) -> Result<Card, reqwest::Error> {
-        let url = format!("{}/items/{}/cards", self.base_url, item_id);
-        let dto = CreateCardDto {
-            card_index,
-            priority,
-        };
-        let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
-        response.json().await
-    }
-
     // ── Review endpoints ─────────────────────────────────────────────
 
     /// Creates a new review
@@ -230,16 +207,6 @@ impl HippocampusClient {
         let url = format!("{}/reviews", self.base_url);
         let dto = CreateReviewDto { card_id, rating };
         let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
-        response.json().await
-    }
-
-    /// Lists reviews for a specific card
-    pub async fn list_reviews_by_card(
-        &self,
-        card_id: &str,
-    ) -> Result<Vec<Review>, reqwest::Error> {
-        let url = format!("{}/cards/{}/reviews", self.base_url, card_id);
-        let response = self.client.get(&url).send().await?.error_for_status()?;
         response.json().await
     }
 

@@ -495,51 +495,6 @@ pub fn print_todo_cards(cards_with_items: &[(Card, Option<Item>)], config: &Outp
     }
 }
 
-/// Prints a count of due todos in the specified format
-///
-/// For waybar format, pass `cards_with_items` to include titles in the tooltip.
-/// For human/json format, `cards_with_items` is ignored.
-pub fn print_todo_count(
-    count: usize,
-    cards_with_items: Option<&[(Card, Option<Item>)]>,
-    config: &OutputConfig,
-) {
-    match config.format {
-        OutputFormat::Human => println!("{}", count),
-        OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&serde_json::json!({"count": count})).unwrap()
-            );
-        }
-        OutputFormat::Waybar => {
-            if let Some(cards) = cards_with_items {
-                print_waybar_todo_summary(cards);
-            } else {
-                // Fallback without item titles
-                let (text, tooltip, class) = if count > 0 {
-                    (
-                        count.to_string(),
-                        format!("{} todos due", count),
-                        "has-items",
-                    )
-                } else {
-                    (String::new(), "No todos due".to_string(), "empty")
-                };
-                println!(
-                    "{}",
-                    serde_json::to_string(&serde_json::json!({
-                        "text": text,
-                        "tooltip": tooltip,
-                        "class": class,
-                    }))
-                    .unwrap()
-                );
-            }
-        }
-    }
-}
-
 /// Prints waybar-compatible JSON for todo summaries
 ///
 /// Output: `{"text": "3", "tooltip": "3 todos due\n- Title 1\n- Title 2", "class": "has-items"}`
