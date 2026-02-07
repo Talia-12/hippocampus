@@ -1,4 +1,5 @@
 mod client;
+mod commands;
 mod output;
 
 use clap::{Parser, Subcommand};
@@ -31,13 +32,19 @@ struct Cli {
 enum Commands {
     /// Manage item types
     #[command(subcommand)]
-    ItemType(ItemTypeCommands),
-}
-
-#[derive(Subcommand, Debug)]
-enum ItemTypeCommands {
-    /// List all item types
-    List,
+    ItemType(commands::item_type::ItemTypeCommands),
+    /// Manage items
+    #[command(subcommand)]
+    Item(commands::item::ItemCommands),
+    /// Manage cards
+    #[command(subcommand)]
+    Card(commands::card::CardCommands),
+    /// Manage reviews
+    #[command(subcommand)]
+    Review(commands::review::ReviewCommands),
+    /// Manage tags
+    #[command(subcommand)]
+    Tag(commands::tag::TagCommands),
 }
 
 /// Resolves the server URL from CLI args, config file, or defaults
@@ -71,23 +78,15 @@ async fn main() {
     let client = HippocampusClient::new(server_url);
 
     let result = match cli.command {
-        Commands::ItemType(cmd) => match cmd {
-            ItemTypeCommands::List => run_list_item_types(&client, cli.format).await,
-        },
+        Commands::ItemType(cmd) => commands::item_type::execute(&client, cmd, cli.format).await,
+        Commands::Item(cmd) => commands::item::execute(&client, cmd, cli.format).await,
+        Commands::Card(cmd) => commands::card::execute(&client, cmd, cli.format).await,
+        Commands::Review(cmd) => commands::review::execute(&client, cmd, cli.format).await,
+        Commands::Tag(cmd) => commands::tag::execute(&client, cmd, cli.format).await,
     };
 
     if let Err(e) = result {
         eprintln!("Error: {}", e);
         process::exit(1);
     }
-}
-
-/// Runs the item-type list command
-async fn run_list_item_types(
-    client: &HippocampusClient,
-    format: OutputFormat,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let item_types = client.list_item_types().await?;
-    output::print_item_types(&item_types, format);
-    Ok(())
 }

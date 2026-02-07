@@ -1,4 +1,9 @@
-use hippocampus::models::ItemType;
+use chrono::{DateTime, Utc};
+use hippocampus::dto::{
+    CreateCardDto, CreateItemDto, CreateItemTypeDto, CreateReviewDto, CreateTagDto, GetQueryDto,
+    SuspendedFilter, UpdateItemDto,
+};
+use hippocampus::models::{Card, Item, ItemType, Review, Tag};
 use reqwest::Client;
 
 /// HTTP client wrapper for communicating with the Hippocampus server
@@ -22,14 +27,265 @@ impl HippocampusClient {
         }
     }
 
+    // ── Item Type endpoints ──────────────────────────────────────────
+
     /// Lists all item types from the server
-    ///
-    /// ### Returns
-    ///
-    /// A list of item types, or an error if the request fails
     pub async fn list_item_types(&self) -> Result<Vec<ItemType>, reqwest::Error> {
         let url = format!("{}/item_types", self.base_url);
         let response = self.client.get(&url).send().await?.error_for_status()?;
         response.json().await
+    }
+
+    /// Creates a new item type
+    pub async fn create_item_type(&self, name: String) -> Result<ItemType, reqwest::Error> {
+        let url = format!("{}/item_types", self.base_url);
+        let dto = CreateItemTypeDto { name };
+        let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Gets a specific item type by ID
+    pub async fn get_item_type(&self, id: &str) -> Result<ItemType, reqwest::Error> {
+        let url = format!("{}/item_types/{}", self.base_url, id);
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    // ── Item endpoints ───────────────────────────────────────────────
+
+    /// Lists all items, optionally filtered by item type
+    pub async fn list_items(&self, item_type_id: Option<&str>) -> Result<Vec<Item>, reqwest::Error> {
+        let url = match item_type_id {
+            Some(id) => format!("{}/item_types/{}/items", self.base_url, id),
+            None => format!("{}/items", self.base_url),
+        };
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Creates a new item
+    pub async fn create_item(
+        &self,
+        item_type_id: String,
+        title: String,
+        item_data: serde_json::Value,
+        priority: f32,
+    ) -> Result<Item, reqwest::Error> {
+        let url = format!("{}/items", self.base_url);
+        let dto = CreateItemDto {
+            item_type_id,
+            title,
+            item_data,
+            priority,
+        };
+        let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Gets a specific item by ID
+    pub async fn get_item(&self, id: &str) -> Result<Option<Item>, reqwest::Error> {
+        let url = format!("{}/items/{}", self.base_url, id);
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Updates an item
+    pub async fn update_item(
+        &self,
+        id: &str,
+        title: Option<String>,
+        item_data: Option<serde_json::Value>,
+    ) -> Result<Item, reqwest::Error> {
+        let url = format!("{}/items/{}", self.base_url, id);
+        let dto = UpdateItemDto { title, item_data };
+        let response = self.client.patch(&url).json(&dto).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Deletes an item
+    pub async fn delete_item(&self, id: &str) -> Result<(), reqwest::Error> {
+        let url = format!("{}/items/{}", self.base_url, id);
+        self.client.delete(&url).send().await?.error_for_status()?;
+        Ok(())
+    }
+
+    // ── Card endpoints ───────────────────────────────────────────────
+
+    /// Lists cards with optional filters
+    pub async fn list_cards(&self, query: &GetQueryDto) -> Result<Vec<Card>, reqwest::Error> {
+        let url = format!("{}/cards", self.base_url);
+        let mut params: Vec<(&str, String)> = Vec::new();
+
+        if let Some(ref id) = query.item_type_id {
+            params.push(("item_type_id", id.clone()));
+        }
+        for tag_id in &query.tag_ids {
+            params.push(("tag_ids", tag_id.clone()));
+        }
+        if let Some(ref dt) = query.next_review_before {
+            params.push(("next_review_before", dt.to_rfc3339()));
+        }
+        if let Some(ref dt) = query.last_review_after {
+            params.push(("last_review_after", dt.to_rfc3339()));
+        }
+        match query.suspended_filter {
+            SuspendedFilter::Include => params.push(("suspended_filter", "Include".to_string())),
+            SuspendedFilter::Exclude => params.push(("suspended_filter", "Exclude".to_string())),
+            SuspendedFilter::Only => params.push(("suspended_filter", "Only".to_string())),
+        }
+        if let Some(ref dt) = query.suspended_after {
+            params.push(("suspended_after", dt.to_rfc3339()));
+        }
+        if let Some(ref dt) = query.suspended_before {
+            params.push(("suspended_before", dt.to_rfc3339()));
+        }
+
+        let response = self
+            .client
+            .get(&url)
+            .query(&params)
+            .send()
+            .await?
+            .error_for_status()?;
+        response.json().await
+    }
+
+    /// Gets a specific card by ID
+    pub async fn get_card(&self, id: &str) -> Result<Option<Card>, reqwest::Error> {
+        let url = format!("{}/cards/{}", self.base_url, id);
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Updates a card's priority
+    pub async fn update_card_priority(
+        &self,
+        id: &str,
+        priority: f32,
+    ) -> Result<Card, reqwest::Error> {
+        let url = format!("{}/cards/{}/priority", self.base_url, id);
+        let response = self
+            .client
+            .patch(&url)
+            .json(&priority)
+            .send()
+            .await?
+            .error_for_status()?;
+        response.json().await
+    }
+
+    /// Suspends or unsuspends a card
+    pub async fn suspend_card(&self, id: &str, suspend: bool) -> Result<(), reqwest::Error> {
+        let url = format!("{}/cards/{}/suspend", self.base_url, id);
+        self.client
+            .patch(&url)
+            .json(&suspend)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
+    }
+
+    /// Gets all possible next review timestamps for a card
+    pub async fn get_next_reviews(
+        &self,
+        card_id: &str,
+    ) -> Result<Vec<(DateTime<Utc>, serde_json::Value)>, reqwest::Error> {
+        let url = format!("{}/cards/{}/next_reviews", self.base_url, card_id);
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Lists cards for a specific item
+    pub async fn list_cards_by_item(&self, item_id: &str) -> Result<Vec<Card>, reqwest::Error> {
+        let url = format!("{}/items/{}/cards", self.base_url, item_id);
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Creates a new card for an item
+    pub async fn create_card(
+        &self,
+        item_id: &str,
+        card_index: i32,
+        priority: f32,
+    ) -> Result<Card, reqwest::Error> {
+        let url = format!("{}/items/{}/cards", self.base_url, item_id);
+        let dto = CreateCardDto {
+            card_index,
+            priority,
+        };
+        let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    // ── Review endpoints ─────────────────────────────────────────────
+
+    /// Creates a new review
+    pub async fn create_review(
+        &self,
+        card_id: String,
+        rating: i32,
+    ) -> Result<Review, reqwest::Error> {
+        let url = format!("{}/reviews", self.base_url);
+        let dto = CreateReviewDto { card_id, rating };
+        let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Lists reviews for a specific card
+    pub async fn list_reviews_by_card(
+        &self,
+        card_id: &str,
+    ) -> Result<Vec<Review>, reqwest::Error> {
+        let url = format!("{}/cards/{}/reviews", self.base_url, card_id);
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    // ── Tag endpoints ────────────────────────────────────────────────
+
+    /// Lists all tags
+    pub async fn list_tags(&self) -> Result<Vec<Tag>, reqwest::Error> {
+        let url = format!("{}/tags", self.base_url);
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Creates a new tag
+    pub async fn create_tag(&self, name: String, visible: bool) -> Result<Tag, reqwest::Error> {
+        let url = format!("{}/tags", self.base_url);
+        let dto = CreateTagDto { name, visible };
+        let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Lists tags for a specific item
+    pub async fn list_tags_for_item(&self, item_id: &str) -> Result<Vec<Tag>, reqwest::Error> {
+        let url = format!("{}/items/{}/tags", self.base_url, item_id);
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        response.json().await
+    }
+
+    /// Adds a tag to an item
+    pub async fn add_tag_to_item(
+        &self,
+        item_id: &str,
+        tag_id: &str,
+    ) -> Result<(), reqwest::Error> {
+        let url = format!("{}/items/{}/tags/{}", self.base_url, item_id, tag_id);
+        self.client.post(&url).send().await?.error_for_status()?;
+        Ok(())
+    }
+
+    /// Removes a tag from an item
+    pub async fn remove_tag_from_item(
+        &self,
+        item_id: &str,
+        tag_id: &str,
+    ) -> Result<(), reqwest::Error> {
+        let url = format!("{}/items/{}/tags/{}", self.base_url, item_id, tag_id);
+        self.client.delete(&url).send().await?.error_for_status()?;
+        Ok(())
     }
 }
