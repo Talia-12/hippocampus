@@ -285,3 +285,71 @@ pub fn print_success(message: &str, format: OutputFormat) {
         }
     }
 }
+
+/// Prints cards with their associated item titles for todo commands
+pub fn print_todo_cards(cards_with_items: &[(Card, Option<Item>)], format: OutputFormat) {
+    match format {
+        OutputFormat::Human => {
+            if cards_with_items.is_empty() {
+                println!("No todos found.");
+                return;
+            }
+            for (card, item) in cards_with_items {
+                let title = item
+                    .as_ref()
+                    .map(|i| i.get_title())
+                    .unwrap_or_else(|| "???".to_string());
+                println!(
+                    "{}\t{}\tnext:{}\tpri:{:.2}",
+                    card.get_id(),
+                    title,
+                    card.get_next_review().format("%Y-%m-%d %H:%M"),
+                    card.get_priority(),
+                );
+            }
+        }
+        OutputFormat::Json => {
+            let data: Vec<serde_json::Value> = cards_with_items
+                .iter()
+                .map(|(card, item)| {
+                    serde_json::json!({
+                        "card": card,
+                        "item": item,
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string_pretty(&data).unwrap());
+        }
+        OutputFormat::Waybar => {
+            let data: Vec<serde_json::Value> = cards_with_items
+                .iter()
+                .map(|(card, item)| {
+                    serde_json::json!({
+                        "card": card,
+                        "item": item,
+                    })
+                })
+                .collect();
+            println!("{}", serde_json::to_string(&data).unwrap());
+        }
+    }
+}
+
+/// Prints a count of due todos in the specified format
+pub fn print_todo_count(count: usize, format: OutputFormat) {
+    match format {
+        OutputFormat::Human => println!("{}", count),
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({"count": count})).unwrap()
+            );
+        }
+        OutputFormat::Waybar => {
+            println!(
+                "{}",
+                serde_json::to_string(&serde_json::json!({"count": count})).unwrap()
+            );
+        }
+    }
+}

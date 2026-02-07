@@ -45,6 +45,9 @@ enum Commands {
     /// Manage tags
     #[command(subcommand)]
     Tag(commands::tag::TagCommands),
+    /// High-level todo workflow commands
+    #[command(subcommand)]
+    Todo(commands::todo::TodoCommands),
 }
 
 /// Resolves the server URL from CLI args, config file, or defaults
@@ -83,6 +86,7 @@ async fn main() {
         Commands::Card(cmd) => commands::card::execute(&client, cmd, cli.format).await,
         Commands::Review(cmd) => commands::review::execute(&client, cmd, cli.format).await,
         Commands::Tag(cmd) => commands::tag::execute(&client, cmd, cli.format).await,
+        Commands::Todo(cmd) => commands::todo::execute(&client, cmd, cli.format).await,
     };
 
     if let Err(e) = result {
