@@ -40,7 +40,7 @@ pub enum CardCommands {
         /// The card ID
         id: String,
         /// true to suspend, false to unsuspend
-        #[clap(value_parser = clap::builder::BoolishValueParser::new())]
+        #[clap(num_args = 1, required = true, value_parser = clap::builder::BoolishValueParser::new())]
         suspend: bool,
     },
     /// Show all possible next review times for a card
