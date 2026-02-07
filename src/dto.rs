@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 /// Data transfer object for creating a new item
 ///
 /// This struct is used to deserialize JSON requests for creating items.
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CreateItemDto {
     /// The item type ID
     pub item_type_id: String,
@@ -24,7 +24,7 @@ pub struct CreateItemDto {
 /// Data transfer object for updating an item
 ///
 /// This struct is used to deserialize JSON requests for updating items.
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct UpdateItemDto {
     /// The new title or content of the item to be remembered
     pub title: Option<String>,
@@ -41,7 +41,7 @@ fn default_priority() -> f32 { 0.5 }
 /// Data transfer object for creating a new review
 ///
 /// This struct is used to deserialize JSON requests for recording reviews.
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CreateReviewDto {
     /// The ID of the card being reviewed
     pub card_id: String,
@@ -53,7 +53,7 @@ pub struct CreateReviewDto {
 /// Data transfer object for creating a new item type
 ///
 /// This struct is used to deserialize JSON requests for creating item types.
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CreateItemTypeDto {
     /// The name of the item type
     pub name: String,
@@ -62,7 +62,7 @@ pub struct CreateItemTypeDto {
 /// Data transfer object for creating a new card
 ///
 /// This struct is used to deserialize JSON requests for creating cards.
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CreateCardDto {
     /// The index of the card within its item
     pub card_index: i32,
@@ -74,7 +74,7 @@ pub struct CreateCardDto {
 /// Data transfer object for creating a new tag
 ///
 /// This struct is used to deserialize JSON requests for creating tags.
-#[derive(Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug)]
 pub struct CreateTagDto {
     /// The name of the tag
     pub name: String,
