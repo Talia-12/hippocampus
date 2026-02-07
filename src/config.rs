@@ -30,6 +30,9 @@ pub struct ConfigUpdate {
     /// Optional update for backup count
     #[serde(default)]
     pub backup_count: Option<u32>,
+    /// Optional server URL for the CLI to connect to
+    #[serde(default)]
+    pub server_url: Option<String>,
 }
 
 /// Command line arguments for the application
@@ -120,6 +123,7 @@ pub fn config_from_args(args: CliArgs) -> ConfigUpdate {
         database_url: args.database_url,
         backup_interval_minutes: args.backup_interval_minutes,
         backup_count: args.backup_count,
+        server_url: None,
     }
 }
 
@@ -208,10 +212,11 @@ mod tests {
             database_url: Some("updated.db".to_string()),
             backup_interval_minutes: Some(60),
             backup_count: Some(10),
+            server_url: None,
         };
 
         let updated = config.apply_update(update);
-        
+
         assert_eq!(updated.database_url, "updated.db");
         assert_eq!(updated.backup_interval_minutes, 60);
         assert_eq!(updated.backup_count, 10);
@@ -230,10 +235,11 @@ mod tests {
             database_url: Some("updated.db".to_string()),
             backup_interval_minutes: None,
             backup_count: None,
+            server_url: None,
         };
 
         let updated = config.apply_update(update);
-        
+
         assert_eq!(updated.database_url, "updated.db");
         assert_eq!(updated.backup_interval_minutes, 30); // Unchanged
         assert_eq!(updated.backup_count, 5); // Unchanged
@@ -469,6 +475,7 @@ mod tests {
             database_url: Some("file.db".to_string()),
             backup_interval_minutes: Some(50),
             backup_count: None,
+            server_url: None,
         };
         
         // Create a base config with None path
@@ -508,6 +515,7 @@ mod tests {
             database_url: Some("file.db".to_string()),
             backup_interval_minutes: Some(40),
             backup_count: None,
+            server_url: None,
         };
         
         // Manually simulate the full config loading process

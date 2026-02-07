@@ -9,6 +9,10 @@ edition = "2024"
 name = "hippocampus"
 path = "src/bin/server.rs"
 
+[[bin]]
+name = "hippocampus-cli"
+path = "src/bin/cli/main.rs"
+
 [features]
 test = []
 
