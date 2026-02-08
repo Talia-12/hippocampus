@@ -180,7 +180,12 @@ pub async fn execute(
         TodoCommands::Due { item_type, tag } => {
             let query = build_due_query(client, item_type, &tag).await?;
             let cards = client.list_cards(&query).await?;
-            let cards_with_items = fetch_cards_with_items(client, cards).await?;
+            let mut cards_with_items = fetch_cards_with_items(client, cards).await?;
+            cards_with_items.sort_by(|a, b| {
+                b.0.get_priority()
+                    .total_cmp(&a.0.get_priority())
+                    .then(a.0.get_next_review().cmp(&b.0.get_next_review()))
+            });
             output::print_todo_cards(&cards_with_items, config);
         }
 
