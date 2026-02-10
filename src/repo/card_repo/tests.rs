@@ -941,9 +941,9 @@ async fn test_filter_cards_complex_query() {
         .item_type_id(item_type.get_id())
         .suspended_filter(SuspendedFilter::Include)
         .build();
-    
+
     let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
-    
+
     // Should include both cards
     assert_eq!(filtered_cards.len(), 2);
     assert!(filtered_cards.iter().any(|c| c.get_id() == cards[0].get_id()));

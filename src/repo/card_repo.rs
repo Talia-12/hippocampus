@@ -479,3 +479,5 @@ pub fn list_all_cards(pool: &DbPool) -> Result<Vec<Card>> {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod prop_tests;

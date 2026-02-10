@@ -2,6 +2,7 @@ use crate::*;
 use proptest::prelude::*;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
+use chrono::{DateTime, Utc};
 use diesel::connection::SimpleConnection;
 use diesel::RunQueryDsl;
 use serde_json::{Value, Number};
@@ -111,6 +112,66 @@ async fn test_setup_test_db() {
 }
 
 
+
+/// Generates an arbitrary DateTime<Utc> within 2020-01-01 to 2030-01-01
+pub fn arb_datetime_utc() -> impl Strategy<Value = DateTime<Utc>> {
+    (1_577_836_800i64..1_893_456_000i64)
+        .prop_map(|ts| DateTime::from_timestamp(ts, 0).unwrap())
+}
+
+/// Generates an optional arbitrary DateTime<Utc>
+pub fn arb_optional_datetime_utc() -> impl Strategy<Value = Option<DateTime<Utc>>> {
+    prop_oneof![
+        Just(None),
+        arb_datetime_utc().prop_map(Some),
+    ]
+}
+
+/// Generates a valid priority value in [0.0, 1.0]
+///
+/// Uses integer-then-divide to ensure exact 0.0 and 1.0 are reachable
+/// without floating point boundary issues.
+pub fn arb_priority() -> impl Strategy<Value = f32> {
+    (0u32..=1000u32).prop_map(|v| v as f32 / 1000.0)
+}
+
+/// Generates an invalid priority value outside [0.0, 1.0]
+pub fn arb_invalid_priority() -> impl Strategy<Value = f32> {
+    prop_oneof![
+        (-1000.0f32..-0.001f32),
+        (1.001f32..1000.0f32),
+    ]
+}
+
+/// Generates an arbitrary SuspendedFilter variant
+pub fn arb_suspended_filter() -> impl Strategy<Value = SuspendedFilter> {
+    prop_oneof![
+        Just(SuspendedFilter::Include),
+        Just(SuspendedFilter::Exclude),
+        Just(SuspendedFilter::Only),
+    ]
+}
+
+/// Mutable card state fields for property testing
+#[derive(Debug, Clone)]
+pub struct CardMutations {
+    pub next_review: DateTime<Utc>,
+    pub last_review: Option<DateTime<Utc>>,
+    pub priority: f32,
+    pub suspended: Option<DateTime<Utc>>,
+}
+
+/// Generates arbitrary card mutation state
+pub fn arb_card_mutations() -> impl Strategy<Value = CardMutations> {
+    (
+        arb_datetime_utc(),
+        arb_optional_datetime_utc(),
+        arb_priority(),
+        arb_optional_datetime_utc(),
+    ).prop_map(|(next_review, last_review, priority, suspended)| {
+        CardMutations { next_review, last_review, priority, suspended }
+    })
+}
 
 pub fn arb_json() -> impl Strategy<Value = Value> {
     let leaf = prop_oneof![
