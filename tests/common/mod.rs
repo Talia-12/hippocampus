@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 /// Common test utilities for Hippocampus integration tests
 ///
 /// This file contains shared functions and utilities for all integration tests,

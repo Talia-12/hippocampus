@@ -198,6 +198,8 @@ impl Item {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_utils::*;
+    use proptest::prelude::*;
     use serde_json::json;
     
     #[test]
@@ -225,5 +227,18 @@ mod tests {
         
         assert!(diff1.num_seconds() < 1);
         assert!(diff2.num_seconds() < 1);
+    }
+
+    proptest! {
+        #[test]
+        fn prop_test_item_new_invertible(item_type in "\\PC*", title in "\\PC*", data in arb_json()) {
+            let data = JsonValue(data);
+            let item = Item::new(item_type.clone(), title.clone(), data.clone());
+
+            assert_eq!(item.get_item_type(), item_type);
+            assert_eq!(item.get_title(), title);
+            assert_eq!(item.get_data(), data);
+            assert!(Uuid::parse_str(&item.get_id()).is_ok());
+        }
     }
 } 

@@ -226,7 +226,7 @@ pub async fn list_tags_for_item_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::setup_test_db;
+    use crate::test_utils::*;
     use crate::repo;
     use axum::extract::Path;
     use serde_json::json;

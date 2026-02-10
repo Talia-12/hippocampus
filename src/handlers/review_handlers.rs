@@ -135,7 +135,7 @@ pub async fn list_reviews_by_card_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::setup_test_db;
+    use crate::test_utils::*;
     use crate::repo;
     use serde_json::json;
     

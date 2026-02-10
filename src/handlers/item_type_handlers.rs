@@ -111,7 +111,7 @@ pub async fn list_item_types_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tests::setup_test_db;
+    use crate::test_utils::*;
     
     #[tokio::test]
     async fn test_create_item_type_handler() {

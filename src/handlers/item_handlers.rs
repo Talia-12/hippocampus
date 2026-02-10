@@ -230,7 +230,7 @@ pub async fn list_items_by_item_type_handler(
 mod tests {
     use super::*;
     use crate::repo;
-    use crate::tests::setup_test_db;
+    use crate::test_utils::*;
     use axum::extract::Path;
     use serde_json::json;
     
