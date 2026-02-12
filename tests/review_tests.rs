@@ -126,7 +126,7 @@ async fn test_create_review_rating_again() {
 ///
 /// This test verifies:
 /// 1. A POST request to /reviews with a rating of 2 creates a review
-/// 2. The card's next_review is scheduled for 1 day later (first review)
+/// 2. The card's next_review is scheduled for 2 days later (first review)
 #[tokio::test]
 async fn test_create_review_rating_hard() {
     // Create our test app
@@ -176,9 +176,9 @@ async fn test_create_review_rating_hard() {
     let diff = next_review.signed_duration_since(last_review);
     let days = diff.num_hours() as f64 / 24.0;
     
-    // For "Hard" rating (2) on first review, the card should be scheduled for review in 1 day
-    assert!(days >= 0.9 && days <= 1.1, 
-        "Expected next review in ~1 day, but was {} days", days);
+    // For "Hard" rating (2) on first review, the card should be scheduled for review in 2 days
+    assert!(days >= 1.9 && days <= 2.1,
+        "Expected next review in ~2 days, but was {} days", days);
 }
 
 
@@ -186,7 +186,7 @@ async fn test_create_review_rating_hard() {
 ///
 /// This test verifies:
 /// 1. A POST request to /reviews with a rating of 3 creates a review
-/// 2. The card's next_review is scheduled for 1 day later (first review)
+/// 2. The card's next_review is scheduled for 4 days later (first review)
 #[tokio::test]
 async fn test_create_review_rating_good() {
     // Create our test app
@@ -236,9 +236,9 @@ async fn test_create_review_rating_good() {
     let diff = next_review.signed_duration_since(last_review);
     let days = diff.num_hours() as f64 / 24.0;
     
-    // For "Good" rating (3) on first review, the card should be scheduled for review in 1 day
-    assert!(days >= 0.9 && days <= 1.1, 
-        "Expected next review in ~1 day, but was {} days", days);
+    // For "Good" rating (3) on first review, the card should be scheduled for review in 4 days
+    assert!(days >= 3.9 && days <= 4.1,
+        "Expected next review in ~4 days, but was {} days", days);
 }
 
 
@@ -246,7 +246,7 @@ async fn test_create_review_rating_good() {
 ///
 /// This test verifies:
 /// 1. A POST request to /reviews with a rating of 4 creates a review
-/// 2. The card's next_review is scheduled for 1 day later (first review)
+/// 2. The card's next_review is scheduled for 7 days later (first review)
 #[tokio::test]
 async fn test_create_review_rating_easy() {
     // Create our test app
@@ -296,9 +296,9 @@ async fn test_create_review_rating_easy() {
     let diff = next_review.signed_duration_since(last_review);
     let days = diff.num_hours() as f64 / 24.0;
     
-    // For "Easy" rating (4) on first review, the card should be scheduled for review in 1 day
-    assert!(days >= 0.9 && days <= 1.1, 
-        "Expected next review in ~1 day, but was {} days", days);
+    // For "Easy" rating (4) on first review, the card should be scheduled for review in 7 days
+    assert!(days >= 6.9 && days <= 7.1,
+        "Expected next review in ~7 days, but was {} days", days);
 }
 
 
@@ -353,9 +353,10 @@ async fn test_create_multiple_reviews() {
     let diff = next_review.signed_duration_since(last_review);
     let days = diff.num_hours() as f64 / 24.0;
     
-    // For second "Good" rating (3), the interval should be 4 days
-    assert!(days >= 3.9 && days <= 4.1, 
-        "Expected next review in ~4 days after second review, but was {} days", days);
+    // For second "Good" rating (3), the interval should be 11 days
+    // (base = ceil(4 * 1.2) = 5, step = max(1, ceil(4 * 1.45)) = 6, interval = 5 + 6 = 11)
+    assert!(days >= 10.9 && days <= 11.1,
+        "Expected next review in ~11 days after second review, but was {} days", days);
     
     // Create a third review with "Good" rating (3)
     let _ = create_review(&mut app, &card.get_id(), 3).await;

@@ -28,7 +28,7 @@ use tracing::{instrument, debug, info, warn};
 /// - Unable to get a connection from the pool
 /// - The database operations fail
 /// - The card does not exist
-/// - The rating is invalid (not 1-3)
+/// - The rating is invalid (not 1-4)
 #[instrument(skip(pool), fields(card_id = %card_id, rating = %rating_val))]
 pub async fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Review> {
     debug!("Recording new review for card");
@@ -127,65 +127,64 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
     let mut ease_factor = data.get("ease_factor")
         .and_then(|v| v.as_f64())
         .unwrap_or(2.5);
-    
-    let mut interval = data.get("interval")
+
+    let current_interval = data.get("interval")
         .and_then(|v| v.as_i64())
         .unwrap_or(1) as i32;
-    
+
     let mut repetitions = data.get("repetitions")
         .and_then(|v| v.as_i64())
         .unwrap_or(0) as i32;
+
+    debug!("Current values: ease_factor={}, interval={}, repetitions={}",
+           ease_factor, current_interval, repetitions);
+
+    let interval;
     
-    debug!("Current values: ease_factor={}, interval={}, repetitions={}", 
-           ease_factor, interval, repetitions);
-    
-    // Calculate new values based on the rating
+    // Calculate new values based on the rating.
+    //
+    // For ratings 2-4 (hard/good/easy), intervals form an arithmetic
+    // progression in the rating:
+    //
+    //   interval(r) = base + (r - 2) * step
+    //
+    // where base = ceil(current_interval * 1.2) and
+    //       step = max(1, ceil(current_interval * (ease_factor - 1.2)))
+    //
+    // Since step >= 1, this is inherently strictly monotonically increasing
+    // in the rating, without needing any post-hoc clamping.
     match rating {
         1 => {
             // Rating of 1 means "again" - reset progress
             debug!("Rating 1 (again): Resetting progress");
             repetitions = 0;
             interval = 1;
-            ease_factor = std::cmp::max((ease_factor - 0.2) as i32, 1) as f64;
+            ease_factor = (ease_factor - 0.2).max(1.3);
         },
-        2 => {
-            // Rating of 2 means "hard" - small increase in interval
-            debug!("Rating 2 (hard): Small increase in interval");
+        2 | 3 | 4 => {
             repetitions += 1;
-            if repetitions == 1 {
-                interval = 1;
-            } else if repetitions == 2 {
-                interval = 3;
+            interval = if repetitions == 1 {
+                // First successful review: fixed per-rating intervals
+                match rating {
+                    2 => 2,
+                    3 => 4,
+                    4 => 7,
+                    _ => unreachable!(),
+                }
             } else {
-                interval = (interval as f64 * 1.2).ceil() as i32;
+                // Subsequent reviews: arithmetic progression in rating
+                let base = (current_interval as f64 * 1.2).ceil() as i32;
+                let step = ((current_interval as f64 * (ease_factor - 1.2)).ceil() as i32).max(1);
+                base + (rating - 2) * step
+            };
+
+            // Adjust ease factor
+            match rating {
+                2 => ease_factor = (ease_factor - 0.15).max(1.3),
+                3 => ease_factor += 0.15,
+                4 => ease_factor += 0.15,
+                _ => unreachable!(),
             }
-            ease_factor = std::cmp::max((ease_factor - 0.15) as i32, 1) as f64;
-        },
-        3 => {
-            // Rating of 3 means "good" - larger increase in interval
-            debug!("Rating 3 (good): Larger increase in interval");
-            repetitions += 1;
-            if repetitions == 1 {
-                interval = 1;
-            } else if repetitions == 2 {
-                interval = 4;
-            } else {
-                interval = (interval as f64 * ease_factor).ceil() as i32;
-            }
-            ease_factor += 0.15;
-        },
-        4 => {
-            // Rating of 4 means "easy" - largest increase in interval
-            debug!("Rating 4 (easy): Largest increase in interval");
-            repetitions += 1;
-            if repetitions == 1 {
-                interval = 1;
-            } else if repetitions == 2 {
-                interval = 4;
-            } else {
-                interval = (interval as f64 * ease_factor).ceil() as i32;
-            }
-            ease_factor += 0.15;
         },
         _ => {
             warn!("Invalid rating: {}", rating);
@@ -496,4 +495,110 @@ mod tests {
         assert_eq!(data3["repetitions"], 3);
         assert!(data3["interval"].as_f64().unwrap() > 5.0); // Should be several days
     }
-} 
+
+    /// Helper: build a Card with the given scheduler data for pure-logic tests
+    fn card_with_scheduler_data(ease_factor: f64, interval: i32, repetitions: i32) -> Card {
+        Card::new_with_fields(
+            "test-id".to_string(),
+            "item-id".to_string(),
+            0,
+            Utc::now(),
+            None,
+            Some(JsonValue(json!({
+                "ease_factor": ease_factor,
+                "interval": interval,
+                "repetitions": repetitions,
+            }))),
+            0.5,
+            None,
+        )
+    }
+
+    /// Extract the interval from calculate_next_review's output
+    fn interval_for(card: &Card, rating: i32) -> i32 {
+        let (_, data) = calculate_next_review(card, rating).unwrap();
+        data.0["interval"].as_i64().unwrap() as i32
+    }
+
+    #[test]
+    fn test_intervals_monotonic_fresh_card() {
+        // Card with no scheduler data (defaults: e=2.5, i=1, r=0)
+        let card = Card::new_with_fields(
+            "test-id".to_string(),
+            "item-id".to_string(),
+            0,
+            Utc::now(),
+            None,
+            None,
+            0.5,
+            None,
+        );
+
+        let intervals: Vec<i32> = (1..=4).map(|r| interval_for(&card, r)).collect();
+        for i in 0..3 {
+            assert!(
+                intervals[i] < intervals[i + 1],
+                "rating {} interval ({}) should be < rating {} interval ({})",
+                i + 1, intervals[i], i + 2, intervals[i + 1],
+            );
+        }
+    }
+
+    #[test]
+    fn test_intervals_monotonic_various_states() {
+        let cases = vec![
+            (2.5, 1, 1),   // after one review
+            (2.5, 4, 2),   // after two reviews, interval 4
+            (1.3, 3, 2),   // low ease factor
+            (2.5, 10, 3),  // longer interval
+            (3.0, 25, 5),  // high ease, long interval
+            (1.3, 1, 0),   // min ease, fresh
+            (1.3, 100, 10),// min ease, very long interval
+        ];
+
+        for (ease, interval, reps) in cases {
+            let card = card_with_scheduler_data(ease, interval, reps);
+            let intervals: Vec<i32> = (1..=4).map(|r| interval_for(&card, r)).collect();
+
+            for i in 0..3 {
+                assert!(
+                    intervals[i] < intervals[i + 1],
+                    "e={}, i={}, r={}: rating {} interval ({}) should be < rating {} interval ({})",
+                    ease, interval, reps,
+                    i + 1, intervals[i], i + 2, intervals[i + 1],
+                );
+            }
+        }
+    }
+
+    mod proptests {
+        use super::*;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn intervals_monotonic_for_any_card_state(
+                ease_factor in 1.3f64..=5.0,
+                interval in 1i32..=365,
+                repetitions in 0i32..=20,
+                r1 in 1i32..=4i32,
+                r2 in 1i32..=4i32,
+            ) {
+                prop_assume!(r1 != r2);
+                let (lo, hi) = if r1 < r2 { (r1, r2) } else { (r2, r1) };
+
+                let card = card_with_scheduler_data(ease_factor, interval, repetitions);
+                let interval_lo = interval_for(&card, lo);
+                let interval_hi = interval_for(&card, hi);
+
+                prop_assert!(
+                    interval_lo < interval_hi,
+                    "rating {} interval ({}) should be < rating {} interval ({}), \
+                     ease={}, interval={}, reps={}",
+                    lo, interval_lo, hi, interval_hi,
+                    ease_factor, interval, repetitions,
+                );
+            }
+        }
+    }
+}
