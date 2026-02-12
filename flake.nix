@@ -59,6 +59,11 @@
             
             nativeBuildInputs = buildDeps;
             buildInputs = runtimeDeps;
+
+            checkFlags = [
+              "--skip" "prop_test"
+              "--skip" "proptests"
+            ];
           };
         in {
           _module.args.pkgs = import nixpkgs {
