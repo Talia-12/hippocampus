@@ -6,6 +6,8 @@ use hippocampus::models::{Card, Item};
 use crate::client::HippocampusClient;
 use crate::output::{self, OutputConfig};
 
+const TODO_ITEM_TYPE: &str = "Todo";
+
 /// High-level todo workflow commands
 #[derive(Subcommand, Debug)]
 pub enum TodoCommands {
@@ -13,9 +15,6 @@ pub enum TodoCommands {
     Add {
         /// The title of the todo
         title: String,
-        /// Item type name or ID
-        #[clap(long)]
-        item_type: String,
         /// Tags to attach (by name or ID), can be specified multiple times
         #[clap(long)]
         tag: Vec<String>,
@@ -25,19 +24,12 @@ pub enum TodoCommands {
     },
     /// List due todos (cards with next review before tomorrow midnight)
     Due {
-        /// Filter by item type name or ID
-        #[clap(long)]
-        item_type: Option<String>,
         /// Filter by tag name or ID, can be specified multiple times
         #[clap(long)]
         tag: Vec<String>,
     },
     /// List recently completed todos (suspended today)
-    Completed {
-        /// Filter by item type name or ID
-        #[clap(long)]
-        item_type: Option<String>,
-    },
+    Completed,
     /// Mark a todo as complete (suspend the card)
     Complete {
         /// The card ID to complete
@@ -57,25 +49,24 @@ pub enum TodoCommands {
     },
 }
 
-/// Resolves an item type name or ID to its ID
-async fn resolve_item_type_id(
+/// Resolves the todo item type name to its ID
+async fn resolve_todo_item_type_id(
     client: &HippocampusClient,
-    name_or_id: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
     let item_types = client.list_item_types().await?;
     // Try name match first (case-insensitive)
     for item_type in &item_types {
-        if item_type.get_name().eq_ignore_ascii_case(name_or_id) {
+        if item_type.get_name().eq_ignore_ascii_case(TODO_ITEM_TYPE) {
             return Ok(item_type.get_id());
         }
     }
     // Fall back to ID match
     for item_type in &item_types {
-        if item_type.get_id() == name_or_id {
+        if item_type.get_id() == TODO_ITEM_TYPE {
             return Ok(item_type.get_id());
         }
     }
-    Err(format!("Item type not found: {}", name_or_id).into())
+    Err(format!("Item type not found: {}", TODO_ITEM_TYPE).into())
 }
 
 /// Resolves a list of tag names or IDs to their IDs
@@ -129,13 +120,9 @@ async fn fetch_cards_with_items(
 /// Builds a GetQueryDto for due cards with optional filters
 async fn build_due_query(
     client: &HippocampusClient,
-    item_type: Option<String>,
     tags: &[String],
 ) -> Result<GetQueryDto, Box<dyn std::error::Error>> {
-    let item_type_id = match item_type {
-        Some(ref name_or_id) => Some(resolve_item_type_id(client, name_or_id).await?),
-        None => None,
-    };
+    let item_type_id = Some(resolve_todo_item_type_id(client).await?);
     let tag_ids = resolve_tag_ids(client, tags).await?;
 
     Ok(GetQueryDto {
@@ -156,11 +143,10 @@ pub async fn execute(
     match cmd {
         TodoCommands::Add {
             title,
-            item_type,
             tag,
             data,
         } => {
-            let item_type_id = resolve_item_type_id(client, &item_type).await?;
+            let item_type_id = resolve_todo_item_type_id(client).await?;
             let item_data: serde_json::Value = serde_json::from_str(&data)?;
             let item = client
                 .create_item(item_type_id, title, item_data, 0.5)
@@ -177,8 +163,8 @@ pub async fn execute(
             output::print_item(&item, config);
         }
 
-        TodoCommands::Due { item_type, tag } => {
-            let query = build_due_query(client, item_type, &tag).await?;
+        TodoCommands::Due { tag } => {
+            let query = build_due_query(client, &tag).await?;
             let cards = client.list_cards(&query).await?;
             let mut cards_with_items = fetch_cards_with_items(client, cards).await?;
             cards_with_items.sort_by(|a, b| {
@@ -189,11 +175,8 @@ pub async fn execute(
             output::print_todo_cards(&cards_with_items, config);
         }
 
-        TodoCommands::Completed { item_type } => {
-            let item_type_id = match item_type {
-                Some(ref name_or_id) => Some(resolve_item_type_id(client, name_or_id).await?),
-                None => None,
-            };
+        TodoCommands::Completed => {
+            let item_type_id = Some(resolve_todo_item_type_id(client).await?);
             let query = GetQueryDto {
                 item_type_id,
                 suspended_filter: SuspendedFilter::Only,
@@ -216,7 +199,7 @@ pub async fn execute(
         }
 
         TodoCommands::Review { card_id, rating } => {
-            let review = client.create_review(card_id, rating).await?;
+            let review = client.create_review(&card_id, rating).await?;
             output::print_review(&review, config);
         }
 

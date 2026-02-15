@@ -196,16 +196,26 @@ impl HippocampusClient {
         response.json().await
     }
 
+    /// List the reviews of a card
+    pub async fn list_reviews_for_card(
+        &self,
+        card_id: &str,
+    ) -> Result<Vec<Review>, reqwest::Error> {
+        let url = format!("{}/cards/{}/reviews", self.base_url, card_id);
+        let response = self.client.get(&url).send().await?.error_for_status()?;
+        response.json().await
+    }
+
     // ── Review endpoints ─────────────────────────────────────────────
 
     /// Creates a new review
     pub async fn create_review(
         &self,
-        card_id: String,
+        card_id: &str,
         rating: i32,
     ) -> Result<Review, reqwest::Error> {
         let url = format!("{}/reviews", self.base_url);
-        let dto = CreateReviewDto { card_id, rating };
+        let dto = CreateReviewDto { card_id: card_id.to_string(), rating };
         let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
         response.json().await
     }
