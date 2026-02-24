@@ -329,6 +329,9 @@ impl Card {
 }
 
 #[cfg(test)]
+mod prop_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
@@ -349,6 +352,76 @@ mod tests {
         assert_eq!(card.get_scheduler_data(), None);
     }
     
+    #[test]
+    fn test_new_card_sort_position_default() {
+        let card = Card::new("item1".to_string(), 0, Utc::now(), 0.5);
+        assert_eq!(card.get_sort_position(), None);
+    }
+
+    #[test]
+    fn test_new_card_priority_offset_default() {
+        let card = Card::new("item1".to_string(), 0, Utc::now(), 0.5);
+        assert_eq!(card.get_priority_offset(), 0.0);
+    }
+
+    #[test]
+    fn test_new_with_fields_sort_position_default() {
+        let card = Card::new_with_fields(
+            "id1".to_string(),
+            "item1".to_string(),
+            0,
+            Utc::now(),
+            None,
+            None,
+            0.5,
+            None,
+        );
+        assert_eq!(card.get_sort_position(), None);
+    }
+
+    #[test]
+    fn test_new_with_fields_priority_offset_default() {
+        let card = Card::new_with_fields(
+            "id1".to_string(),
+            "item1".to_string(),
+            0,
+            Utc::now(),
+            None,
+            None,
+            0.5,
+            None,
+        );
+        assert_eq!(card.get_priority_offset(), 0.0);
+    }
+
+    #[test]
+    fn test_to_json_hide_priority_offset_basic() {
+        let mut card = Card::new("item1".to_string(), 0, Utc::now(), 0.5);
+        card.set_priority_offset(0.03);
+        let json = card.to_json_hide_priority_offset();
+        let priority = json["priority"].as_f64().unwrap();
+        assert!((priority - 0.53).abs() < 1e-5, "expected ~0.53, got {}", priority);
+        assert!(json.get("priority_offset").is_none(), "priority_offset should be absent");
+    }
+
+    #[test]
+    fn test_to_json_hide_priority_offset_clamps_low() {
+        let mut card = Card::new("item1".to_string(), 0, Utc::now(), 0.0);
+        card.set_priority_offset(-0.5);
+        let json = card.to_json_hide_priority_offset();
+        let priority = json["priority"].as_f64().unwrap();
+        assert_eq!(priority, 0.0);
+    }
+
+    #[test]
+    fn test_to_json_hide_priority_offset_clamps_high() {
+        let mut card = Card::new("item1".to_string(), 0, Utc::now(), 1.0);
+        card.set_priority_offset(0.5);
+        let json = card.to_json_hide_priority_offset();
+        let priority = json["priority"].as_f64().unwrap();
+        assert_eq!(priority, 1.0);
+    }
+
     #[test]
     fn test_card_scheduler_data() {
         let item_id = Uuid::new_v4().to_string();

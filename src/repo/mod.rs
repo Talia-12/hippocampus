@@ -39,9 +39,14 @@ pub mod tests {
     ///
     /// A database connection pool connected to the in-memory database
     pub fn setup_test_db() -> Arc<DbPool> {
-        // Use an in-memory database for testing
-        let database_url = ":memory:";
-        let pool = db::init_pool(database_url);
+        // Use a unique shared in-memory database for each test.
+        // Plain ":memory:" gives each connection its own separate database,
+        // so migrations run on one connection wouldn't be visible on others.
+        // By using a unique URI with cache=shared, all connections in this pool
+        // share the same in-memory database while remaining isolated from other tests.
+        let unique_id = uuid::Uuid::new_v4();
+        let database_url = format!("file:test_{}?mode=memory&cache=shared", unique_id);
+        let pool = db::init_pool(&database_url);
         
         // Run migrations on the in-memory database
         let mut conn = pool.get().expect("Failed to get connection");

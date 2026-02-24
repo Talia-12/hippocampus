@@ -20,9 +20,14 @@ use tower::ServiceExt;
 ///
 /// An Arc-wrapped database connection pool connected to the in-memory database
 pub fn setup_test_db() -> Arc<db::DbPool> {
-    // Use an in-memory database for testing
-    let database_url = ":memory:";
-    let pool = db::init_pool(database_url);
+    // Use a unique shared in-memory database for each test.
+    // Plain ":memory:" gives each connection its own separate database,
+    // so migrations run on one connection wouldn't be visible on others.
+    // By using a unique URI with cache=shared, all connections in this pool
+    // share the same in-memory database while remaining isolated from other tests.
+    let unique_id = uuid::Uuid::new_v4();
+    let database_url = format!("file:test_{}?mode=memory&cache=shared", unique_id);
+    let pool = db::init_pool(&database_url);
     
     // Get a connection from the pool
     let mut conn = pool.get().expect("Failed to get connection");
@@ -171,6 +176,29 @@ pub fn arb_card_mutations() -> impl Strategy<Value = CardMutations> {
     ).prop_map(|(next_review, last_review, priority, suspended)| {
         CardMutations { next_review, last_review, priority, suspended }
     })
+}
+
+/// Generates an arbitrary sort position: 50% None, 50% Some(f32) in (-1000..1000)
+pub fn arb_sort_position() -> impl Strategy<Value = Option<f32>> {
+    prop_oneof![
+        Just(None),
+        (-1000.0f32..1000.0f32).prop_map(Some),
+    ]
+}
+
+/// Generates a valid priority offset in [-0.05, +0.05] via integer division
+pub fn arb_priority_offset() -> impl Strategy<Value = f32> {
+    (-50i32..=50i32).prop_map(|v| v as f32 / 1000.0)
+}
+
+/// Generates a wide offset in [-2.0, 2.0] for clamping tests
+pub fn arb_wide_offset() -> impl Strategy<Value = f32> {
+    (-2000i32..=2000i32).prop_map(|v| v as f32 / 1000.0)
+}
+
+/// Generates any f32 value including NaN, ±Infinity, subnormals, etc.
+pub fn arb_any_f32() -> impl Strategy<Value = f32> {
+    proptest::num::f32::ANY
 }
 
 pub fn arb_json() -> impl Strategy<Value = Value> {

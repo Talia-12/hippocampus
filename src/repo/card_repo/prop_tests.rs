@@ -3,7 +3,7 @@ use crate::repo::tests::setup_test_db;
 use crate::repo::{create_item, create_item_type, create_tag, add_tag_to_item};
 use crate::test_utils::{
     arb_card_mutations, arb_datetime_utc, arb_invalid_priority, arb_optional_datetime_utc,
-    arb_priority, arb_suspended_filter, CardMutations,
+    arb_priority, arb_priority_offset, arb_suspended_filter, CardMutations,
 };
 use crate::GetQueryDto;
 use proptest::prelude::*;
@@ -129,8 +129,6 @@ fn sorted(mut v: Vec<String>) -> Vec<String> {
 // ============================================================================
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(40))]
-
     /// T1.1: create_card + get_card preserves all fields
     #[test]
     fn prop_t1_1_create_read_identity(
@@ -759,8 +757,6 @@ proptest! {
 // ============================================================================
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(30))]
-
     /// T3.1: Card sets for different items are disjoint
     #[test]
     fn prop_t3_1_cards_disjoint(
@@ -854,6 +850,617 @@ proptest! {
                     prop_assert!(w[0].get_card_index() < w[1].get_card_index(),
                         "Cards not ordered: {} >= {}", w[0].get_card_index(), w[1].get_card_index());
                 }
+            }
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+}
+
+
+// ============================================================================
+// Helper: create N basic items and return their first cards
+// ============================================================================
+
+async fn create_n_cards(
+    pool: &std::sync::Arc<crate::db::DbPool>,
+    n: usize,
+) -> Vec<Card> {
+    let item_type = create_item_type(pool, "Basic".to_string()).await.unwrap();
+    let mut cards = Vec::new();
+    for i in 0..n {
+        let item = create_item(
+            pool, &item_type.get_id(), format!("Item{}", i),
+            json!({"front": "F", "back": "B"}),
+        ).await.unwrap();
+        let item_cards = get_cards_for_item(pool, &item.get_id()).unwrap();
+        cards.push(item_cards.into_iter().next().unwrap());
+    }
+    cards
+}
+
+
+// ============================================================================
+// T4: Sort Position Property Tests (DB Operations & Ordering)
+// ============================================================================
+
+proptest! {
+    /// T4.1: After move_card_to_top(c), card c is first in list_cards_with_filters
+    #[test]
+    fn prop_t4_1_move_to_top_is_first(n in 2usize..20) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            // Give all cards sort positions via move_card_to_top
+            for c in &cards {
+                move_card_to_top(&pool, &c.get_id()).await.unwrap();
+            }
+
+            // Move a card in the middle to top
+            let target = &cards[n / 2];
+            move_card_to_top(&pool, &target.get_id()).await.unwrap();
+
+            let query = GetQueryDto {
+                suspended_filter: SuspendedFilter::Include,
+                ..Default::default()
+            };
+            let result = list_cards_with_filters(&pool, &query).unwrap();
+            prop_assert_eq!(result[0].get_id(), target.get_id());
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.2: After move_card_to_top, pairwise ordering of other positioned cards is unchanged
+    #[test]
+    fn prop_t4_2_move_to_top_preserves_others_order(n in 3usize..15) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            // Give all cards sort positions
+            for c in &cards {
+                move_card_to_top(&pool, &c.get_id()).await.unwrap();
+            }
+
+            let query = GetQueryDto {
+                suspended_filter: SuspendedFilter::Include,
+                ..Default::default()
+            };
+            let before = list_cards_with_filters(&pool, &query).unwrap();
+            let target_id = cards[n / 2].get_id();
+
+            // Record ordering of others before
+            let others_before: Vec<String> = before.iter()
+                .filter(|c| c.get_id() != target_id)
+                .map(|c| c.get_id())
+                .collect();
+
+            move_card_to_top(&pool, &target_id).await.unwrap();
+
+            let after = list_cards_with_filters(&pool, &query).unwrap();
+            let others_after: Vec<String> = after.iter()
+                .filter(|c| c.get_id() != target_id)
+                .map(|c| c.get_id())
+                .collect();
+
+            prop_assert_eq!(others_before, others_after);
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.3: Assigned sort_position < all other existing sort_positions
+    #[test]
+    fn prop_t4_3_move_to_top_position_strictly_less(n in 2usize..20) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            for c in &cards {
+                move_card_to_top(&pool, &c.get_id()).await.unwrap();
+            }
+
+            let target = &cards[n / 2];
+            let updated = move_card_to_top(&pool, &target.get_id()).await.unwrap();
+            let new_pos = updated.get_sort_position().unwrap();
+
+            let all = list_all_cards(&pool).unwrap();
+            for c in &all {
+                if c.get_id() != target.get_id() {
+                    if let Some(pos) = c.get_sort_position() {
+                        prop_assert!(new_pos < pos,
+                            "top card pos {} not < other pos {}", new_pos, pos);
+                    }
+                }
+            }
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.4: When no cards have sort_positions, move_card_to_top assigns 0.0
+    #[test]
+    fn prop_t4_4_move_to_top_first_card_gets_zero(n in 1usize..10) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            let updated = move_card_to_top(&pool, &cards[0].get_id()).await.unwrap();
+            prop_assert_eq!(updated.get_sort_position(), Some(0.0));
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.5: After move_card_relative(c, t, before=true), c.sort_position < t.sort_position
+    #[test]
+    fn prop_t4_5_move_relative_before_ordering(n in 3usize..15) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            // Give all cards sort positions
+            for c in cards.iter().rev() {
+                move_card_to_top(&pool, &c.get_id()).await.unwrap();
+            }
+
+            let card_id = &cards[0].get_id();
+            let target_id = &cards[n - 1].get_id();
+
+            let moved = move_card_relative(&pool, card_id, target_id, true).await.unwrap();
+            let target = get_card(&pool, target_id).unwrap().unwrap();
+
+            prop_assert!(moved.get_sort_position().unwrap() < target.get_sort_position().unwrap());
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.6: After move_card_relative(c, t, before=false), c.sort_position > t.sort_position
+    #[test]
+    fn prop_t4_6_move_relative_after_ordering(n in 3usize..15) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            for c in cards.iter().rev() {
+                move_card_to_top(&pool, &c.get_id()).await.unwrap();
+            }
+
+            let card_id = &cards[n - 1].get_id();
+            let target_id = &cards[0].get_id();
+
+            let moved = move_card_relative(&pool, card_id, target_id, false).await.unwrap();
+            let target = get_card(&pool, target_id).unwrap().unwrap();
+
+            prop_assert!(moved.get_sort_position().unwrap() > target.get_sort_position().unwrap());
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.7: After move_card_relative, pairwise ordering of uninvolved cards is unchanged
+    #[test]
+    fn prop_t4_7_move_relative_preserves_others_order(n in 4usize..15) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            for c in cards.iter().rev() {
+                move_card_to_top(&pool, &c.get_id()).await.unwrap();
+            }
+
+            let query = GetQueryDto {
+                suspended_filter: SuspendedFilter::Include,
+                ..Default::default()
+            };
+            let before = list_cards_with_filters(&pool, &query).unwrap();
+
+            let mover_id = cards[0].get_id();
+            let target_id = cards[n - 1].get_id();
+
+            let others_before: Vec<String> = before.iter()
+                .filter(|c| c.get_id() != mover_id)
+                .map(|c| c.get_id())
+                .collect();
+
+            move_card_relative(&pool, &mover_id, &target_id, false).await.unwrap();
+
+            let after = list_cards_with_filters(&pool, &query).unwrap();
+            let others_after: Vec<String> = after.iter()
+                .filter(|c| c.get_id() != mover_id)
+                .map(|c| c.get_id())
+                .collect();
+
+            prop_assert_eq!(others_before, others_after);
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.8: After clear_sort_positions, all cards have sort_position == None
+    #[test]
+    fn prop_t4_8_clear_all_sort_positions_nulls_all(n in 1usize..20) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            for c in &cards {
+                move_card_to_top(&pool, &c.get_id()).await.unwrap();
+            }
+
+            clear_sort_positions(&pool).await.unwrap();
+
+            let all = list_all_cards(&pool).unwrap();
+            for c in &all {
+                prop_assert_eq!(c.get_sort_position(), None,
+                    "card {} still has sort_position", c.get_id());
+            }
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.9: clear_card_sort_position(c) sets only c to None; others unchanged
+    #[test]
+    fn prop_t4_9_clear_single_sort_position_only_target(n in 2usize..15) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            for c in &cards {
+                move_card_to_top(&pool, &c.get_id()).await.unwrap();
+            }
+
+            // Record positions before
+            let before: Vec<(String, Option<f32>)> = list_all_cards(&pool).unwrap()
+                .iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+            let target_id = cards[n / 2].get_id();
+            clear_card_sort_position(&pool, &target_id).await.unwrap();
+
+            let after = list_all_cards(&pool).unwrap();
+            for c in &after {
+                if c.get_id() == target_id {
+                    prop_assert_eq!(c.get_sort_position(), None);
+                } else {
+                    let orig = before.iter().find(|(id, _)| *id == c.get_id()).unwrap().1;
+                    prop_assert_eq!(c.get_sort_position(), orig,
+                        "card {} sort_position changed", c.get_id());
+                }
+            }
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.10: All cards with sort_position appear before all cards without in list results
+    #[test]
+    fn prop_t4_10_nulls_last_ordering(n in 2usize..15) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            // Give half the cards sort positions
+            for c in cards.iter().take(n / 2) {
+                move_card_to_top(&pool, &c.get_id()).await.unwrap();
+            }
+
+            let query = GetQueryDto {
+                suspended_filter: SuspendedFilter::Include,
+                ..Default::default()
+            };
+            let result = list_cards_with_filters(&pool, &query).unwrap();
+
+            let mut seen_null = false;
+            for c in &result {
+                if c.get_sort_position().is_none() {
+                    seen_null = true;
+                } else {
+                    prop_assert!(!seen_null,
+                        "positioned card {} appears after a null-positioned card", c.get_id());
+                }
+            }
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.11: A card with sort_position appears before a card without sort_position
+    #[test]
+    fn prop_t4_11_sort_position_trumps_priority(
+        low_prio in 0.0f32..0.1f32,
+        high_prio in 0.9f32..1.0f32,
+    ) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let item_type = create_item_type(&pool, "Basic".to_string()).await.unwrap();
+
+            // Card A: low priority, will get sort_position
+            let item_a = create_item(&pool, &item_type.get_id(), "A".to_string(),
+                json!({"front": "F", "back": "B"})).await.unwrap();
+            let card_a = get_cards_for_item(&pool, &item_a.get_id()).unwrap().remove(0);
+            update_card_priority(&pool, &card_a.get_id(), low_prio).await.unwrap();
+            move_card_to_top(&pool, &card_a.get_id()).await.unwrap();
+
+            // Card B: high priority, no sort_position
+            let item_b = create_item(&pool, &item_type.get_id(), "B".to_string(),
+                json!({"front": "F", "back": "B"})).await.unwrap();
+            let card_b = get_cards_for_item(&pool, &item_b.get_id()).unwrap().remove(0);
+            update_card_priority(&pool, &card_b.get_id(), high_prio).await.unwrap();
+
+            let query = GetQueryDto {
+                suspended_filter: SuspendedFilter::Include,
+                ..Default::default()
+            };
+            let result = list_cards_with_filters(&pool, &query).unwrap();
+
+            let pos_a = result.iter().position(|c| c.get_id() == card_a.get_id()).unwrap();
+            let pos_b = result.iter().position(|c| c.get_id() == card_b.get_id()).unwrap();
+            prop_assert!(pos_a < pos_b,
+                "positioned card (pos {}) should appear before unpositioned card (pos {})", pos_a, pos_b);
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.12: Among cards with sort_position=None, ordering is by (priority + priority_offset) DESC
+    #[test]
+    fn prop_t4_12_effective_priority_ordering_among_nulls(n in 2usize..10) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            // Set distinct priorities with offsets, no sort_positions
+            for (i, c) in cards.iter().enumerate() {
+                let priority = (i as f32 + 1.0) / (n as f32 + 1.0);
+                update_card_priority(&pool, &c.get_id(), priority).await.unwrap();
+                // Set a small offset that doesn't change relative ordering
+                let mut card = get_card(&pool, &c.get_id()).unwrap().unwrap();
+                card.set_priority_offset(0.001 * i as f32);
+                update_card(&pool, &card).await.unwrap();
+            }
+
+            let query = GetQueryDto {
+                suspended_filter: SuspendedFilter::Include,
+                ..Default::default()
+            };
+            let result = list_cards_with_filters(&pool, &query).unwrap();
+
+            // All have None sort_position, so should be ordered by effective priority DESC
+            for w in result.windows(2) {
+                let eff_a = w[0].get_priority() + w[0].get_priority_offset();
+                let eff_b = w[1].get_priority() + w[1].get_priority_offset();
+                prop_assert!(eff_a >= eff_b,
+                    "effective priority ordering violated: {} < {}", eff_a, eff_b);
+            }
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+}
+
+
+// ============================================================================
+// T4 Error Cases (unit-style)
+// ============================================================================
+
+#[tokio::test]
+async fn test_t4_e1_move_to_top_nonexistent_card() {
+    let pool = setup_test_db();
+    let result = move_card_to_top(&pool, "nonexistent-id").await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_t4_e2_move_relative_nonexistent_card() {
+    let pool = setup_test_db();
+    let cards = create_n_cards(&pool, 2).await;
+    move_card_to_top(&pool, &cards[1].get_id()).await.unwrap();
+    let result = move_card_relative(&pool, "nonexistent-id", &cards[1].get_id(), true).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_t4_e3_move_relative_nonexistent_target() {
+    let pool = setup_test_db();
+    let cards = create_n_cards(&pool, 1).await;
+    let result = move_card_relative(&pool, &cards[0].get_id(), "nonexistent-id", true).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_t4_e4_move_relative_target_no_position() {
+    let pool = setup_test_db();
+    let cards = create_n_cards(&pool, 2).await;
+    // Target has no sort_position (default None)
+    let result = move_card_relative(&pool, &cards[0].get_id(), &cards[1].get_id(), true).await;
+    assert!(result.is_err());
+}
+
+#[tokio::test]
+async fn test_t4_e5_clear_card_sort_position_nonexistent() {
+    let pool = setup_test_db();
+    let result = clear_card_sort_position(&pool, "nonexistent-id").await;
+    assert!(result.is_err());
+}
+
+
+// ============================================================================
+// T5: Priority Offset Property Tests (DB Operations)
+// ============================================================================
+
+proptest! {
+    /// T5.1: After regenerate_priority_offsets, all cards have offset in [-0.05, +0.05]
+    #[test]
+    fn prop_t5_1_regenerate_offsets_in_range(n in 1usize..20) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let _cards = create_n_cards(&pool, n).await;
+
+            regenerate_priority_offsets(&pool).await.unwrap();
+
+            let all = list_all_cards(&pool).unwrap();
+            for c in &all {
+                let off = c.get_priority_offset();
+                prop_assert!(off >= -0.05 && off <= 0.05,
+                    "offset {} out of range for card {}", off, c.get_id());
+            }
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T5.2: After regeneration, metadata last_offset_date == today's date
+    #[test]
+    fn prop_t5_2_regenerate_updates_metadata_date(n in 1usize..5) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let _cards = create_n_cards(&pool, n).await;
+
+            regenerate_priority_offsets(&pool).await.unwrap();
+
+            let conn = &mut pool.get().unwrap();
+            let last_date: String = metadata::table
+                .find("last_offset_date")
+                .select(metadata::value)
+                .first::<String>(conn)
+                .unwrap();
+
+            let today = chrono::Utc::now().date_naive().to_string();
+            prop_assert_eq!(last_date, today);
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T5.3: With 20+ cards, not all offsets are identical
+    #[test]
+    fn prop_t5_3_regenerate_not_all_same(_seed in 0u32..100u32) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let _cards = create_n_cards(&pool, 25).await;
+
+            regenerate_priority_offsets(&pool).await.unwrap();
+
+            let all = list_all_cards(&pool).unwrap();
+            let offsets: std::collections::HashSet<u32> = all.iter()
+                .map(|c| c.get_priority_offset().to_bits())
+                .collect();
+
+            prop_assert!(offsets.len() > 1,
+                "all 25 cards got identical offsets — highly improbable");
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T5.4: Calling ensure_offsets_current when offsets were just regenerated is a noop
+    #[test]
+    fn prop_t5_4_ensure_current_is_noop_when_current(n in 1usize..10) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let _cards = create_n_cards(&pool, n).await;
+
+            regenerate_priority_offsets(&pool).await.unwrap();
+
+            let before: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
+                .iter().map(|c| (c.get_id(), c.get_priority_offset())).collect();
+
+            ensure_offsets_current(&pool).await.unwrap();
+
+            let after: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
+                .iter().map(|c| (c.get_id(), c.get_priority_offset())).collect();
+
+            prop_assert_eq!(before, after);
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T5.5: update_card_priority(c, p) → c.priority_offset == 0.0 and c.priority == p
+    #[test]
+    fn prop_t5_5_update_priority_resets_offset(
+        priority in arb_priority(),
+        offset in arb_priority_offset(),
+    ) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, 1).await;
+            let card_id = cards[0].get_id();
+
+            // Set a non-zero offset first
+            let mut card = get_card(&pool, &card_id).unwrap().unwrap();
+            card.set_priority_offset(offset);
+            update_card(&pool, &card).await.unwrap();
+
+            // Now update priority — should reset offset to 0.0
+            let updated = update_card_priority(&pool, &card_id, priority).await.unwrap();
+
+            prop_assert!((updated.get_priority() - priority).abs() < 1e-6);
+            prop_assert_eq!(updated.get_priority_offset(), 0.0);
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T5.6: regenerate_priority_offsets does not change any card's base priority
+    #[test]
+    fn prop_t5_6_regenerate_preserves_base_priority(n in 1usize..15) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            // Set distinct priorities
+            for (i, c) in cards.iter().enumerate() {
+                let p = (i as f32 + 1.0) / (n as f32 + 1.0);
+                update_card_priority(&pool, &c.get_id(), p).await.unwrap();
+            }
+
+            let before: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
+                .iter().map(|c| (c.get_id(), c.get_priority())).collect();
+
+            regenerate_priority_offsets(&pool).await.unwrap();
+
+            let after: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
+                .iter().map(|c| (c.get_id(), c.get_priority())).collect();
+
+            for (id, before_p) in &before {
+                let after_p = after.iter().find(|(aid, _)| aid == id).unwrap().1;
+                prop_assert!((before_p - after_p).abs() < 1e-6,
+                    "base priority changed for card {}", id);
+            }
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T5.7: regenerate_priority_offsets does not change any card's sort_position
+    #[test]
+    fn prop_t5_7_regenerate_preserves_sort_position(n in 1usize..15) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let cards = create_n_cards(&pool, n).await;
+
+            // Give some cards sort positions
+            for c in cards.iter().take(n / 2 + 1) {
+                move_card_to_top(&pool, &c.get_id()).await.unwrap();
+            }
+
+            let before: Vec<(String, Option<f32>)> = list_all_cards(&pool).unwrap()
+                .iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+            regenerate_priority_offsets(&pool).await.unwrap();
+
+            let after: Vec<(String, Option<f32>)> = list_all_cards(&pool).unwrap()
+                .iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+            for (id, before_pos) in &before {
+                let after_pos = &after.iter().find(|(aid, _)| aid == id).unwrap().1;
+                prop_assert_eq!(before_pos, after_pos,
+                    "sort_position changed for card {}", id);
             }
             Ok::<_, TestCaseError>(())
         })?;
