@@ -1,4 +1,7 @@
+use std::collections::HashSet;
+
 use crate::db::{DbPool, ExecuteWithRetry};
+use crate::dto::GetQueryDto;
 use crate::models::{Item, JsonValue};
 use crate::schema::items;
 use chrono::{Utc, NaiveDateTime};
@@ -6,7 +9,7 @@ use diesel::prelude::*;
 use anyhow::Result;
 use tracing::{instrument, debug, info};
 
-use super::card_repo::create_cards_for_item;
+use super::card_repo::{create_cards_for_item, list_cards_with_filters};
 
 /// Creates a new item in the database
 ///
@@ -221,6 +224,57 @@ pub fn list_items(pool: &DbPool) -> Result<Vec<Item>> {
     info!("Retrieved {} items", result.len());
     
     // Return the list of items
+    Ok(result)
+}
+
+/// Lists items with optional filters from GetQueryDto
+///
+/// If the query only has `item_type_id` set (no card-level filters), filters items directly.
+/// Otherwise, queries cards with `list_cards_with_filters`, collects unique item IDs,
+/// and loads those items.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `query` - The query filters
+///
+/// ### Returns
+///
+/// A Result containing a vector of matching Items
+#[instrument(skip(pool), fields(query = ?query))]
+pub fn list_items_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec<Item>> {
+    debug!("Listing items with filters");
+
+    let has_card_filters = query.next_review_before.is_some()
+        || query.last_review_after.is_some()
+        || query.suspended_after.is_some()
+        || query.suspended_before.is_some()
+        || !query.tag_ids.is_empty()
+        || query.suspended_filter != crate::dto::SuspendedFilter::default();
+
+    if !has_card_filters {
+        // Only item_type_id filter — query items directly
+        if let Some(ref item_type_id) = query.item_type_id {
+            return get_items_by_type(pool, item_type_id);
+        } else {
+            return list_items(pool);
+        }
+    }
+
+    // Use card-level filtering, then collect unique item IDs
+    let cards = list_cards_with_filters(pool, query)?;
+    let item_ids: HashSet<String> = cards.into_iter().map(|c| c.get_item_id()).collect();
+
+    if item_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let conn = &mut pool.get()?;
+    let result = items::table
+        .filter(items::id.eq_any(&item_ids))
+        .load::<Item>(conn)?;
+
+    info!("Retrieved {} items from card-level filters", result.len());
     Ok(result)
 }
 
@@ -581,6 +635,204 @@ mod tests {
     }
     
     
+    #[tokio::test]
+    async fn test_list_items_with_filters_default_returns_all() {
+        let pool = setup_test_db();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+
+        let item1 = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
+        let item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
+
+        let query = crate::dto::GetQueryDto::default();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().any(|i| i.get_id() == item1.get_id()));
+        assert!(items.iter().any(|i| i.get_id() == item2.get_id()));
+    }
+
+    #[tokio::test]
+    async fn test_list_items_with_filters_item_type_only() {
+        let pool = setup_test_db();
+        let type1 = create_item_type(&pool, "Test Type A".to_string()).await.unwrap();
+        let type2 = create_item_type(&pool, "Test Type B".to_string()).await.unwrap();
+
+        let item1 = create_item(&pool, &type1.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
+        let _item2 = create_item(&pool, &type2.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
+
+        let query = crate::dto::GetQueryDtoBuilder::new()
+            .item_type_id(type1.get_id())
+            .build();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].get_id(), item1.get_id());
+    }
+
+    #[tokio::test]
+    async fn test_list_items_with_filters_item_type_no_match() {
+        let pool = setup_test_db();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+        let _item = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
+
+        let query = crate::dto::GetQueryDtoBuilder::new()
+            .item_type_id("nonexistent-type-id".to_string())
+            .build();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+
+        assert!(items.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_items_with_filters_next_review_before() {
+        use chrono::Utc;
+
+        let pool = setup_test_db();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+
+        let item1 = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
+        let item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
+
+        // Both items have cards with next_review set to their creation time (past).
+        // A far-future cutoff should return both; a past cutoff should return none.
+        let far_future = Utc::now() + chrono::Duration::days(365 * 100);
+        let query = crate::dto::GetQueryDtoBuilder::new()
+            .next_review_before(far_future)
+            .build();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().any(|i| i.get_id() == item1.get_id()));
+        assert!(items.iter().any(|i| i.get_id() == item2.get_id()));
+
+        // A date in the distant past should match no cards
+        let distant_past = Utc::now() - chrono::Duration::days(365 * 100);
+        let query = crate::dto::GetQueryDtoBuilder::new()
+            .next_review_before(distant_past)
+            .build();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+        assert!(items.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_items_with_filters_suspended_only() {
+        let pool = setup_test_db();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+
+        let item1 = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
+        let _item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
+
+        // Suspend all cards for item1
+        let cards = crate::repo::get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        for card in &cards {
+            crate::repo::set_card_suspended(&pool, &card.get_id(), true).await.unwrap();
+        }
+
+        // Query for suspended-only items
+        let query = crate::dto::GetQueryDtoBuilder::new()
+            .suspended_filter(crate::dto::SuspendedFilter::Only)
+            .build();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].get_id(), item1.get_id());
+    }
+
+    #[tokio::test]
+    async fn test_list_items_with_filters_by_tag() {
+        let pool = setup_test_db();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+
+        let item1 = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
+        let _item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
+
+        // Create a tag and attach it only to item1
+        let tag = crate::repo::create_tag(&pool, "Special".to_string(), true).await.unwrap();
+        crate::repo::add_tag_to_item(&pool, &tag.get_id(), &item1.get_id()).await.unwrap();
+
+        let query = crate::dto::GetQueryDtoBuilder::new()
+            .add_tag_id(tag.get_id())
+            .build();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].get_id(), item1.get_id());
+    }
+
+    #[tokio::test]
+    async fn test_list_items_with_filters_deduplicates_across_cards() {
+        let pool = setup_test_db();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+
+        // An item may have multiple cards. Even if multiple cards match, the item should appear once.
+        let item = create_item(&pool, &item_type.get_id(), "Multi-card Item".to_string(), json!({"front":"F","back":"B"})).await.unwrap();
+        let cards = crate::repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
+        // Verify there's at least one card (could be more depending on item type config)
+        assert!(!cards.is_empty());
+
+        let far_future = chrono::Utc::now() + chrono::Duration::days(365 * 100);
+        let query = crate::dto::GetQueryDtoBuilder::new()
+            .next_review_before(far_future)
+            .build();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+
+        // The item should appear exactly once regardless of card count
+        assert_eq!(items.iter().filter(|i| i.get_id() == item.get_id()).count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_list_items_with_filters_card_filter_no_match_returns_empty() {
+        let pool = setup_test_db();
+        let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+        let _item = create_item(&pool, &item_type.get_id(), "Item".to_string(), json!({"front":"F","back":"B"})).await.unwrap();
+
+        // Use a tag that doesn't exist on any item
+        let query = crate::dto::GetQueryDtoBuilder::new()
+            .add_tag_id("nonexistent-tag-id".to_string())
+            .build();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+
+        assert!(items.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_list_items_with_filters_item_type_and_card_filter() {
+        use chrono::Utc;
+
+        let pool = setup_test_db();
+        let type1 = create_item_type(&pool, "Test Type A".to_string()).await.unwrap();
+        let type2 = create_item_type(&pool, "Test Type B".to_string()).await.unwrap();
+
+        let item1 = create_item(&pool, &type1.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
+        let _item2 = create_item(&pool, &type2.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
+
+        // Both items have cards due before the far future, but filter by type1
+        let far_future = Utc::now() + chrono::Duration::days(365 * 100);
+        let query = crate::dto::GetQueryDtoBuilder::new()
+            .item_type_id(type1.get_id())
+            .next_review_before(far_future)
+            .build();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].get_id(), item1.get_id());
+    }
+
+    #[tokio::test]
+    async fn test_list_items_with_filters_empty_db() {
+        let pool = setup_test_db();
+
+        let query = crate::dto::GetQueryDto::default();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+        assert!(items.is_empty());
+
+        // Also with a card-level filter on an empty db
+        let query = crate::dto::GetQueryDtoBuilder::new()
+            .suspended_filter(crate::dto::SuspendedFilter::Only)
+            .build();
+        let items = list_items_with_filters(&pool, &query).unwrap();
+        assert!(items.is_empty());
+    }
+
     #[tokio::test]
     async fn test_update_with_empty_changes() {
         let pool = setup_test_db();

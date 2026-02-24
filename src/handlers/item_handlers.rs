@@ -1,12 +1,12 @@
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     Json,
 };
 use std::sync::Arc;
 use tracing::{instrument, debug, info};
 
 use crate::{db::DbPool, UpdateItemDto};
-use crate::dto::CreateItemDto;
+use crate::dto::{CreateItemDto, GetQueryDto};
 use crate::errors::ApiError;
 use crate::models::Item;
 use crate::repo;
@@ -161,31 +161,30 @@ pub async fn delete_item_handler(
 
 
 
-/// Handler for listing all items
+/// Handler for listing items with optional filters
 ///
 /// This function handles GET requests to `/items`.
 ///
 /// ### Arguments
 ///
 /// * `pool` - The database connection pool
+/// * `query` - Optional query filters
 ///
 /// ### Returns
 ///
-/// A list of all items as JSON
+/// A list of items as JSON
 #[instrument(skip(pool))]
 pub async fn list_items_handler(
-    // Extract the database pool from the application state
     State(pool): State<Arc<DbPool>>,
+    Query(query): Query<GetQueryDto>,
 ) -> Result<Json<Vec<Item>>, ApiError> {
-    debug!("Listing all items");
-    
-    // Call the repository function to list all items
-    let items = repo::list_items(&pool)
+    debug!("Listing items with filters: {:?}", query);
+
+    let items = repo::list_items_with_filters(&pool, &query)
         .map_err(ApiError::Database)?;
-    
+
     info!("Retrieved {} items", items.len());
-    
-    // Return the list of items as JSON
+
     Ok(Json(items))
 }
 
@@ -289,8 +288,9 @@ mod tests {
         // Call the handler
         let result = list_items_handler(
             State(pool.clone()),
+            Query(GetQueryDto::default()),
         ).await.unwrap();
-        
+
         // Check the result
         let items = result.0;
         assert_eq!(items.len(), 2);
@@ -299,9 +299,74 @@ mod tests {
     }
     
     #[tokio::test]
+    async fn test_list_items_handler_with_item_type_filter() {
+        let pool = setup_test_db();
+
+        // Create two item types (names must contain "Test" for card creation)
+        let type1 = repo::create_item_type(&pool, "Test Type A".to_string()).await.unwrap();
+        let type2 = repo::create_item_type(&pool, "Test Type B".to_string()).await.unwrap();
+
+        let item1 = repo::create_item(
+            &pool, &type1.get_id(), "Item 1".to_string(), json!({"front": "F1", "back": "B1"}),
+        ).await.unwrap();
+        let _item2 = repo::create_item(
+            &pool, &type2.get_id(), "Item 2".to_string(), json!({"front": "F2", "back": "B2"}),
+        ).await.unwrap();
+
+        // Filter by type1
+        let query = GetQueryDto {
+            item_type_id: Some(type1.get_id()),
+            ..Default::default()
+        };
+        let result = list_items_handler(
+            State(pool.clone()),
+            Query(query),
+        ).await.unwrap();
+
+        let items = result.0;
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].get_id(), item1.get_id());
+    }
+
+    #[tokio::test]
+    async fn test_list_items_handler_with_suspended_filter() {
+        let pool = setup_test_db();
+
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+
+        let item1 = repo::create_item(
+            &pool, &item_type.get_id(), "Item 1".to_string(), json!({"front": "F1", "back": "B1"}),
+        ).await.unwrap();
+        let _item2 = repo::create_item(
+            &pool, &item_type.get_id(), "Item 2".to_string(), json!({"front": "F2", "back": "B2"}),
+        ).await.unwrap();
+
+        // Suspend all cards for item1
+        let cards = repo::get_cards_for_item(&pool, &item1.get_id()).unwrap();
+        for card in &cards {
+            repo::set_card_suspended(&pool, &card.get_id(), true).await.unwrap();
+        }
+
+        // Query for suspended-only
+        use crate::dto::SuspendedFilter;
+        let query = GetQueryDto {
+            suspended_filter: SuspendedFilter::Only,
+            ..Default::default()
+        };
+        let result = list_items_handler(
+            State(pool.clone()),
+            Query(query),
+        ).await.unwrap();
+
+        let items = result.0;
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].get_id(), item1.get_id());
+    }
+
+    #[tokio::test]
     async fn test_get_item_handler() {
         let pool = setup_test_db();
-        
+
         // Create an item type
         let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
         
