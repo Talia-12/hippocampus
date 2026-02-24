@@ -949,3 +949,279 @@ async fn test_filter_cards_complex_query() {
     assert!(filtered_cards.iter().any(|c| c.get_id() == cards[0].get_id()));
     assert!(filtered_cards.iter().any(|c| c.get_id() == cards[1].get_id()));
 }
+
+
+// ============================================================================
+// clear_sort_positions with filters — unit tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_clear_sort_positions_with_item_type_filter() {
+    let pool = setup_test_db();
+
+    let type_a = create_item_type(&pool, "Test Type A".to_string()).await.unwrap();
+    let type_b = create_item_type(&pool, "Test Type B".to_string()).await.unwrap();
+
+    let item_a = create_item(
+        &pool, &type_a.get_id(), "Item A".to_string(),
+        json!({"front": "F", "back": "B"}),
+    ).await.unwrap();
+    let item_b = create_item(
+        &pool, &type_b.get_id(), "Item B".to_string(),
+        json!({"front": "F", "back": "B"}),
+    ).await.unwrap();
+
+    // Give all cards sort positions
+    let all_cards = list_all_cards(&pool).unwrap();
+    for c in &all_cards {
+        move_card_to_top(&pool, &c.get_id()).await.unwrap();
+    }
+
+    // Verify all have sort positions
+    let all_before = list_all_cards(&pool).unwrap();
+    assert!(all_before.iter().all(|c| c.get_sort_position().is_some()));
+
+    // Clear only type A
+    let query = GetQueryDtoBuilder::new()
+        .item_type_id(type_a.get_id())
+        .suspended_filter(SuspendedFilter::Include)
+        .build();
+    clear_sort_positions(&pool, &query).await.unwrap();
+
+    // Type A cards should be cleared
+    let cards_a = get_cards_for_item(&pool, &item_a.get_id()).unwrap();
+    for c in &cards_a {
+        assert_eq!(c.get_sort_position(), None,
+            "type A card {} should have been cleared", c.get_id());
+    }
+
+    // Type B cards should retain sort positions
+    let cards_b = get_cards_for_item(&pool, &item_b.get_id()).unwrap();
+    for c in &cards_b {
+        assert!(c.get_sort_position().is_some(),
+            "type B card {} should still have sort_position", c.get_id());
+    }
+}
+
+#[tokio::test]
+async fn test_clear_sort_positions_with_tag_filter() {
+    let pool = setup_test_db();
+
+    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+
+    let item1 = create_item(
+        &pool, &item_type.get_id(), "Item 1".to_string(),
+        json!({"front": "F1", "back": "B1"}),
+    ).await.unwrap();
+    let item2 = create_item(
+        &pool, &item_type.get_id(), "Item 2".to_string(),
+        json!({"front": "F2", "back": "B2"}),
+    ).await.unwrap();
+
+    let tag = create_tag(&pool, "Tagged".to_string(), true).await.unwrap();
+    add_tag_to_item(&pool, &tag.get_id(), &item1.get_id()).await.unwrap();
+    // item2 is NOT tagged
+
+    // Give all cards sort positions
+    let all_cards = list_all_cards(&pool).unwrap();
+    for c in &all_cards {
+        move_card_to_top(&pool, &c.get_id()).await.unwrap();
+    }
+
+    // Record item2 positions before
+    let item2_before: Vec<(String, Option<f32>)> = get_cards_for_item(&pool, &item2.get_id())
+        .unwrap().iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+    // Clear with tag filter
+    let query = GetQueryDtoBuilder::new()
+        .add_tag_id(tag.get_id())
+        .suspended_filter(SuspendedFilter::Include)
+        .build();
+    clear_sort_positions(&pool, &query).await.unwrap();
+
+    // Tagged item's cards should be cleared
+    let cards1 = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+    for c in &cards1 {
+        assert_eq!(c.get_sort_position(), None,
+            "tagged card {} should have been cleared", c.get_id());
+    }
+
+    // Untagged item's cards should be unchanged
+    let cards2 = get_cards_for_item(&pool, &item2.get_id()).unwrap();
+    for (id, orig_pos) in &item2_before {
+        let card = cards2.iter().find(|c| &c.get_id() == id).unwrap();
+        assert_eq!(&card.get_sort_position(), orig_pos,
+            "untagged card {} should be unchanged", id);
+    }
+}
+
+#[tokio::test]
+async fn test_clear_sort_positions_default_query_clears_all() {
+    let pool = setup_test_db();
+
+    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let _item1 = create_item(
+        &pool, &item_type.get_id(), "Item 1".to_string(),
+        json!({"front": "F1", "back": "B1"}),
+    ).await.unwrap();
+    let _item2 = create_item(
+        &pool, &item_type.get_id(), "Item 2".to_string(),
+        json!({"front": "F2", "back": "B2"}),
+    ).await.unwrap();
+
+    // Give all cards sort positions
+    let all_cards = list_all_cards(&pool).unwrap();
+    for c in &all_cards {
+        move_card_to_top(&pool, &c.get_id()).await.unwrap();
+    }
+    assert!(list_all_cards(&pool).unwrap().iter().all(|c| c.get_sort_position().is_some()));
+
+    // Clear with default query
+    clear_sort_positions(&pool, &GetQueryDto::default()).await.unwrap();
+
+    // All should be None
+    let after = list_all_cards(&pool).unwrap();
+    for c in &after {
+        assert_eq!(c.get_sort_position(), None,
+            "card {} should have been cleared", c.get_id());
+    }
+}
+
+#[tokio::test]
+async fn test_clear_sort_positions_no_matching_cards() {
+    let pool = setup_test_db();
+
+    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let _item = create_item(
+        &pool, &item_type.get_id(), "Item 1".to_string(),
+        json!({"front": "F1", "back": "B1"}),
+    ).await.unwrap();
+
+    // Give all cards sort positions
+    let all_cards = list_all_cards(&pool).unwrap();
+    for c in &all_cards {
+        move_card_to_top(&pool, &c.get_id()).await.unwrap();
+    }
+
+    // Record positions before
+    let before: Vec<(String, Option<f32>)> = list_all_cards(&pool).unwrap()
+        .iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+    // Clear with nonexistent type filter
+    let query = GetQueryDtoBuilder::new()
+        .item_type_id("nonexistent-type-id".to_string())
+        .suspended_filter(SuspendedFilter::Include)
+        .build();
+    clear_sort_positions(&pool, &query).await.unwrap();
+
+    // All positions should be unchanged
+    let after = list_all_cards(&pool).unwrap();
+    for (id, orig_pos) in &before {
+        let card = after.iter().find(|c| &c.get_id() == id).unwrap();
+        assert_eq!(&card.get_sort_position(), orig_pos,
+            "card {} should be unchanged", id);
+    }
+}
+
+#[tokio::test]
+async fn test_clear_sort_positions_mixed_sort_positions() {
+    let pool = setup_test_db();
+
+    let type_a = create_item_type(&pool, "Test Type A".to_string()).await.unwrap();
+    let type_b = create_item_type(&pool, "Test Type B".to_string()).await.unwrap();
+
+    let item_a = create_item(
+        &pool, &type_a.get_id(), "Item A".to_string(),
+        json!({"front": "F", "back": "B"}),
+    ).await.unwrap();
+    let item_b = create_item(
+        &pool, &type_b.get_id(), "Item B".to_string(),
+        json!({"front": "F", "back": "B"}),
+    ).await.unwrap();
+
+    // Give only type A's first card a sort position
+    let cards_a = get_cards_for_item(&pool, &item_a.get_id()).unwrap();
+    move_card_to_top(&pool, &cards_a[0].get_id()).await.unwrap();
+    // cards_a[1] and all type B cards have no sort position
+
+    // Record positions before
+    let before: Vec<(String, Option<f32>)> = list_all_cards(&pool).unwrap()
+        .iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+    // Clear with type A filter — matches both cards_a[0] (has position) and cards_a[1] (no position)
+    let query = GetQueryDtoBuilder::new()
+        .item_type_id(type_a.get_id())
+        .suspended_filter(SuspendedFilter::Include)
+        .build();
+    clear_sort_positions(&pool, &query).await.unwrap();
+
+    // All type A cards should have None (including the one that already was None)
+    let cards_a_after = get_cards_for_item(&pool, &item_a.get_id()).unwrap();
+    for c in &cards_a_after {
+        assert_eq!(c.get_sort_position(), None,
+            "type A card {} should be None", c.get_id());
+    }
+
+    // Type B cards should be unchanged
+    let cards_b_after = get_cards_for_item(&pool, &item_b.get_id()).unwrap();
+    for c in &cards_b_after {
+        let orig = before.iter().find(|(id, _)| *id == c.get_id()).unwrap().1;
+        assert_eq!(c.get_sort_position(), orig,
+            "type B card {} should be unchanged", c.get_id());
+    }
+}
+
+#[tokio::test]
+async fn test_clear_sort_positions_with_suspended_filter() {
+    let pool = setup_test_db();
+
+    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item1 = create_item(
+        &pool, &item_type.get_id(), "Item 1".to_string(),
+        json!({"front": "F1", "back": "B1"}),
+    ).await.unwrap();
+    let item2 = create_item(
+        &pool, &item_type.get_id(), "Item 2".to_string(),
+        json!({"front": "F2", "back": "B2"}),
+    ).await.unwrap();
+
+    // Suspend item1's cards
+    let mut cards1 = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+    let now = Utc::now();
+    for c in &mut cards1 {
+        c.set_suspended(Some(now));
+        update_card(&pool, c).await.unwrap();
+    }
+
+    // Give all cards sort positions
+    let all_cards = list_all_cards(&pool).unwrap();
+    for c in &all_cards {
+        move_card_to_top(&pool, &c.get_id()).await.unwrap();
+    }
+
+    // Record non-suspended card positions before
+    let non_suspended_before: Vec<(String, Option<f32>)> =
+        get_cards_for_item(&pool, &item2.get_id()).unwrap()
+            .iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+    // Clear with SuspendedFilter::Only
+    let query = GetQueryDtoBuilder::new()
+        .suspended_filter(SuspendedFilter::Only)
+        .build();
+    clear_sort_positions(&pool, &query).await.unwrap();
+
+    // Suspended cards should be cleared
+    let cards1_after = get_cards_for_item(&pool, &item1.get_id()).unwrap();
+    for c in &cards1_after {
+        assert_eq!(c.get_sort_position(), None,
+            "suspended card {} should have been cleared", c.get_id());
+    }
+
+    // Non-suspended cards should be unchanged
+    let cards2_after = get_cards_for_item(&pool, &item2.get_id()).unwrap();
+    for (id, orig_pos) in &non_suspended_before {
+        let card = cards2_after.iter().find(|c| &c.get_id() == id).unwrap();
+        assert_eq!(&card.get_sort_position(), orig_pos,
+            "non-suspended card {} should be unchanged", id);
+    }
+}

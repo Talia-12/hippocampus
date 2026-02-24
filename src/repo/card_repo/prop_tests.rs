@@ -3,7 +3,7 @@ use crate::repo::tests::setup_test_db;
 use crate::repo::{create_item, create_item_type, create_tag, add_tag_to_item};
 use crate::test_utils::{
     arb_card_mutations, arb_datetime_utc, arb_invalid_priority, arb_optional_datetime_utc,
-    arb_priority, arb_priority_offset, arb_suspended_filter, CardMutations,
+    arb_priority, arb_priority_offset, arb_sort_position, arb_suspended_filter, CardMutations,
 };
 use crate::GetQueryDto;
 use proptest::prelude::*;
@@ -1235,6 +1235,232 @@ proptest! {
                 let eff_b = w[1].get_priority() + w[1].get_priority_offset();
                 prop_assert!(eff_a >= eff_b,
                     "effective priority ordering violated: {} < {}", eff_a, eff_b);
+            }
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+}
+
+
+// ============================================================================
+// T4.13–T4.15: Filtered clear_sort_positions Property Tests
+// ============================================================================
+
+proptest! {
+    /// T4.13: Filtered clear — oracle agreement (comprehensive)
+    ///
+    /// For any set of cards with arbitrary sort positions and any non-tag query,
+    /// clear_sort_positions(pool, &query) nulls matching cards and preserves
+    /// non-matching cards' sort positions.
+    #[test]
+    fn prop_t4_13_filtered_clear_oracle_agreement(
+        card_mutations in prop::collection::vec(arb_card_mutations(), 2..100),
+        sort_positions in prop::collection::vec(arb_sort_position(), 200),
+        filter_first_type in any::<bool>(),
+        query_nrb in arb_optional_datetime_utc(),
+        query_lra in arb_optional_datetime_utc(),
+        query_sf in arb_suspended_filter(),
+        query_sa in arb_optional_datetime_utc(),
+        query_sb in arb_optional_datetime_utc(),
+    ) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let n_items = (card_mutations.len() / 2).max(2);
+            let (all_cards, item_type_map, _items) =
+                setup_filter_universe(&pool, n_items, &card_mutations).await;
+
+            // Assign arbitrary sort positions to all cards
+            for (idx, card_ref) in all_cards.iter().enumerate() {
+                let pos = sort_positions[idx % sort_positions.len()];
+                let mut card = card_ref.clone();
+                card.set_sort_position(pos);
+                update_card(&pool, &card).await.unwrap();
+            }
+
+            // Record sort positions before clear
+            let before: HashMap<String, Option<f32>> = list_all_cards(&pool).unwrap()
+                .iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+            // Build query with item_type filter to ensure non-default query
+            let query_type_id = if filter_first_type {
+                Some(item_type_map.values().next().unwrap().clone())
+            } else {
+                Some(item_type_map.values().last().unwrap().clone())
+            };
+
+            let query = GetQueryDto {
+                item_type_id: query_type_id,
+                tag_ids: vec![],
+                next_review_before: query_nrb,
+                last_review_after: query_lra,
+                suspended_filter: query_sf,
+                suspended_after: query_sa,
+                suspended_before: query_sb,
+                split_priority: None,
+            };
+
+            // Compute oracle matching set
+            let matching_ids = oracle_filter(&list_all_cards(&pool).unwrap(), &query, &item_type_map, &HashMap::new());
+            let matching_set: std::collections::HashSet<String> = matching_ids.into_iter().collect();
+
+            // Execute filtered clear
+            clear_sort_positions(&pool, &query).await.unwrap();
+
+            // Verify
+            let after = list_all_cards(&pool).unwrap();
+            for c in &after {
+                if matching_set.contains(&c.get_id()) {
+                    prop_assert_eq!(c.get_sort_position(), None,
+                        "matching card {} should have sort_position cleared", c.get_id());
+                } else {
+                    let original = before.get(&c.get_id()).unwrap();
+                    prop_assert_eq!(&c.get_sort_position(), original,
+                        "non-matching card {} sort_position should be unchanged", c.get_id());
+                }
+            }
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.14: Filtered clear with tag filter — oracle agreement
+    ///
+    /// Like T4.13 but includes tag setup to exercise the Rust-side tag filtering
+    /// code path in list_cards_with_filters.
+    #[test]
+    fn prop_t4_14_filtered_clear_with_tags_oracle_agreement(
+        card_mutations in prop::collection::vec(arb_card_mutations(), 2..100),
+        sort_positions in prop::collection::vec(arb_sort_position(), 200),
+        tag_assign in prop::collection::vec(prop::collection::vec(any::<bool>(), 2..=2), 3..=3),
+        filter_tag0 in any::<bool>(),
+        filter_tag1 in any::<bool>(),
+        use_type_filter in any::<bool>(),
+        query_sf in arb_suspended_filter(),
+    ) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let (_, item_type_map, items) =
+                setup_filter_universe(&pool, 3, &card_mutations).await;
+
+            // Create and assign tags
+            let tag0 = create_tag(&pool, "TagA".to_string(), true).await.unwrap();
+            let tag1 = create_tag(&pool, "TagB".to_string(), true).await.unwrap();
+            let tag_ids_all = [tag0.get_id(), tag1.get_id()];
+
+            let mut item_tags_map: HashMap<String, Vec<String>> = HashMap::new();
+            for (i, item) in items.iter().enumerate() {
+                for (j, tid) in tag_ids_all.iter().enumerate() {
+                    if tag_assign[i][j] {
+                        add_tag_to_item(&pool, tid, &item.get_id()).await.unwrap();
+                        item_tags_map.entry(item.get_id()).or_default().push(tid.clone());
+                    }
+                }
+            }
+
+            // Assign arbitrary sort positions
+            let all_cards = list_all_cards(&pool).unwrap();
+            for (idx, card_ref) in all_cards.iter().enumerate() {
+                let pos = sort_positions[idx % sort_positions.len()];
+                let mut card = card_ref.clone();
+                card.set_sort_position(pos);
+                update_card(&pool, &card).await.unwrap();
+            }
+
+            // Record sort positions before clear
+            let before: HashMap<String, Option<f32>> = list_all_cards(&pool).unwrap()
+                .iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+            // Build query with tag filters (ensure at least one tag to make non-default)
+            let mut query_tags = vec![];
+            if filter_tag0 { query_tags.push(tag_ids_all[0].clone()); }
+            if filter_tag1 { query_tags.push(tag_ids_all[1].clone()); }
+            if query_tags.is_empty() {
+                // Force at least one tag so the query is non-default
+                query_tags.push(tag_ids_all[0].clone());
+            }
+
+            let query_type_id = if use_type_filter {
+                Some(item_type_map.values().next().unwrap().clone())
+            } else {
+                None
+            };
+
+            let query = GetQueryDto {
+                item_type_id: query_type_id,
+                tag_ids: query_tags,
+                next_review_before: None,
+                last_review_after: None,
+                suspended_filter: query_sf,
+                suspended_after: None,
+                suspended_before: None,
+                split_priority: None,
+            };
+
+            // Compute oracle matching set
+            let fresh_cards = list_all_cards(&pool).unwrap();
+            let matching_ids = oracle_filter(&fresh_cards, &query, &item_type_map, &item_tags_map);
+            let matching_set: std::collections::HashSet<String> = matching_ids.into_iter().collect();
+
+            // Execute filtered clear
+            clear_sort_positions(&pool, &query).await.unwrap();
+
+            // Verify
+            let after = list_all_cards(&pool).unwrap();
+            for c in &after {
+                if matching_set.contains(&c.get_id()) {
+                    prop_assert_eq!(c.get_sort_position(), None,
+                        "matching card {} should have sort_position cleared", c.get_id());
+                } else {
+                    let original = before.get(&c.get_id()).unwrap();
+                    prop_assert_eq!(&c.get_sort_position(), original,
+                        "non-matching card {} sort_position should be unchanged", c.get_id());
+                }
+            }
+            Ok::<_, TestCaseError>(())
+        })?;
+    }
+
+    /// T4.15: Filtered clear — empty match set is no-op
+    ///
+    /// When the query matches no cards, all sort positions are preserved.
+    #[test]
+    fn prop_t4_15_filtered_clear_empty_match_noop(
+        sort_positions in prop::collection::vec(arb_sort_position(), 40),
+    ) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let _cards = create_n_cards(&pool, 10).await;
+
+            // Assign arbitrary sort positions
+            let all_cards = list_all_cards(&pool).unwrap();
+            for (idx, card_ref) in all_cards.iter().enumerate() {
+                let pos = sort_positions[idx % sort_positions.len()];
+                let mut card = card_ref.clone();
+                card.set_sort_position(pos);
+                update_card(&pool, &card).await.unwrap();
+            }
+
+            // Record sort positions before clear
+            let before: HashMap<String, Option<f32>> = list_all_cards(&pool).unwrap()
+                .iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+            // Build a query matching nothing (nonexistent item type)
+            let query = GetQueryDto {
+                item_type_id: Some("nonexistent-type-id".to_string()),
+                suspended_filter: SuspendedFilter::Include,
+                ..Default::default()
+            };
+
+            clear_sort_positions(&pool, &query).await.unwrap();
+
+            // All sort positions should be unchanged
+            let after = list_all_cards(&pool).unwrap();
+            for c in &after {
+                let original = before.get(&c.get_id()).unwrap();
+                prop_assert_eq!(&c.get_sort_position(), original,
+                    "card {} sort_position changed despite no match", c.get_id());
             }
             Ok::<_, TestCaseError>(())
         })?;
