@@ -273,13 +273,6 @@ impl HippocampusClient {
         response.json().await.map_err(ClientError::Request)
     }
 
-    /// Clears a single card's sort position
-    pub async fn clear_card_sort_position(&self, card_id: &str) -> Result<(), ClientError> {
-        let url = format!("{}/cards/{}/sort_position", self.base_url, card_id);
-        self.client.delete(&url).send().await.map_err(ClientError::Request)?.check().await?;
-        Ok(())
-    }
-
     /// Clears sort positions for cards matching the query
     pub async fn clear_sort_positions(&self, query: &GetQueryDto) -> Result<(), ClientError> {
         let url = format!("{}/cards/sort_positions", self.base_url);

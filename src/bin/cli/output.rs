@@ -165,11 +165,12 @@ pub fn print_cards(cards: &[Card], config: &OutputConfig) {
             let max_id = cards.iter().map(|c| c.get_id().len()).max().unwrap_or(2);
             let max_item = cards.iter().map(|c| c.get_item_id().len()).max().unwrap_or(4);
             println!(
-                "{:<id_w$}  {:<item_w$}  {:>8}  {:<16}  STATUS",
+                "{:<id_w$}  {:<item_w$}  {:>8}  {:<16}  {:>8}  STATUS",
                 "ID",
                 "ITEM",
                 "PRIORITY",
                 "NEXT REVIEW",
+                "SORT",
                 id_w = max_id,
                 item_w = max_item,
             );
@@ -178,12 +179,17 @@ pub fn print_cards(cards: &[Card], config: &OutputConfig) {
                     Some(dt) => format!("suspended {}", dt.format("%Y-%m-%d %H:%M")),
                     None => "active".to_string(),
                 };
+                let sort_pos = match card.get_sort_position() {
+                    Some(pos) => format!("{:.2}", pos),
+                    None => "-".to_string(),
+                };
                 println!(
-                    "{:<id_w$}  {:<item_w$}  {:>8.2}  {:<16}  {}",
+                    "{:<id_w$}  {:<item_w$}  {:>8.2}  {:<16}  {:>8}  {}",
                     card.get_id(),
                     card.get_item_id(),
                     card.get_priority(),
                     card.get_next_review().format("%Y-%m-%d %H:%M"),
+                    sort_pos,
                     status,
                     id_w = max_id,
                     item_w = max_item,
@@ -215,6 +221,10 @@ pub fn print_card(card: &Card, config: &OutputConfig) {
             match card.get_last_review() {
                 Some(dt) => println!("Last Review: {}", dt),
                 None => println!("Last Review: never"),
+            }
+            match card.get_sort_position() {
+                Some(pos) => println!("Sort Pos:    {:.2}", pos),
+                None => println!("Sort Pos:    -"),
             }
             match card.get_suspended() {
                 Some(dt) => println!("Suspended:   {}", dt),
@@ -479,20 +489,26 @@ pub fn print_todo_cards(cards_with_items: &[(Card, Option<Item>)], config: &Outp
                 .unwrap_or(2);
             let max_title = titles.iter().map(|t| t.len()).max().unwrap_or(5);
             println!(
-                "{:<id_w$}  {:<title_w$}  {:<16}  PRIORITY",
+                "{:<id_w$}  {:<title_w$}  {:<16}  {:>8}  SORT",
                 "ID",
                 "TITLE",
                 "NEXT REVIEW",
+                "PRIORITY",
                 id_w = max_id,
                 title_w = max_title,
             );
             for ((card, _), title) in cards_with_items.iter().zip(titles.iter()) {
+                let sort_pos = match card.get_sort_position() {
+                    Some(pos) => format!("{:.2}", pos),
+                    None => "-".to_string(),
+                };
                 println!(
-                    "{:<id_w$}  {:<title_w$}  {:<16}  {:.2}",
+                    "{:<id_w$}  {:<title_w$}  {:<16}  {:>8.2}  {}",
                     card.get_id(),
                     title,
                     card.get_next_review().format("%Y-%m-%d %H:%M"),
                     card.get_priority(),
+                    sort_pos,
                     id_w = max_id,
                     title_w = max_title,
                 );
