@@ -1091,7 +1091,7 @@ proptest! {
                 move_card_to_top(&pool, &c.get_id()).await.unwrap();
             }
 
-            clear_sort_positions(&pool).await.unwrap();
+            clear_sort_positions(&pool, &GetQueryDto::default()).await.unwrap();
 
             let all = list_all_cards(&pool).unwrap();
             for c in &all {

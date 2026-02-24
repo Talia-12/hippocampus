@@ -358,6 +358,7 @@ pub async fn clear_card_sort_position_handler(
 /// ### Arguments
 ///
 /// * `pool` - The database connection pool
+/// * `query` - Optional query filters to limit which cards have their sort positions cleared
 ///
 /// ### Returns
 ///
@@ -365,13 +366,14 @@ pub async fn clear_card_sort_position_handler(
 #[instrument(skip(pool))]
 pub async fn clear_sort_positions_handler(
     State(pool): State<Arc<DbPool>>,
+    Query(query): Query<GetQueryDto>,
 ) -> Result<(), ApiError> {
-    info!("Clearing all sort positions");
+    info!("Clearing sort positions with filters: {:?}", query);
 
-    repo::clear_sort_positions(&pool).await
+    repo::clear_sort_positions(&pool, &query).await
         .map_err(ApiError::Database)?;
 
-    info!("Successfully cleared all sort positions");
+    info!("Successfully cleared sort positions");
     Ok(())
 }
 

@@ -577,26 +577,55 @@ pub async fn move_card_relative(pool: &DbPool, card_id: &str, target_card_id: &s
 
 /// Clears all sort positions
 ///
-/// Sets all cards' sort_position to NULL.
+/// Sets sort_position to NULL for cards matching the given query filters.
+///
+/// If no filters are set (default query), clears sort positions for all cards.
+/// Otherwise, only clears sort positions for cards matching the filters.
 ///
 /// ### Arguments
 ///
 /// * `pool` - A reference to the database connection pool
+/// * `query` - A reference to the query filters to apply
 ///
 /// ### Returns
 ///
 /// A Result indicating success
 #[instrument(skip(pool))]
-pub async fn clear_sort_positions(pool: &DbPool) -> Result<()> {
-    debug!("Clearing all sort positions");
+pub async fn clear_sort_positions(pool: &DbPool, query: &GetQueryDto) -> Result<()> {
+    debug!("Clearing sort positions with filters: {:?}", query);
 
     let conn = &mut pool.get()?;
 
-    diesel::update(cards::table)
-        .set(cards::sort_position.eq(None::<f32>))
-        .execute_with_retry(conn).await?;
+    let is_default = query.item_type_id.is_none()
+        && query.tag_ids.is_empty()
+        && query.next_review_before.is_none()
+        && query.last_review_after.is_none()
+        && query.suspended_filter == SuspendedFilter::default()
+        && query.suspended_after.is_none()
+        && query.suspended_before.is_none();
 
-    info!("Cleared all sort positions");
+    if is_default {
+        info!("Empty query, clearing all cards");
+                
+        diesel::update(cards::table)
+            .set(cards::sort_position.eq(None::<f32>))
+            .execute_with_retry(conn).await?;
+
+        info!("Cleared all sort positions");
+    } else {
+        info!("Non-empty query, clearing matching cards");
+        
+        let matching_cards = list_cards_with_filters(pool, query)?;
+        let count = matching_cards.len();
+        let ids: Vec<String> = matching_cards.into_iter().map(|c| c.get_id()).collect();
+
+        diesel::update(cards::table.filter(cards::id.eq_any(ids)))
+            .set(cards::sort_position.eq(None::<f32>))
+            .execute_with_retry(conn).await?;
+
+        info!("Cleared sort positions for {} matching cards", count);
+    }
+
     Ok(())
 }
 
