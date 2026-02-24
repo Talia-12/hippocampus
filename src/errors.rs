@@ -26,7 +26,7 @@ impl IntoResponse for ApiError {
             ApiError::Database(err) => {
                 // Log internal server errors at the error level
                 error!(error.message = %err, error.kind = "database_error", "Database error: {}", err);
-                (StatusCode::INTERNAL_SERVER_ERROR, err.to_string())
+                (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error".to_string())
             },
             ApiError::NotFound => {
                 // Not Found errors are just informational

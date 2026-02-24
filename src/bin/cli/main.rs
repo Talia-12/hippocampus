@@ -80,8 +80,9 @@ fn resolve_server_url(cli_url: Option<String>) -> String {
 
 /// Formats an error for human-readable stderr output
 fn format_error(err: &dyn std::error::Error) -> String {
-    // Check if it's a connection error by looking at the error chain
     let err_string = err.to_string();
+
+    // ClientError::Request wraps reqwest errors — check for connection issues
     if err_string.contains("error sending request")
         || err_string.contains("connection refused")
         || err_string.contains("Connection refused")
@@ -92,9 +93,9 @@ fn format_error(err: &dyn std::error::Error) -> String {
             err_string
         );
     }
-    if err_string.contains("HTTP status") {
-        return format!("Server returned an error: {}", err_string);
-    }
+
+    // ClientError::Server already formats as "Server error (STATUS): message"
+    // so we can return it directly
     err_string
 }
 

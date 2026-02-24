@@ -6,6 +6,58 @@ use hippocampus::dto::{
 use hippocampus::models::{Card, Item, ItemType, Review, Tag};
 use reqwest::Client;
 
+/// Error type for CLI client operations
+#[derive(Debug)]
+pub enum ClientError {
+    /// Server returned an error status with a message body
+    Server { status: reqwest::StatusCode, message: String },
+    /// Network/connection/request error
+    Request(reqwest::Error),
+}
+
+impl std::fmt::Display for ClientError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ClientError::Server { status, message } => {
+                write!(f, "Server error ({}): {}", status.as_u16(), message)
+            }
+            ClientError::Request(err) => write!(f, "{}", err),
+        }
+    }
+}
+
+impl std::error::Error for ClientError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            ClientError::Request(err) => Some(err),
+            ClientError::Server { .. } => None,
+        }
+    }
+}
+
+/// Extension trait for checking HTTP responses and extracting server error messages
+trait ResponseExt {
+    /// Checks for error status and extracts the server's error message body
+    async fn check(self) -> Result<reqwest::Response, ClientError>;
+}
+
+impl ResponseExt for reqwest::Response {
+    async fn check(self) -> Result<reqwest::Response, ClientError> {
+        if self.status().is_success() {
+            return Ok(self);
+        }
+        let status = self.status();
+        let message = match self.json::<serde_json::Value>().await {
+            Ok(body) => body.get("error")
+                .and_then(|e| e.as_str())
+                .unwrap_or("Unknown error")
+                .to_string(),
+            Err(_) => format!("HTTP {}", status),
+        };
+        Err(ClientError::Server { status, message })
+    }
+}
+
 /// HTTP client wrapper for communicating with the Hippocampus server
 pub struct HippocampusClient {
     /// The base URL of the server (e.g. "http://localhost:3000")
@@ -64,42 +116,38 @@ impl HippocampusClient {
     // ── Item Type endpoints ──────────────────────────────────────────
 
     /// Lists all item types from the server
-    pub async fn list_item_types(&self) -> Result<Vec<ItemType>, reqwest::Error> {
+    pub async fn list_item_types(&self) -> Result<Vec<ItemType>, ClientError> {
         let url = format!("{}/item_types", self.base_url);
-        let response = self.client.get(&url).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.get(&url).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Creates a new item type
-    pub async fn create_item_type(&self, name: String) -> Result<ItemType, reqwest::Error> {
+    pub async fn create_item_type(&self, name: String) -> Result<ItemType, ClientError> {
         let url = format!("{}/item_types", self.base_url);
         let dto = CreateItemTypeDto { name };
-        let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.post(&url).json(&dto).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Gets a specific item type by ID
-    pub async fn get_item_type(&self, id: &str) -> Result<ItemType, reqwest::Error> {
+    pub async fn get_item_type(&self, id: &str) -> Result<ItemType, ClientError> {
         let url = format!("{}/item_types/{}", self.base_url, id);
-        let response = self.client.get(&url).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.get(&url).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     // ── Item endpoints ───────────────────────────────────────────────
 
     /// Lists items with optional filters
-    pub async fn list_items(&self, query: &GetQueryDto) -> Result<Vec<Item>, reqwest::Error> {
+    pub async fn list_items(&self, query: &GetQueryDto) -> Result<Vec<Item>, ClientError> {
         let url = format!("{}/items", self.base_url);
         let params = build_query_params(query);
 
-        let response = self
-            .client
-            .get(&url)
-            .query(&params)
-            .send()
-            .await?
-            .error_for_status()?;
-        response.json().await
+        let response = self.client.get(&url).query(&params)
+            .send().await.map_err(ClientError::Request)?
+            .check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Creates a new item
@@ -109,7 +157,7 @@ impl HippocampusClient {
         title: String,
         item_data: serde_json::Value,
         priority: f32,
-    ) -> Result<Item, reqwest::Error> {
+    ) -> Result<Item, ClientError> {
         let url = format!("{}/items", self.base_url);
         let dto = CreateItemDto {
             item_type_id,
@@ -117,15 +165,15 @@ impl HippocampusClient {
             item_data,
             priority,
         };
-        let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.post(&url).json(&dto).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Gets a specific item by ID
-    pub async fn get_item(&self, id: &str) -> Result<Option<Item>, reqwest::Error> {
+    pub async fn get_item(&self, id: &str) -> Result<Option<Item>, ClientError> {
         let url = format!("{}/items/{}", self.base_url, id);
-        let response = self.client.get(&url).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.get(&url).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Updates an item
@@ -134,42 +182,38 @@ impl HippocampusClient {
         id: &str,
         title: Option<String>,
         item_data: Option<serde_json::Value>,
-    ) -> Result<Item, reqwest::Error> {
+    ) -> Result<Item, ClientError> {
         let url = format!("{}/items/{}", self.base_url, id);
         let dto = UpdateItemDto { title, item_data };
-        let response = self.client.patch(&url).json(&dto).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.patch(&url).json(&dto).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Deletes an item
-    pub async fn delete_item(&self, id: &str) -> Result<(), reqwest::Error> {
+    pub async fn delete_item(&self, id: &str) -> Result<(), ClientError> {
         let url = format!("{}/items/{}", self.base_url, id);
-        self.client.delete(&url).send().await?.error_for_status()?;
+        self.client.delete(&url).send().await.map_err(ClientError::Request)?.check().await?;
         Ok(())
     }
 
     // ── Card endpoints ───────────────────────────────────────────────
 
     /// Lists cards with optional filters
-    pub async fn list_cards(&self, query: &GetQueryDto) -> Result<Vec<Card>, reqwest::Error> {
+    pub async fn list_cards(&self, query: &GetQueryDto) -> Result<Vec<Card>, ClientError> {
         let url = format!("{}/cards", self.base_url);
         let params = build_query_params(query);
 
-        let response = self
-            .client
-            .get(&url)
-            .query(&params)
-            .send()
-            .await?
-            .error_for_status()?;
-        response.json().await
+        let response = self.client.get(&url).query(&params)
+            .send().await.map_err(ClientError::Request)?
+            .check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Gets a specific card by ID
-    pub async fn get_card(&self, id: &str) -> Result<Option<Card>, reqwest::Error> {
+    pub async fn get_card(&self, id: &str) -> Result<Option<Card>, ClientError> {
         let url = format!("{}/cards/{}", self.base_url, id);
-        let response = self.client.get(&url).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.get(&url).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Updates a card's priority
@@ -177,27 +221,20 @@ impl HippocampusClient {
         &self,
         id: &str,
         priority: f32,
-    ) -> Result<Card, reqwest::Error> {
+    ) -> Result<Card, ClientError> {
         let url = format!("{}/cards/{}/priority", self.base_url, id);
-        let response = self
-            .client
-            .patch(&url)
-            .json(&priority)
-            .send()
-            .await?
-            .error_for_status()?;
-        response.json().await
+        let response = self.client.patch(&url).json(&priority)
+            .send().await.map_err(ClientError::Request)?
+            .check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Suspends or unsuspends a card
-    pub async fn suspend_card(&self, id: &str, suspend: bool) -> Result<(), reqwest::Error> {
+    pub async fn suspend_card(&self, id: &str, suspend: bool) -> Result<(), ClientError> {
         let url = format!("{}/cards/{}/suspend", self.base_url, id);
-        self.client
-            .patch(&url)
-            .json(&suspend)
-            .send()
-            .await?
-            .error_for_status()?;
+        self.client.patch(&url).json(&suspend)
+            .send().await.map_err(ClientError::Request)?
+            .check().await?;
         Ok(())
     }
 
@@ -205,20 +242,20 @@ impl HippocampusClient {
     pub async fn get_next_reviews(
         &self,
         card_id: &str,
-    ) -> Result<Vec<(DateTime<Utc>, serde_json::Value)>, reqwest::Error> {
+    ) -> Result<Vec<(DateTime<Utc>, serde_json::Value)>, ClientError> {
         let url = format!("{}/cards/{}/next_reviews", self.base_url, card_id);
-        let response = self.client.get(&url).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.get(&url).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// List the reviews of a card
     pub async fn list_reviews_for_card(
         &self,
         card_id: &str,
-    ) -> Result<Vec<Review>, reqwest::Error> {
+    ) -> Result<Vec<Review>, ClientError> {
         let url = format!("{}/cards/{}/reviews", self.base_url, card_id);
-        let response = self.client.get(&url).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.get(&url).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     // ── Sort position endpoints ────────────────────────────────────────
@@ -228,36 +265,29 @@ impl HippocampusClient {
         &self,
         card_id: &str,
         action: &SortPositionAction,
-    ) -> Result<serde_json::Value, reqwest::Error> {
+    ) -> Result<serde_json::Value, ClientError> {
         let url = format!("{}/cards/{}/sort_position", self.base_url, card_id);
-        let response = self
-            .client
-            .patch(&url)
-            .json(action)
-            .send()
-            .await?
-            .error_for_status()?;
-        response.json().await
+        let response = self.client.patch(&url).json(action)
+            .send().await.map_err(ClientError::Request)?
+            .check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Clears a single card's sort position
-    pub async fn clear_card_sort_position(&self, card_id: &str) -> Result<(), reqwest::Error> {
+    pub async fn clear_card_sort_position(&self, card_id: &str) -> Result<(), ClientError> {
         let url = format!("{}/cards/{}/sort_position", self.base_url, card_id);
-        self.client.delete(&url).send().await?.error_for_status()?;
+        self.client.delete(&url).send().await.map_err(ClientError::Request)?.check().await?;
         Ok(())
     }
 
     /// Clears sort positions for cards matching the query
-    pub async fn clear_sort_positions(&self, query: &GetQueryDto) -> Result<(), reqwest::Error> {
+    pub async fn clear_sort_positions(&self, query: &GetQueryDto) -> Result<(), ClientError> {
         let url = format!("{}/cards/sort_positions", self.base_url);
         let params = build_query_params(query);
 
-        self.client
-            .delete(&url)
-            .query(&params)
-            .send()
-            .await?
-            .error_for_status()?;
+        self.client.delete(&url).query(&params)
+            .send().await.map_err(ClientError::Request)?
+            .check().await?;
         Ok(())
     }
 
@@ -268,35 +298,35 @@ impl HippocampusClient {
         &self,
         card_id: &str,
         rating: i32,
-    ) -> Result<Review, reqwest::Error> {
+    ) -> Result<Review, ClientError> {
         let url = format!("{}/reviews", self.base_url);
         let dto = CreateReviewDto { card_id: card_id.to_string(), rating };
-        let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.post(&url).json(&dto).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     // ── Tag endpoints ────────────────────────────────────────────────
 
     /// Lists all tags
-    pub async fn list_tags(&self) -> Result<Vec<Tag>, reqwest::Error> {
+    pub async fn list_tags(&self) -> Result<Vec<Tag>, ClientError> {
         let url = format!("{}/tags", self.base_url);
-        let response = self.client.get(&url).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.get(&url).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Creates a new tag
-    pub async fn create_tag(&self, name: String, visible: bool) -> Result<Tag, reqwest::Error> {
+    pub async fn create_tag(&self, name: String, visible: bool) -> Result<Tag, ClientError> {
         let url = format!("{}/tags", self.base_url);
         let dto = CreateTagDto { name, visible };
-        let response = self.client.post(&url).json(&dto).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.post(&url).json(&dto).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Lists tags for a specific item
-    pub async fn list_tags_for_item(&self, item_id: &str) -> Result<Vec<Tag>, reqwest::Error> {
+    pub async fn list_tags_for_item(&self, item_id: &str) -> Result<Vec<Tag>, ClientError> {
         let url = format!("{}/items/{}/tags", self.base_url, item_id);
-        let response = self.client.get(&url).send().await?.error_for_status()?;
-        response.json().await
+        let response = self.client.get(&url).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
     }
 
     /// Adds a tag to an item
@@ -304,9 +334,9 @@ impl HippocampusClient {
         &self,
         item_id: &str,
         tag_id: &str,
-    ) -> Result<(), reqwest::Error> {
+    ) -> Result<(), ClientError> {
         let url = format!("{}/items/{}/tags/{}", self.base_url, item_id, tag_id);
-        self.client.post(&url).send().await?.error_for_status()?;
+        self.client.post(&url).send().await.map_err(ClientError::Request)?.check().await?;
         Ok(())
     }
 
@@ -315,9 +345,9 @@ impl HippocampusClient {
         &self,
         item_id: &str,
         tag_id: &str,
-    ) -> Result<(), reqwest::Error> {
+    ) -> Result<(), ClientError> {
         let url = format!("{}/items/{}/tags/{}", self.base_url, item_id, tag_id);
-        self.client.delete(&url).send().await?.error_for_status()?;
+        self.client.delete(&url).send().await.map_err(ClientError::Request)?.check().await?;
         Ok(())
     }
 }
