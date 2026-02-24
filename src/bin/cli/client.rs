@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use hippocampus::dto::{
     CreateItemDto, CreateItemTypeDto, CreateReviewDto, CreateTagDto, GetQueryDto,
-    SuspendedFilter, UpdateItemDto,
+    SortPositionAction, SuspendedFilter, UpdateItemDto,
 };
 use hippocampus::models::{Card, Item, ItemType, Review, Tag};
 use reqwest::Client;
@@ -12,6 +12,40 @@ pub struct HippocampusClient {
     base_url: String,
     /// The underlying HTTP client
     client: Client,
+}
+
+/// Builds query parameters from a GetQueryDto
+fn build_query_params(query: &GetQueryDto) -> Vec<(&'static str, String)> {
+    let mut params: Vec<(&'static str, String)> = Vec::new();
+
+    if let Some(ref id) = query.item_type_id {
+        params.push(("item_type_id", id.clone()));
+    }
+    for tag_id in &query.tag_ids {
+        params.push(("tag_ids", tag_id.clone()));
+    }
+    if let Some(ref dt) = query.next_review_before {
+        params.push(("next_review_before", dt.to_rfc3339()));
+    }
+    if let Some(ref dt) = query.last_review_after {
+        params.push(("last_review_after", dt.to_rfc3339()));
+    }
+    match query.suspended_filter {
+        SuspendedFilter::Include => params.push(("suspended_filter", "Include".to_string())),
+        SuspendedFilter::Exclude => params.push(("suspended_filter", "Exclude".to_string())),
+        SuspendedFilter::Only => params.push(("suspended_filter", "Only".to_string())),
+    }
+    if let Some(ref dt) = query.suspended_after {
+        params.push(("suspended_after", dt.to_rfc3339()));
+    }
+    if let Some(ref dt) = query.suspended_before {
+        params.push(("suspended_before", dt.to_rfc3339()));
+    }
+    if let Some(sp) = query.split_priority {
+        params.push(("split_priority", sp.to_string()));
+    }
+
+    params
 }
 
 impl HippocampusClient {
@@ -53,13 +87,18 @@ impl HippocampusClient {
 
     // ── Item endpoints ───────────────────────────────────────────────
 
-    /// Lists all items, optionally filtered by item type
-    pub async fn list_items(&self, item_type_id: Option<&str>) -> Result<Vec<Item>, reqwest::Error> {
-        let url = match item_type_id {
-            Some(id) => format!("{}/item_types/{}/items", self.base_url, id),
-            None => format!("{}/items", self.base_url),
-        };
-        let response = self.client.get(&url).send().await?.error_for_status()?;
+    /// Lists items with optional filters
+    pub async fn list_items(&self, query: &GetQueryDto) -> Result<Vec<Item>, reqwest::Error> {
+        let url = format!("{}/items", self.base_url);
+        let params = build_query_params(query);
+
+        let response = self
+            .client
+            .get(&url)
+            .query(&params)
+            .send()
+            .await?
+            .error_for_status()?;
         response.json().await
     }
 
@@ -114,31 +153,7 @@ impl HippocampusClient {
     /// Lists cards with optional filters
     pub async fn list_cards(&self, query: &GetQueryDto) -> Result<Vec<Card>, reqwest::Error> {
         let url = format!("{}/cards", self.base_url);
-        let mut params: Vec<(&str, String)> = Vec::new();
-
-        if let Some(ref id) = query.item_type_id {
-            params.push(("item_type_id", id.clone()));
-        }
-        for tag_id in &query.tag_ids {
-            params.push(("tag_ids", tag_id.clone()));
-        }
-        if let Some(ref dt) = query.next_review_before {
-            params.push(("next_review_before", dt.to_rfc3339()));
-        }
-        if let Some(ref dt) = query.last_review_after {
-            params.push(("last_review_after", dt.to_rfc3339()));
-        }
-        match query.suspended_filter {
-            SuspendedFilter::Include => params.push(("suspended_filter", "Include".to_string())),
-            SuspendedFilter::Exclude => params.push(("suspended_filter", "Exclude".to_string())),
-            SuspendedFilter::Only => params.push(("suspended_filter", "Only".to_string())),
-        }
-        if let Some(ref dt) = query.suspended_after {
-            params.push(("suspended_after", dt.to_rfc3339()));
-        }
-        if let Some(ref dt) = query.suspended_before {
-            params.push(("suspended_before", dt.to_rfc3339()));
-        }
+        let params = build_query_params(query);
 
         let response = self
             .client
@@ -204,6 +219,46 @@ impl HippocampusClient {
         let url = format!("{}/cards/{}/reviews", self.base_url, card_id);
         let response = self.client.get(&url).send().await?.error_for_status()?;
         response.json().await
+    }
+
+    // ── Sort position endpoints ────────────────────────────────────────
+
+    /// Sets a card's sort position
+    pub async fn set_sort_position(
+        &self,
+        card_id: &str,
+        action: &SortPositionAction,
+    ) -> Result<serde_json::Value, reqwest::Error> {
+        let url = format!("{}/cards/{}/sort_position", self.base_url, card_id);
+        let response = self
+            .client
+            .patch(&url)
+            .json(action)
+            .send()
+            .await?
+            .error_for_status()?;
+        response.json().await
+    }
+
+    /// Clears a single card's sort position
+    pub async fn clear_card_sort_position(&self, card_id: &str) -> Result<(), reqwest::Error> {
+        let url = format!("{}/cards/{}/sort_position", self.base_url, card_id);
+        self.client.delete(&url).send().await?.error_for_status()?;
+        Ok(())
+    }
+
+    /// Clears sort positions for cards matching the query
+    pub async fn clear_sort_positions(&self, query: &GetQueryDto) -> Result<(), reqwest::Error> {
+        let url = format!("{}/cards/sort_positions", self.base_url);
+        let params = build_query_params(query);
+
+        self.client
+            .delete(&url)
+            .query(&params)
+            .send()
+            .await?
+            .error_for_status()?;
+        Ok(())
     }
 
     // ── Review endpoints ─────────────────────────────────────────────

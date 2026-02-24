@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use clap::Subcommand;
-use hippocampus::dto::{GetQueryDto, SuspendedFilter};
+use hippocampus::dto::{GetQueryDto, SortPositionAction, SuspendedFilter};
 
 use crate::client::HippocampusClient;
 use crate::output::{self, OutputConfig};
@@ -13,15 +13,27 @@ pub enum CardCommands {
         /// Filter by item type ID
         #[clap(long)]
         item_type_id: Option<String>,
+        /// Filter by tag IDs
+        #[clap(long)]
+        tag_ids: Vec<String>,
         /// Only cards with next review before this datetime (RFC 3339)
         #[clap(long)]
         next_review_before: Option<DateTime<Utc>>,
+        /// Only cards with last review after this datetime (RFC 3339)
+        #[clap(long)]
+        last_review_after: Option<DateTime<Utc>>,
         /// Suspended filter: Include, Exclude, or Only
-        #[clap(long, default_value = "Exclude")]
+        #[clap(long, default_value = "exclude")]
         suspended_filter: String,
         /// Only cards suspended after this datetime (RFC 3339)
         #[clap(long)]
         suspended_after: Option<DateTime<Utc>>,
+        /// Only cards suspended before this datetime (RFC 3339)
+        #[clap(long)]
+        suspended_before: Option<DateTime<Utc>>,
+        /// Whether base priority and priority offset should be returned as separate fields
+        #[clap(long)]
+        split_priority: bool,
     },
     /// Get a specific card by ID
     Get {
@@ -48,6 +60,49 @@ pub enum CardCommands {
         /// The card ID
         id: String,
     },
+    /// Reorder a card to the top of the queue
+    ReorderToTop {
+        /// The card ID
+        id: String,
+    },
+    /// Reorder a card to before another card
+    ReorderBefore {
+        /// The card ID to move
+        id_to_move: String,
+        /// The card ID to move before
+        target_id: String,
+    },
+    /// Reorder a card to after another card
+    ReorderAfter {
+        /// The card ID to move
+        id_to_move: String,
+        /// The card ID to move after
+        target_id: String,
+    },
+    /// Clear user reordering, for all cards matching the query
+    ClearOrdering {
+        /// Filter by item type ID
+        #[clap(long)]
+        item_type_id: Option<String>,
+        /// Filter by tag IDs
+        #[clap(long)]
+        tag_ids: Vec<String>,
+        /// Only cards with next review before this datetime (RFC 3339)
+        #[clap(long)]
+        next_review_before: Option<DateTime<Utc>>,
+        /// Only cards with last review after this datetime (RFC 3339)
+        #[clap(long)]
+        last_review_after: Option<DateTime<Utc>>,
+        /// Suspended filter: Include, Exclude, or Only
+        #[clap(long, default_value = "exclude")]
+        suspended_filter: String,
+        /// Only cards suspended after this datetime (RFC 3339)
+        #[clap(long)]
+        suspended_after: Option<DateTime<Utc>>,
+        /// Only cards suspended before this datetime (RFC 3339)
+        #[clap(long)]
+        suspended_before: Option<DateTime<Utc>>,
+    },
 }
 
 /// Parses a suspended filter string into the enum
@@ -68,16 +123,23 @@ pub async fn execute(
     match cmd {
         CardCommands::List {
             item_type_id,
+            tag_ids,
             next_review_before,
+            last_review_after,
             suspended_filter,
             suspended_after,
+            suspended_before,
+            split_priority,
         } => {
             let query = GetQueryDto {
                 item_type_id,
+                tag_ids,
                 next_review_before,
+                last_review_after,
                 suspended_filter: parse_suspended_filter(&suspended_filter),
                 suspended_after,
-                ..Default::default()
+                suspended_before,
+                split_priority: if split_priority { Some(true) } else { None },
             };
             let cards = client.list_cards(&query).await?;
             output::print_cards(&cards, config);
@@ -104,6 +166,44 @@ pub async fn execute(
         CardCommands::NextReviews { id } => {
             let next_reviews = client.get_next_reviews(&id).await?;
             output::print_next_reviews(&next_reviews, config);
+        }
+        CardCommands::ReorderToTop { id } => {
+            let card = client.set_sort_position(&id, &SortPositionAction::Top).await?;
+            output::print_card_json(&card, config);
+        }
+        CardCommands::ReorderBefore { id_to_move, target_id } => {
+            let card = client
+                .set_sort_position(&id_to_move, &SortPositionAction::Before { card_id: target_id })
+                .await?;
+            output::print_card_json(&card, config);
+        }
+        CardCommands::ReorderAfter { id_to_move, target_id } => {
+            let card = client
+                .set_sort_position(&id_to_move, &SortPositionAction::After { card_id: target_id })
+                .await?;
+            output::print_card_json(&card, config);
+        }
+        CardCommands::ClearOrdering {
+            item_type_id,
+            tag_ids,
+            next_review_before,
+            last_review_after,
+            suspended_filter,
+            suspended_after,
+            suspended_before,
+        } => {
+            let query = GetQueryDto {
+                item_type_id,
+                tag_ids,
+                next_review_before,
+                last_review_after,
+                suspended_filter: parse_suspended_filter(&suspended_filter),
+                suspended_after,
+                suspended_before,
+                split_priority: None,
+            };
+            client.clear_sort_positions(&query).await?;
+            output::print_success("Cleared card ordering", config);
         }
     }
     Ok(())

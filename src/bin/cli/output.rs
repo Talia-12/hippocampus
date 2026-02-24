@@ -230,6 +230,27 @@ pub fn print_card(card: &Card, config: &OutputConfig) {
     }
 }
 
+/// Prints a card from a raw JSON value (used when the server returns transformed card JSON)
+pub fn print_card_json(card: &serde_json::Value, config: &OutputConfig) {
+    match config.format {
+        OutputFormat::Human => {
+            if config.quiet {
+                if let Some(id) = card.get("id").and_then(|v| v.as_str()) {
+                    println!("{}", id);
+                }
+                return;
+            }
+            println!("{}", serde_json::to_string_pretty(card).unwrap());
+        }
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(card).unwrap());
+        }
+        OutputFormat::Waybar => {
+            println!("{}", serde_json::to_string(card).unwrap());
+        }
+    }
+}
+
 /// Prints a list of reviews in the specified format
 pub fn print_reviews(reviews: &[Review], config: &OutputConfig) {
     match config.format {
