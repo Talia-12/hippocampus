@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::fmt;
 
 /// Data transfer object for creating a new item
 ///
@@ -84,6 +85,24 @@ pub struct CreateTagDto {
 }
 
 
+/// Action for setting a card's sort position
+///
+/// This enum represents the different ways to set a card's sort position.
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(tag = "position")]
+pub enum SortPositionAction {
+    /// Move the card to the top of the sort order
+    #[serde(rename = "top")]
+    Top,
+    /// Move the card before another card
+    #[serde(rename = "before")]
+    Before { card_id: String },
+    /// Move the card after another card
+    #[serde(rename = "after")]
+    After { card_id: String },
+}
+
+
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone, Copy)]
 pub enum SuspendedFilter {
     Include,
@@ -118,6 +137,10 @@ pub struct GetQueryDto {
 
     /// The maximum suspended date to filter by
     pub suspended_before: Option<DateTime<Utc>>,
+
+    /// When true, return base priority and priority_offset as separate fields
+    /// When false (default), return effective priority and hide priority_offset
+    pub split_priority: Option<bool>,
 }
 
 /// Builder for GetQueryDto
@@ -129,6 +152,7 @@ pub struct GetQueryDtoBuilder {
     suspended_filter: SuspendedFilter,
     suspended_after: Option<DateTime<Utc>>,
     suspended_before: Option<DateTime<Utc>>,
+    split_priority: Option<bool>,
 }
 
 impl GetQueryDtoBuilder {
@@ -142,6 +166,7 @@ impl GetQueryDtoBuilder {
             suspended_filter: SuspendedFilter::default(),
             suspended_after: None,
             suspended_before: None,
+            split_priority: None,
         }
     }
 
@@ -193,6 +218,12 @@ impl GetQueryDtoBuilder {
         self
     }
 
+    /// Sets the split_priority flag
+    pub fn split_priority(mut self, split_priority: bool) -> Self {
+        self.split_priority = Some(split_priority);
+        self
+    }
+
     /// Builds the GetQueryDto
     pub fn build(self) -> GetQueryDto {
         GetQueryDto {
@@ -203,12 +234,11 @@ impl GetQueryDtoBuilder {
             suspended_filter: self.suspended_filter,
             suspended_after: self.suspended_after,
             suspended_before: self.suspended_before,
+            split_priority: self.split_priority,
         }
     }
 }
 
-
-use std::fmt;
 
 impl fmt::Display for GetQueryDto {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

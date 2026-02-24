@@ -686,6 +686,7 @@ proptest! {
                 suspended_filter: query_sf,
                 suspended_after: query_sa,
                 suspended_before: query_sb,
+                split_priority: None,
             };
 
             let all_cards = list_all_cards(&pool).unwrap();

@@ -6,7 +6,7 @@ use std::sync::Arc;
 use tracing::{instrument, debug, info};
 
 use crate::db::DbPool;
-use crate::dto::{CreateCardDto, GetQueryDto};
+use crate::dto::{CreateCardDto, GetQueryDto, SortPositionAction};
 use crate::errors::ApiError;
 use crate::models::Card;
 use crate::repo;
@@ -69,21 +69,34 @@ pub async fn get_card_handler(
     State(pool): State<Arc<DbPool>>,
     // Extract the card ID from the URL path
     Path(card_id): Path<String>,
-) -> Result<Json<Option<Card>>, ApiError> {
+    // Extract query parameters
+    Query(query): Query<GetQueryDto>,
+) -> Result<Json<serde_json::Value>, ApiError> {
     debug!("Getting card");
-    
+
+    // Ensure priority offsets are current
+    repo::ensure_offsets_current(&pool).await
+        .map_err(ApiError::Database)?;
+
     // Call the repository function to get the card
     let card = repo::get_card(&pool, &card_id)
         .map_err(ApiError::Database)?;
-    
-    if let Some(ref card) = card {
-        debug!("Card found with id: {}", card.get_id());
-    } else {
-        debug!("Card not found");
+
+    match card {
+        Some(ref card) => {
+            debug!("Card found with id: {}", card.get_id());
+            let json = if query.split_priority.unwrap_or(false) {
+                serde_json::to_value(card).expect("Card serialization should never fail")
+            } else {
+                card.to_json_hide_priority_offset()
+            };
+            Ok(Json(json))
+        }
+        None => {
+            debug!("Card not found");
+            Ok(Json(serde_json::Value::Null))
+        }
     }
-    
-    // Return the card (or None) as JSON
-    Ok(Json(card))
 }
 
 
@@ -105,17 +118,30 @@ pub async fn list_cards_handler(
     State(pool): State<Arc<DbPool>>,
     // Extract and parse query parameters
     Query(query): Query<GetQueryDto>,
-) -> Result<Json<Vec<Card>>, ApiError> {
+) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     debug!("Listing cards with filters: {:?}", query);
-    
+
+    // Ensure priority offsets are current
+    repo::ensure_offsets_current(&pool).await
+        .map_err(ApiError::Database)?;
+
     // Call the repository function to list cards with the specified filters
     let cards = repo::list_cards_with_filters(&pool, &query)
         .map_err(ApiError::Database)?;
-    
+
     info!("Retrieved {} cards", cards.len());
-    
+
+    let split = query.split_priority.unwrap_or(false);
+    let json_cards: Vec<serde_json::Value> = cards.iter().map(|card| {
+        if split {
+            serde_json::to_value(card).expect("Card serialization should never fail")
+        } else {
+            card.to_json_hide_priority_offset()
+        }
+    }).collect();
+
     // Return the list of cards as JSON
-    Ok(Json(cards))
+    Ok(Json(json_cards))
 }
 
 
@@ -137,22 +163,37 @@ pub async fn list_cards_by_item_handler(
     State(pool): State<Arc<DbPool>>,
     // Extract the item ID from the URL path
     Path(item_id): Path<String>,
-) -> Result<Json<Vec<Card>>, ApiError> {
+    // Extract query parameters
+    Query(query): Query<GetQueryDto>,
+) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
     debug!("Listing cards for item");
-    
+
+    // Ensure priority offsets are current
+    repo::ensure_offsets_current(&pool).await
+        .map_err(ApiError::Database)?;
+
     // First check if the item exists
     repo::get_item(&pool, &item_id)
         .map_err(ApiError::Database)?
         .ok_or(ApiError::NotFound)?;
-    
+
     // Call the repository function to get all cards for the item
     let cards = repo::get_cards_for_item(&pool, &item_id)
         .map_err(ApiError::Database)?;
-    
+
     info!("Retrieved {} cards for item {}", cards.len(), item_id);
-    
+
+    let split = query.split_priority.unwrap_or(false);
+    let json_cards: Vec<serde_json::Value> = cards.iter().map(|card| {
+        if split {
+            serde_json::to_value(card).expect("Card serialization should never fail")
+        } else {
+            card.to_json_hide_priority_offset()
+        }
+    }).collect();
+
     // Return the list of cards as JSON
-    Ok(Json(cards))
+    Ok(Json(json_cards))
 }
 
 
@@ -218,9 +259,9 @@ pub async fn update_card_priority_handler(
     Path(id): Path<String>,
     // Extract and deserialize the JSON request body
     Json(priority): Json<f32>,
-) -> Result<Json<Card>, ApiError> {
+) -> Result<Json<serde_json::Value>, ApiError> {
     info!("Updating card priority");
-    
+
     // Check if the priority is valid
     if priority < 0.0 || priority > 1.0 {
         return Err(ApiError::InvalidPriority(format!("Priority must be between 0 and 1, got {}", priority)));
@@ -231,14 +272,107 @@ pub async fn update_card_priority_handler(
         .map_err(ApiError::Database)?
         .ok_or(ApiError::NotFound)?;
 
-    // Call the repository function to update the card's priority
+    // Call the repository function to update the card's priority (also resets priority_offset to 0)
     let card = repo::update_card_priority(&pool, &id, priority).await
         .map_err(ApiError::Database)?;
-    
+
     info!("Successfully updated card priority to {}", priority);
 
-    // Return the updated card as JSON
-    Ok(Json(card))
+    // Return the updated card as JSON with hidden priority offset
+    Ok(Json(card.to_json_hide_priority_offset()))
+}
+
+
+/// Handler for setting a card's sort position
+///
+/// This function handles PATCH requests to `/cards/{card_id}/sort_position`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `card_id` - The ID of the card to reposition
+/// * `payload` - The sort position action (top, before, after)
+///
+/// ### Returns
+///
+/// The updated card as JSON
+#[instrument(skip(pool), fields(card_id = %card_id))]
+pub async fn set_sort_position_handler(
+    State(pool): State<Arc<DbPool>>,
+    Path(card_id): Path<String>,
+    Json(payload): Json<SortPositionAction>,
+) -> Result<Json<serde_json::Value>, ApiError> {
+    info!("Setting card sort position");
+
+    let card = match payload {
+        SortPositionAction::Top => {
+            repo::move_card_to_top(&pool, &card_id).await
+                .map_err(ApiError::Database)?
+        }
+        SortPositionAction::Before { card_id: target_id } => {
+            repo::move_card_relative(&pool, &card_id, &target_id, true).await
+                .map_err(ApiError::Database)?
+        }
+        SortPositionAction::After { card_id: target_id } => {
+            repo::move_card_relative(&pool, &card_id, &target_id, false).await
+                .map_err(ApiError::Database)?
+        }
+    };
+
+    info!("Successfully set sort position for card {}", card_id);
+    Ok(Json(card.to_json_hide_priority_offset()))
+}
+
+
+/// Handler for clearing a single card's sort position
+///
+/// This function handles DELETE requests to `/cards/{card_id}/sort_position`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+/// * `card_id` - The ID of the card to clear
+///
+/// ### Returns
+///
+/// An empty successful response
+#[instrument(skip(pool), fields(card_id = %card_id))]
+pub async fn clear_card_sort_position_handler(
+    State(pool): State<Arc<DbPool>>,
+    Path(card_id): Path<String>,
+) -> Result<(), ApiError> {
+    info!("Clearing card sort position");
+
+    repo::clear_card_sort_position(&pool, &card_id).await
+        .map_err(ApiError::Database)?;
+
+    info!("Successfully cleared sort position for card {}", card_id);
+    Ok(())
+}
+
+
+/// Handler for clearing all sort positions
+///
+/// This function handles DELETE requests to `/cards/sort_positions`.
+///
+/// ### Arguments
+///
+/// * `pool` - The database connection pool
+///
+/// ### Returns
+///
+/// An empty successful response
+#[instrument(skip(pool))]
+pub async fn clear_sort_positions_handler(
+    State(pool): State<Arc<DbPool>>,
+) -> Result<(), ApiError> {
+    info!("Clearing all sort positions");
+
+    repo::clear_sort_positions(&pool).await
+        .map_err(ApiError::Database)?;
+
+    info!("Successfully cleared all sort positions");
+    Ok(())
 }
 
 
@@ -328,26 +462,29 @@ mod tests {
         let result = get_card_handler(
             State(pool.clone()),
             Path(card.get_id()),
+            Query(GetQueryDto::default()),
         ).await.unwrap();
-        
+
         // Check the result
-        let retrieved_card = result.0.unwrap();
-        assert_eq!(retrieved_card.get_id(), card.get_id());
-        assert_eq!(retrieved_card.get_item_id(), item.get_id());
+        let retrieved_card = &result.0;
+        assert!(!retrieved_card.is_null());
+        assert_eq!(retrieved_card["id"], card.get_id());
+        assert_eq!(retrieved_card["item_id"], item.get_id());
     }
-    
+
     #[tokio::test]
     async fn test_get_card_handler_not_found() {
         let pool = setup_test_db();
-        
+
         // Call the handler with a non-existent card ID
         let result = get_card_handler(
             State(pool.clone()),
             Path("nonexistent".to_string()),
+            Query(GetQueryDto::default()),
         ).await.unwrap();
-        
+
         // Check that we got None
-        assert!(result.0.is_none());
+        assert!(result.0.is_null());
     }
     
     #[tokio::test]
@@ -376,8 +513,8 @@ mod tests {
         // Check the result
         let cards = result.0;
         assert_eq!(cards.len(), 4);
-        assert!(cards.iter().any(|c| c.get_id() == card1.get_id()));
-        assert!(cards.iter().any(|c| c.get_id() == card2.get_id()));
+        assert!(cards.iter().any(|c| c["id"] == card1.get_id()));
+        assert!(cards.iter().any(|c| c["id"] == card2.get_id()));
     }
     
     #[tokio::test]
@@ -408,24 +545,26 @@ mod tests {
         let result = list_cards_by_item_handler(
             State(pool.clone()),
             Path(item1.get_id()),
+            Query(GetQueryDto::default()),
         ).await.unwrap();
-        
+
         // Check the result
         let cards = result.0;
         assert_eq!(cards.len(), 3);
-        assert!(cards.iter().any(|c| c.get_id() == card1.get_id()), "item 1's cards not found in list");
-        assert!(!cards.iter().any(|c| c.get_id() == card2.get_id()), "item 2's cards found in list");
+        assert!(cards.iter().any(|c| c["id"] == card1.get_id()), "item 1's cards not found in list");
+        assert!(!cards.iter().any(|c| c["id"] == card2.get_id()), "item 2's cards found in list");
     }
-    
+
 
     #[tokio::test]
     async fn test_list_cards_by_item_handler_not_found() {
         let pool = setup_test_db();
-        
+
         // Call the handler with a non-existent item ID
         let result = list_cards_by_item_handler(
             State(pool.clone()),
             Path("nonexistent".to_string()),
+            Query(GetQueryDto::default()),
         ).await;
         
         // Check that we got a NotFound error
@@ -462,8 +601,8 @@ mod tests {
         ).await.unwrap();
         
         // Check the result
-        let updated_card = result.0;
-        assert!((updated_card.get_priority() - new_priority).abs() < 0.0001, "Priority not updated correctly, should be {}, but is {}", new_priority, updated_card.get_priority());
+        let updated_card = &result.0;
+        assert!((updated_card["priority"].as_f64().unwrap() as f32 - new_priority).abs() < 0.0001, "Priority not updated correctly, should be {}, but is {}", new_priority, updated_card["priority"]);
     }
     
 
@@ -492,21 +631,21 @@ mod tests {
             Json(payload),
         ).await.unwrap();
         
-        let updated_card = result.0;
-        assert!((updated_card.get_priority() - min_priority).abs() < 0.0001);
-        
+        let updated_card = &result.0;
+        assert!((updated_card["priority"].as_f64().unwrap() as f32 - min_priority).abs() < 0.0001);
+
         // Test maximum valid priority (1.0)
         let max_priority = 1.0;
         let payload = max_priority;
-        
+
         let result = update_card_priority_handler(
             State(pool.clone()),
             Path(card.get_id()),
             Json(payload),
         ).await.unwrap();
-        
-        let updated_card = result.0;
-        assert!((updated_card.get_priority() - max_priority).abs() < 0.0001);
+
+        let updated_card = &result.0;
+        assert!((updated_card["priority"].as_f64().unwrap() as f32 - max_priority).abs() < 0.0001);
     }
     
 

@@ -722,6 +722,7 @@ dependencies = [
  "libsqlite3-sys",
  "proptest",
  "r2d2",
+ "rand",
  "reqwest",
  "serde",
  "serde_html_form 0.4.0",

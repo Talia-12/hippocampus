@@ -79,7 +79,7 @@ pub mod dto;
 pub mod config;
 
 use axum::{
-    routing::{get, patch, post}, Router
+    routing::{delete, get, patch, post}, Router
 };
 use std::{sync::Arc, time::Duration};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
@@ -130,9 +130,11 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
         
         // Routes for cards
         .route("/cards", get(handlers::list_cards_handler))
+        .route("/cards/sort_positions", delete(handlers::clear_sort_positions_handler))
         .route("/cards/{card_id}", get(handlers::get_card_handler))
         .route("/cards/{card_id}/reviews", get(handlers::list_reviews_by_card_handler))
         .route("/cards/{card_id}/priority", patch(handlers::update_card_priority_handler))
+        .route("/cards/{card_id}/sort_position", patch(handlers::set_sort_position_handler).delete(handlers::clear_card_sort_position_handler))
         .route("/cards/{card_id}/tags", get(handlers::list_tags_for_card_handler))
         .route("/cards/{card_id}/suspend", patch(handlers::suspend_card_handler))
         .route("/cards/{card_id}/next_reviews", get(handlers::get_all_next_reviews_for_card_handler))

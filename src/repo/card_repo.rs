@@ -1,10 +1,11 @@
 use crate::db::{DbPool, ExecuteWithRetry};
 use crate::models::{Card, Item};
-use crate::schema::{cards, item_tags};
+use crate::schema::{cards, item_tags, metadata};
 use crate::{GetQueryDto, SuspendedFilter};
 use chrono::Utc;
 use diesel::prelude::*;
 use anyhow::{Result, anyhow};
+use rand::Rng;
 use tracing::{instrument, debug, info, warn};
 
 /// Creates cards for an item
@@ -244,6 +245,15 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
     }
 
     
+    // Order by sort_position ASC NULLS LAST, then by effective priority DESC
+    // SQLite sorts NULLs first in ASC, so we use a CASE expression to push NULLs to the end
+    card_query = card_query
+        .order_by((
+            diesel::dsl::sql::<diesel::sql_types::Integer>("CASE WHEN sort_position IS NULL THEN 1 ELSE 0 END"),
+            cards::sort_position.asc(),
+            diesel::dsl::sql::<diesel::sql_types::Float>("(priority + priority_offset) DESC"),
+        ));
+
     // Execute the query
     let mut results = card_query.load::<Card>(conn)?;
     
@@ -408,6 +418,8 @@ pub async fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
             cards::scheduler_data.eq(card.get_scheduler_data()),
             cards::priority.eq(card.get_priority()),
             cards::suspended.eq(card.get_suspended_raw()),
+            cards::sort_position.eq(card.get_sort_position()),
+            cards::priority_offset.eq(card.get_priority_offset()),
         ))
         .execute_with_retry(conn).await?;
 
@@ -441,7 +453,10 @@ pub async fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -
 
     let mut conn = pool.get()?;
     diesel::update(cards::table.find(card_id.to_string()))
-        .set(cards::priority.eq(priority))
+        .set((
+            cards::priority.eq(priority),
+            cards::priority_offset.eq(0.0f32),
+        ))
         .execute_with_retry(&mut conn).await?;
 
     drop(conn);
@@ -449,6 +464,253 @@ pub async fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -
     let card = get_card(pool, card_id)?;
 
     return Ok(card.unwrap_or_else(|| panic!("We already checked if the card exists, so this should never happen (somehow the card was deleted)")));
+}
+
+
+/// Moves a card to the top of the sort order
+///
+/// Sets the card's sort_position to MIN(sort_position) - 1.0, or 0.0 if no cards have positions.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `card_id` - The ID of the card to move to top
+///
+/// ### Returns
+///
+/// A Result containing the updated Card
+#[instrument(skip(pool), fields(card_id = %card_id))]
+pub async fn move_card_to_top(pool: &DbPool, card_id: &str) -> Result<Card> {
+    debug!("Moving card to top of sort order");
+
+    // Verify card exists
+    let _card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
+
+    let conn = &mut pool.get()?;
+
+    // Find the minimum sort_position
+    let min_position: Option<f32> = cards::table
+        .filter(cards::sort_position.is_not_null())
+        .select(diesel::dsl::min(cards::sort_position))
+        .first::<Option<f32>>(conn)?;
+
+    let new_position = match min_position {
+        Some(min) => min - 1.0,
+        None => 0.0,
+    };
+
+    diesel::update(cards::table.find(card_id.to_string()))
+        .set(cards::sort_position.eq(Some(new_position)))
+        .execute_with_retry(conn).await?;
+
+    info!("Moved card {} to top with sort_position {}", card_id, new_position);
+
+    get_card(pool, card_id)?.ok_or(anyhow!("Card not found after update"))
+}
+
+
+/// Moves a card relative to another card (before or after)
+///
+/// Sets the card's sort_position to the midpoint between the target and its neighbor.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `card_id` - The ID of the card to move
+/// * `target_card_id` - The ID of the card to move relative to
+/// * `before` - If true, move before the target; if false, move after
+///
+/// ### Returns
+///
+/// A Result containing the updated Card
+#[instrument(skip(pool), fields(card_id = %card_id, target_card_id = %target_card_id, before = %before))]
+pub async fn move_card_relative(pool: &DbPool, card_id: &str, target_card_id: &str, before: bool) -> Result<Card> {
+    debug!("Moving card relative to another card");
+
+    // Verify both cards exist
+    let _card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
+    let target = get_card(pool, target_card_id)?.ok_or(anyhow!("Target card not found"))?;
+
+    let target_pos = target.get_sort_position()
+        .ok_or(anyhow!("Target card has no sort position"))?;
+
+    let conn = &mut pool.get()?;
+
+    let new_position = if before {
+        // Find the card immediately before the target
+        let predecessor: Option<f32> = cards::table
+            .filter(cards::sort_position.is_not_null())
+            .filter(cards::sort_position.lt(target_pos))
+            .filter(cards::id.ne(card_id))
+            .select(diesel::dsl::max(cards::sort_position))
+            .first::<Option<f32>>(conn)?;
+
+        match predecessor {
+            Some(pred_pos) => (pred_pos + target_pos) / 2.0,
+            None => target_pos - 1.0,
+        }
+    } else {
+        // Find the card immediately after the target
+        let successor: Option<f32> = cards::table
+            .filter(cards::sort_position.is_not_null())
+            .filter(cards::sort_position.gt(target_pos))
+            .filter(cards::id.ne(card_id))
+            .select(diesel::dsl::min(cards::sort_position))
+            .first::<Option<f32>>(conn)?;
+
+        match successor {
+            Some(succ_pos) => (target_pos + succ_pos) / 2.0,
+            None => target_pos + 1.0,
+        }
+    };
+
+    diesel::update(cards::table.find(card_id.to_string()))
+        .set(cards::sort_position.eq(Some(new_position)))
+        .execute_with_retry(conn).await?;
+
+    info!("Moved card {} {} card {} with sort_position {}",
+        card_id, if before { "before" } else { "after" }, target_card_id, new_position);
+
+    get_card(pool, card_id)?.ok_or(anyhow!("Card not found after update"))
+}
+
+
+/// Clears all sort positions
+///
+/// Sets all cards' sort_position to NULL.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+///
+/// ### Returns
+///
+/// A Result indicating success
+#[instrument(skip(pool))]
+pub async fn clear_sort_positions(pool: &DbPool) -> Result<()> {
+    debug!("Clearing all sort positions");
+
+    let conn = &mut pool.get()?;
+
+    diesel::update(cards::table)
+        .set(cards::sort_position.eq(None::<f32>))
+        .execute_with_retry(conn).await?;
+
+    info!("Cleared all sort positions");
+    Ok(())
+}
+
+
+/// Clears a single card's sort position
+///
+/// Sets the card's sort_position to NULL.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `card_id` - The ID of the card to clear
+///
+/// ### Returns
+///
+/// A Result indicating success
+#[instrument(skip(pool), fields(card_id = %card_id))]
+pub async fn clear_card_sort_position(pool: &DbPool, card_id: &str) -> Result<()> {
+    debug!("Clearing sort position for card");
+
+    let _card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
+
+    let conn = &mut pool.get()?;
+
+    diesel::update(cards::table.find(card_id.to_string()))
+        .set(cards::sort_position.eq(None::<f32>))
+        .execute_with_retry(conn).await?;
+
+    info!("Cleared sort position for card {}", card_id);
+    Ok(())
+}
+
+
+/// Regenerates priority offsets for all cards
+///
+/// Sets each card's priority_offset to a random value in [-0.05, +0.05]
+/// and updates the last_offset_date in the metadata table.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+///
+/// ### Returns
+///
+/// A Result indicating success
+#[instrument(skip(pool))]
+pub async fn regenerate_priority_offsets(pool: &DbPool) -> Result<()> {
+    debug!("Regenerating priority offsets for all cards");
+
+    let conn = &mut pool.get()?;
+
+    // Get all card IDs
+    let card_ids: Vec<String> = cards::table
+        .select(cards::id)
+        .load::<String>(conn)?;
+
+    let mut rng = rand::rng();
+
+    // Update each card with a random offset
+    for id in &card_ids {
+        let offset: f32 = rng.random_range(-0.05..=0.05);
+        diesel::update(cards::table.find(id.clone()))
+            .set(cards::priority_offset.eq(offset))
+            .execute(conn)?;
+    }
+
+    // Update the last_offset_date in metadata
+    let today = Utc::now().date_naive().to_string();
+    diesel::replace_into(metadata::table)
+        .values((
+            metadata::key.eq("last_offset_date"),
+            metadata::value.eq(&today),
+        ))
+        .execute(conn)?;
+
+    info!("Regenerated priority offsets for {} cards", card_ids.len());
+    Ok(())
+}
+
+
+/// Ensures priority offsets are current (regenerates if stale)
+///
+/// Checks the last_offset_date in metadata against today's date.
+/// If stale or never set, regenerates all priority offsets.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+///
+/// ### Returns
+///
+/// A Result indicating success
+#[instrument(skip(pool))]
+pub async fn ensure_offsets_current(pool: &DbPool) -> Result<()> {
+    let today = Utc::now().date_naive().to_string();
+
+    let is_current = {
+        let conn = &mut pool.get()?;
+        let last_date: Option<String> = metadata::table
+            .find("last_offset_date")
+            .select(metadata::value)
+            .first::<String>(conn)
+            .optional()?;
+
+        matches!(last_date, Some(date) if date == today)
+    };
+
+    if is_current {
+        debug!("Priority offsets are current");
+        Ok(())
+    } else {
+        debug!("Priority offsets are stale, regenerating");
+        regenerate_priority_offsets(pool).await
+    }
 }
 
 

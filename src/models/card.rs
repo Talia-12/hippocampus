@@ -32,7 +32,14 @@ pub struct Card {
     priority: f32,
 
     /// When this card was suspended (or null if it isn't suspended)
-    suspended: Option<NaiveDateTime>
+    suspended: Option<NaiveDateTime>,
+
+    /// Temporary sort position for client-driven review ordering
+    sort_position: Option<f32>,
+
+    /// Daily random offset applied to priority for shuffling similarly-prioritized cards
+    #[serde(default)]
+    priority_offset: f32,
 }
 
 
@@ -59,6 +66,8 @@ impl Card {
             scheduler_data: None,
             priority,
             suspended: None,
+            sort_position: None,
+            priority_offset: 0.0,
         }
     }
     
@@ -95,6 +104,8 @@ impl Card {
             scheduler_data,
             priority,
             suspended: suspended.map(|dt| dt.naive_utc()),
+            sort_position: None,
+            priority_offset: 0.0,
         }
     }
     
@@ -259,6 +270,61 @@ impl Card {
     /// * `suspended` - The new suspended timestamp for the card
     pub fn set_suspended(&mut self, suspended: Option<DateTime<Utc>>) {
         self.suspended = suspended.map(|dt| dt.naive_utc());
+    }
+
+    /// Gets the card's sort position
+    ///
+    /// ### Returns
+    ///
+    /// The sort position of the card, or None if not set
+    pub fn get_sort_position(&self) -> Option<f32> {
+        self.sort_position
+    }
+
+    /// Sets the card's sort position
+    ///
+    /// ### Arguments
+    ///
+    /// * `sort_position` - The new sort position for the card
+    pub fn set_sort_position(&mut self, sort_position: Option<f32>) {
+        self.sort_position = sort_position;
+    }
+
+    /// Gets the card's priority offset
+    ///
+    /// ### Returns
+    ///
+    /// The priority offset of the card
+    pub fn get_priority_offset(&self) -> f32 {
+        self.priority_offset
+    }
+
+    /// Sets the card's priority offset
+    ///
+    /// ### Arguments
+    ///
+    /// * `priority_offset` - The new priority offset for the card
+    pub fn set_priority_offset(&mut self, priority_offset: f32) {
+        self.priority_offset = priority_offset;
+    }
+
+    /// Serializes the card to JSON with the priority offset folded into the priority field
+    ///
+    /// The returned JSON has:
+    /// - `priority` = base priority + priority_offset, clamped to [0.0, 1.0]
+    /// - `priority_offset` field removed
+    ///
+    /// ### Returns
+    ///
+    /// A serde_json::Value representing the card with effective priority
+    pub fn to_json_hide_priority_offset(&self) -> serde_json::Value {
+        let effective_priority = (self.priority + self.priority_offset).clamp(0.0, 1.0);
+        let mut json = serde_json::to_value(self).expect("Card serialization should never fail");
+        if let Some(obj) = json.as_object_mut() {
+            obj.insert("priority".to_string(), serde_json::Value::from(effective_priority));
+            obj.remove("priority_offset");
+        }
+        json
     }
 }
 

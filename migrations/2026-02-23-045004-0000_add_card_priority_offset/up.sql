@@ -1,0 +1,6 @@
+ALTER TABLE cards ADD COLUMN priority_offset REAL NOT NULL DEFAULT 0.0;
+
+CREATE TABLE metadata (
+    key TEXT PRIMARY KEY NOT NULL,
+    value TEXT NOT NULL
+);
