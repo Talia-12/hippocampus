@@ -201,6 +201,39 @@ pub fn arb_any_f32() -> impl Strategy<Value = f32> {
     proptest::num::f32::ANY
 }
 
+/// Generates a valid review rating in [1, 4]
+pub fn arb_rating() -> impl Strategy<Value = i32> {
+    1i32..=4i32
+}
+
+/// Generates an invalid review rating outside [1, 4]
+pub fn arb_invalid_rating() -> impl Strategy<Value = i32> {
+    prop_oneof![
+        i32::MIN..=0i32,
+        5i32..=i32::MAX,
+    ]
+}
+
+/// Generates a valid FSRS stability value
+pub fn arb_stability() -> impl Strategy<Value = f32> {
+    (1u32..=36500u32).prop_map(|v| v as f32 / 100.0)
+}
+
+/// Generates a valid FSRS difficulty value in [1.0, 10.0]
+pub fn arb_difficulty() -> impl Strategy<Value = f32> {
+    (100u32..=1000u32).prop_map(|v| v as f32 / 100.0)
+}
+
+/// Generates an arbitrary string including unicode, control chars, empty, null bytes
+pub fn arb_messy_string() -> impl Strategy<Value = String> {
+    prop_oneof![
+        Just(String::new()),
+        "\\PC*",                              // printable + control characters
+        prop::collection::vec(0u8..=255, 0..100)
+            .prop_map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
+    ]
+}
+
 pub fn arb_json() -> impl Strategy<Value = Value> {
     let leaf = prop_oneof![
         Just(Value::Null),
