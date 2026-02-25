@@ -234,6 +234,43 @@ pub fn arb_messy_string() -> impl Strategy<Value = String> {
     ]
 }
 
+/// Recursively compares two JSON values with numeric tolerance.
+///
+/// All non-numeric types are compared exactly. Numbers are compared with
+/// relative tolerance (1e-14) to handle f64 precision loss through
+/// serde_json serialize→deserialize roundtrips.
+///
+/// Note: serde_json cannot represent NaN/Infinity (Number::from_f64
+/// returns None for them), so they can never appear in JSON values.
+/// The `arb_json()` strategy filters them out accordingly.
+pub fn json_approx_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Null, Value::Null) => true,
+        (Value::Bool(a), Value::Bool(b)) => a == b,
+        (Value::String(a), Value::String(b)) => a == b,
+        (Value::Number(a), Value::Number(b)) => {
+            match (a.as_f64(), b.as_f64()) {
+                (Some(fa), Some(fb)) => {
+                    if fa == fb { return true; }
+                    let abs_diff = (fa - fb).abs();
+                    let max_abs = fa.abs().max(fb.abs());
+                    if max_abs == 0.0 { abs_diff < 1e-15 }
+                    else { abs_diff / max_abs < 1e-14 }
+                }
+                _ => a == b,
+            }
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| json_approx_eq(x, y))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter().all(|(k, v)| b.get(k).is_some_and(|bv| json_approx_eq(v, bv)))
+        }
+        _ => false,
+    }
+}
+
 pub fn arb_json() -> impl Strategy<Value = Value> {
     let leaf = prop_oneof![
         Just(Value::Null),
