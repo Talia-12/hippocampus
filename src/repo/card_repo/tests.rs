@@ -10,7 +10,7 @@ async fn test_create_card() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create an item
     let item = create_item(
@@ -35,7 +35,7 @@ async fn test_get_card() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create an item
     let item = create_item(
@@ -63,7 +63,7 @@ async fn test_retrieve_cards_by_item_id() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create some items
     let item1 = create_item(
@@ -99,7 +99,7 @@ async fn test_list_all_cards() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create some items (which will also create cards)
     let item1 = create_item(
@@ -131,8 +131,8 @@ async fn test_filter_cards_by_item_type() {
     let pool = setup_test_db();
     
     // Create two item types
-    let type1_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
-    let type2_type = create_item_type(&pool, "Test Type 2".to_string()).await.unwrap();
+    let type1_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
+    let type2_type = create_item_type(&pool, "Test Type 2".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create items of different types
     let type1_item = create_item(
@@ -176,7 +176,7 @@ async fn test_filter_cards_by_tags() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create some items
     let item1 = create_item(
@@ -238,7 +238,7 @@ async fn test_filter_cards_by_next_review() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create some items
     let item1 = create_item(
@@ -299,8 +299,8 @@ async fn test_filter_cards_with_multiple_criteria() {
     let pool = setup_test_db();
     
     // Create two item types
-    let type1_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
-    let type2_type = create_item_type(&pool, "Test Type 2".to_string()).await.unwrap();
+    let type1_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
+    let type2_type = create_item_type(&pool, "Test Type 2".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create items of different types
     let type1_item1 = create_item(
@@ -400,7 +400,7 @@ async fn test_update_card_priority() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create an item
     let item = create_item(
@@ -447,7 +447,7 @@ async fn test_update_card_priority_invalid_values() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create an item
     let item = create_item(
@@ -487,7 +487,7 @@ async fn test_filter_cards_by_suspended_state_exclude() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create some items
     let item1 = create_item(
@@ -528,7 +528,7 @@ async fn test_filter_cards_by_suspended_state_only() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create some items
     let item1 = create_item(
@@ -570,7 +570,7 @@ async fn test_filter_cards_by_suspended_state_include() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create some items
     let item1 = create_item(
@@ -611,7 +611,7 @@ async fn test_filter_cards_by_suspended_date_before() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create some items
     let item1 = create_item(
@@ -663,7 +663,7 @@ async fn test_filter_cards_by_suspended_date_after() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create some items
     let item1 = create_item(
@@ -724,7 +724,7 @@ async fn test_filter_cards_by_last_review_date() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create some items
     let item1 = create_item(
@@ -786,7 +786,7 @@ async fn test_filter_cards_by_suspended_date_combined() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create some items
     let item1 = create_item(
@@ -874,7 +874,7 @@ async fn test_filter_cards_complex_query() {
     let pool = setup_test_db();
     
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
     
     // Create items
     let item1 = create_item(
@@ -959,8 +959,8 @@ async fn test_filter_cards_complex_query() {
 async fn test_clear_sort_positions_with_item_type_filter() {
     let pool = setup_test_db();
 
-    let type_a = create_item_type(&pool, "Test Type A".to_string()).await.unwrap();
-    let type_b = create_item_type(&pool, "Test Type B".to_string()).await.unwrap();
+    let type_a = create_item_type(&pool, "Test Type A".to_string(), "fsrs".to_string()).await.unwrap();
+    let type_b = create_item_type(&pool, "Test Type B".to_string(), "fsrs".to_string()).await.unwrap();
 
     let item_a = create_item(
         &pool, &type_a.get_id(), "Item A".to_string(),
@@ -1007,7 +1007,7 @@ async fn test_clear_sort_positions_with_item_type_filter() {
 async fn test_clear_sort_positions_with_tag_filter() {
     let pool = setup_test_db();
 
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     let item1 = create_item(
         &pool, &item_type.get_id(), "Item 1".to_string(),
@@ -1059,7 +1059,7 @@ async fn test_clear_sort_positions_with_tag_filter() {
 async fn test_clear_sort_positions_default_query_clears_all() {
     let pool = setup_test_db();
 
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
     let _item1 = create_item(
         &pool, &item_type.get_id(), "Item 1".to_string(),
         json!({"front": "F1", "back": "B1"}),
@@ -1091,7 +1091,7 @@ async fn test_clear_sort_positions_default_query_clears_all() {
 async fn test_clear_sort_positions_no_matching_cards() {
     let pool = setup_test_db();
 
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
     let _item = create_item(
         &pool, &item_type.get_id(), "Item 1".to_string(),
         json!({"front": "F1", "back": "B1"}),
@@ -1127,8 +1127,8 @@ async fn test_clear_sort_positions_no_matching_cards() {
 async fn test_clear_sort_positions_mixed_sort_positions() {
     let pool = setup_test_db();
 
-    let type_a = create_item_type(&pool, "Test Type A".to_string()).await.unwrap();
-    let type_b = create_item_type(&pool, "Test Type B".to_string()).await.unwrap();
+    let type_a = create_item_type(&pool, "Test Type A".to_string(), "fsrs".to_string()).await.unwrap();
+    let type_b = create_item_type(&pool, "Test Type B".to_string(), "fsrs".to_string()).await.unwrap();
 
     let item_a = create_item(
         &pool, &type_a.get_id(), "Item A".to_string(),
@@ -1175,7 +1175,7 @@ async fn test_clear_sort_positions_mixed_sort_positions() {
 async fn test_clear_sort_positions_with_suspended_filter() {
     let pool = setup_test_db();
 
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
     let item1 = create_item(
         &pool, &item_type.get_id(), "Item 1".to_string(),
         json!({"front": "F1", "back": "B1"}),

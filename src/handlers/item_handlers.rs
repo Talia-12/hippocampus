@@ -238,7 +238,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type first
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Create a test payload
         let payload = CreateItemDto {
@@ -268,7 +268,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Create some items
         let item1 = repo::create_item(
@@ -303,8 +303,8 @@ mod tests {
         let pool = setup_test_db();
 
         // Create two item types (names must contain "Test" for card creation)
-        let type1 = repo::create_item_type(&pool, "Test Type A".to_string()).await.unwrap();
-        let type2 = repo::create_item_type(&pool, "Test Type B".to_string()).await.unwrap();
+        let type1 = repo::create_item_type(&pool, "Test Type A".to_string(), "fsrs".to_string()).await.unwrap();
+        let type2 = repo::create_item_type(&pool, "Test Type B".to_string(), "fsrs".to_string()).await.unwrap();
 
         let item1 = repo::create_item(
             &pool, &type1.get_id(), "Item 1".to_string(), json!({"front": "F1", "back": "B1"}),
@@ -332,7 +332,7 @@ mod tests {
     async fn test_list_items_handler_with_suspended_filter() {
         let pool = setup_test_db();
 
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
         let item1 = repo::create_item(
             &pool, &item_type.get_id(), "Item 1".to_string(), json!({"front": "F1", "back": "B1"}),
@@ -368,7 +368,7 @@ mod tests {
         let pool = setup_test_db();
 
         // Create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Create an item
         let item = repo::create_item(
@@ -396,8 +396,8 @@ mod tests {
         let pool = setup_test_db();
         
         // Create two item types
-        let type1 = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
-        let type2 = repo::create_item_type(&pool, "Test Type 2".to_string()).await.unwrap();
+        let type1 = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
+        let type2 = repo::create_item_type(&pool, "Test Type 2".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Create items of different types
         let type1_item1 = repo::create_item(
@@ -457,7 +457,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Create an item
         let item = repo::create_item(
@@ -507,7 +507,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Create an item (which will automatically create associated cards)
         let item = repo::create_item(
@@ -541,7 +541,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Create an item
         let item = repo::create_item(
@@ -592,7 +592,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Create an item
         let item = repo::create_item(

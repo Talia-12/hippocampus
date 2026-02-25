@@ -10,17 +10,18 @@ use uuid::Uuid;
 // ============================================================================
 
 proptest! {
-    /// ITR1.1: create→get preserves name for arbitrary strings
+    /// ITR1.1: create->get preserves name for arbitrary strings
     #[test]
     fn prop_itr1_1_create_get_preserves_name(name in "\\PC+") {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let created = create_item_type(&pool, name.clone()).await.unwrap();
+            let created = create_item_type(&pool, name.clone(), "fsrs".to_string()).await.unwrap();
             let retrieved = get_item_type(&pool, &created.get_id()).unwrap().unwrap();
 
             assert_eq!(retrieved.get_name(), name);
             assert_eq!(retrieved.get_id(), created.get_id());
+            assert_eq!(retrieved.get_review_function(), "fsrs");
         });
     }
 
@@ -30,7 +31,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, name).await.unwrap();
+            let item_type = create_item_type(&pool, name, "fsrs".to_string()).await.unwrap();
             assert!(Uuid::parse_str(&item_type.get_id()).is_ok(),
                 "ID should be valid UUID, got: {}", item_type.get_id());
         });
@@ -47,7 +48,7 @@ proptest! {
             let pool = setup_test_db();
 
             for name in &names {
-                create_item_type(&pool, name.to_string()).await.unwrap();
+                create_item_type(&pool, name.to_string(), "fsrs".to_string()).await.unwrap();
             }
 
             let all = list_item_types(&pool).unwrap();
@@ -81,7 +82,7 @@ proptest! {
 
             let mut created = Vec::with_capacity(count);
             for name in &names {
-                created.push(create_item_type(&pool, name.to_string()).await.unwrap());
+                created.push(create_item_type(&pool, name.to_string(), "fsrs".to_string()).await.unwrap());
             }
 
             // All IDs are unique

@@ -14,7 +14,7 @@ use serde_json::json;
 
 /// Creates an item type, item, and returns the card for property testing
 async fn setup_card(pool: &crate::db::DbPool) -> Card {
-    let item_type = create_item_type(pool, "Prop Test Type".to_string())
+    let item_type = create_item_type(pool, "Prop Test Type".to_string(), "fsrs".to_string())
         .await
         .unwrap();
     let item = create_item(
@@ -68,7 +68,7 @@ proptest! {
         rating in arb_rating(),
     ) {
         let card = card_with_fsrs_data(stability, difficulty);
-        let (next_review, _) = calculate_next_review(&card, rating).unwrap();
+        let (next_review, _) = calculate_next_fsrs_review(&card, rating).unwrap();
         let threshold = Utc::now() - Duration::hours(2);
         prop_assert!(
             next_review > threshold,
@@ -85,7 +85,7 @@ proptest! {
         rating in arb_rating(),
     ) {
         let card = card_with_fsrs_data(stability, difficulty);
-        let (_, scheduler_data) = calculate_next_review(&card, rating).unwrap();
+        let (_, scheduler_data) = calculate_next_fsrs_review(&card, rating).unwrap();
         let obj = scheduler_data.0.as_object().unwrap();
         prop_assert_eq!(obj.len(), 2, "Should have exactly 2 keys, got: {:?}", obj.keys().collect::<Vec<_>>());
         prop_assert!(obj.contains_key("stability"), "Missing stability key");
@@ -100,7 +100,7 @@ proptest! {
         rating in arb_rating(),
     ) {
         let card = card_with_fsrs_data(stability, difficulty);
-        let (_, scheduler_data) = calculate_next_review(&card, rating).unwrap();
+        let (_, scheduler_data) = calculate_next_fsrs_review(&card, rating).unwrap();
         let s = scheduler_data.0["stability"].as_f64().unwrap();
         prop_assert!(s > 0.0, "Stability should be positive, got {}", s);
     }
@@ -113,7 +113,7 @@ proptest! {
         rating in arb_rating(),
     ) {
         let card = card_with_fsrs_data(stability, difficulty);
-        let (_, scheduler_data) = calculate_next_review(&card, rating).unwrap();
+        let (_, scheduler_data) = calculate_next_fsrs_review(&card, rating).unwrap();
         let d = scheduler_data.0["difficulty"].as_f64().unwrap();
         prop_assert!(d > 0.0, "Difficulty should be positive, got {}", d);
     }
@@ -126,7 +126,7 @@ proptest! {
         rating in arb_invalid_rating(),
     ) {
         let card = card_with_fsrs_data(stability, difficulty);
-        let result = calculate_next_review(&card, rating);
+        let result = calculate_next_fsrs_review(&card, rating);
         prop_assert!(result.is_err(),
             "calculate_next_review should return Err for rating {}", rating);
     }
@@ -144,7 +144,7 @@ proptest! {
             0.5,
             None,
         );
-        let result = calculate_next_review(&card, rating);
+        let result = calculate_next_fsrs_review(&card, rating);
         prop_assert!(result.is_ok(),
             "Fresh card should succeed for rating {}, got: {:?}", rating, result.err());
     }
@@ -172,7 +172,7 @@ proptest! {
             None,
         );
         // May return Err but must not panic
-        let _ = calculate_next_review(&card, rating);
+        let _ = calculate_next_fsrs_review(&card, rating);
     }
 
     /// T1r.2: Does not panic for any i32 rating with valid card
@@ -180,7 +180,7 @@ proptest! {
     fn prop_t1r_2_any_rating_no_panic(rating in any::<i32>()) {
         let card = card_with_fsrs_data(10.0, 5.0);
         // May return Err but must not panic
-        let _ = calculate_next_review(&card, rating);
+        let _ = calculate_next_fsrs_review(&card, rating);
     }
 }
 
@@ -659,7 +659,7 @@ proptest! {
                 .first::<String>(&mut pool.get().unwrap())
                 .unwrap();
 
-            assert_eq!(marker, "fsrs-0", "Metadata marker should be 'fsrs-0'");
+            assert_eq!(marker, "fsrs-1", "Metadata marker should be 'fsrs-1'");
         });
     }
 }

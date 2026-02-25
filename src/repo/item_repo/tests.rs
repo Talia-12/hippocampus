@@ -8,7 +8,7 @@ async fn test_create_item() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item of that type
     let title = "Example Item".to_string();
@@ -29,7 +29,7 @@ async fn test_get_item() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item
     let title = "Example Item".to_string();
@@ -64,7 +64,7 @@ async fn test_list_items() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create some items
     let item1 = create_item(
@@ -95,8 +95,8 @@ async fn test_get_items_by_type() {
     let pool = setup_test_db();
 
     // Create two item types
-    let vocab_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
-    let grammar_type = create_item_type(&pool, "Test Type 2".to_string()).await.unwrap();
+    let vocab_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
+    let grammar_type = create_item_type(&pool, "Test Type 2".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create items of different types
     let vocab_item = create_item(
@@ -131,7 +131,7 @@ async fn test_create_item_with_data() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item with complex JSON data
     let data = json!({
@@ -165,7 +165,7 @@ async fn test_update_item_title() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item
     let title = "Original Title".to_string();
@@ -193,7 +193,7 @@ async fn test_update_item_data() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item
     let title = "Original Title".to_string();
@@ -225,7 +225,7 @@ async fn test_update_item_both_fields() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item
     let title = "Original Title".to_string();
@@ -264,7 +264,7 @@ async fn test_update_complex_item_data() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item with simple data
     let title = "Complex Item".to_string();
@@ -321,7 +321,7 @@ async fn test_update_nonexistent_item() {
 #[tokio::test]
 async fn test_list_items_with_filters_default_returns_all() {
     let pool = setup_test_db();
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     let item1 = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
     let item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
@@ -337,8 +337,8 @@ async fn test_list_items_with_filters_default_returns_all() {
 #[tokio::test]
 async fn test_list_items_with_filters_item_type_only() {
     let pool = setup_test_db();
-    let type1 = create_item_type(&pool, "Test Type A".to_string()).await.unwrap();
-    let type2 = create_item_type(&pool, "Test Type B".to_string()).await.unwrap();
+    let type1 = create_item_type(&pool, "Test Type A".to_string(), "fsrs".to_string()).await.unwrap();
+    let type2 = create_item_type(&pool, "Test Type B".to_string(), "fsrs".to_string()).await.unwrap();
 
     let item1 = create_item(&pool, &type1.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
     let _item2 = create_item(&pool, &type2.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
@@ -355,7 +355,7 @@ async fn test_list_items_with_filters_item_type_only() {
 #[tokio::test]
 async fn test_list_items_with_filters_item_type_no_match() {
     let pool = setup_test_db();
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
     let _item = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
 
     let query = crate::dto::GetQueryDtoBuilder::new()
@@ -371,7 +371,7 @@ async fn test_list_items_with_filters_next_review_before() {
     use chrono::Utc;
 
     let pool = setup_test_db();
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     let item1 = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
     let item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
@@ -399,7 +399,7 @@ async fn test_list_items_with_filters_next_review_before() {
 #[tokio::test]
 async fn test_list_items_with_filters_suspended_only() {
     let pool = setup_test_db();
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     let item1 = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
     let _item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
@@ -423,7 +423,7 @@ async fn test_list_items_with_filters_suspended_only() {
 #[tokio::test]
 async fn test_list_items_with_filters_by_tag() {
     let pool = setup_test_db();
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     let item1 = create_item(&pool, &item_type.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
     let _item2 = create_item(&pool, &item_type.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
@@ -444,7 +444,7 @@ async fn test_list_items_with_filters_by_tag() {
 #[tokio::test]
 async fn test_list_items_with_filters_deduplicates_across_cards() {
     let pool = setup_test_db();
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // An item may have multiple cards. Even if multiple cards match, the item should appear once.
     let item = create_item(&pool, &item_type.get_id(), "Multi-card Item".to_string(), json!({"front":"F","back":"B"})).await.unwrap();
@@ -465,7 +465,7 @@ async fn test_list_items_with_filters_deduplicates_across_cards() {
 #[tokio::test]
 async fn test_list_items_with_filters_card_filter_no_match_returns_empty() {
     let pool = setup_test_db();
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
     let _item = create_item(&pool, &item_type.get_id(), "Item".to_string(), json!({"front":"F","back":"B"})).await.unwrap();
 
     // Use a tag that doesn't exist on any item
@@ -482,8 +482,8 @@ async fn test_list_items_with_filters_item_type_and_card_filter() {
     use chrono::Utc;
 
     let pool = setup_test_db();
-    let type1 = create_item_type(&pool, "Test Type A".to_string()).await.unwrap();
-    let type2 = create_item_type(&pool, "Test Type B".to_string()).await.unwrap();
+    let type1 = create_item_type(&pool, "Test Type A".to_string(), "fsrs".to_string()).await.unwrap();
+    let type2 = create_item_type(&pool, "Test Type B".to_string(), "fsrs".to_string()).await.unwrap();
 
     let item1 = create_item(&pool, &type1.get_id(), "Item 1".to_string(), json!({"front":"F1","back":"B1"})).await.unwrap();
     let _item2 = create_item(&pool, &type2.get_id(), "Item 2".to_string(), json!({"front":"F2","back":"B2"})).await.unwrap();
@@ -521,7 +521,7 @@ async fn test_update_with_empty_changes() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item
     let title = "Original Title".to_string();
@@ -552,7 +552,7 @@ async fn test_update_with_empty_changes() {
 async fn test_create_item_unknown_item_type_name_fails() {
     let pool = setup_test_db();
 
-    let item_type = create_item_type(&pool, "0".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "0".to_string(), "fsrs".to_string()).await.unwrap();
     let result = create_item(
         &pool,
         &item_type.get_id(),

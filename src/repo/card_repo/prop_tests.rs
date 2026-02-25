@@ -138,7 +138,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
             let item = create_item(
                 &pool, &item_type.get_id(), "Test".to_string(),
                 json!({"front": "F", "back": "B"}),
@@ -163,7 +163,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
             let item = create_item(
                 &pool, &item_type.get_id(), "Test".to_string(),
                 json!({"front": "F", "back": "B"}),
@@ -187,7 +187,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
             let item = create_item(
                 &pool, &item_type.get_id(), "Test".to_string(),
                 json!({"front": "F", "back": "B"}),
@@ -209,7 +209,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
             let item = create_item(
                 &pool, &item_type.get_id(), "Test".to_string(),
                 json!({"front": "F", "back": "B"}),
@@ -232,7 +232,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
             let item = create_item(
                 &pool, &item_type.get_id(), "Test".to_string(),
                 json!({"front": "F", "back": "B"}),
@@ -258,7 +258,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
             let item = create_item(
                 &pool, &item_type.get_id(), "Test".to_string(),
                 json!({"front": "F", "back": "B"}),
@@ -293,8 +293,8 @@ async fn setup_filter_universe(
     n_items: usize,
     card_mutations: &[CardMutations],
 ) -> (Vec<Card>, HashMap<String, String>, Vec<crate::models::Item>) {
-    let type1 = create_item_type(pool, "Test Type A".to_string()).await.unwrap();
-    let type2 = create_item_type(pool, "Test Type B".to_string()).await.unwrap();
+    let type1 = create_item_type(pool, "Test Type A".to_string(), "fsrs".to_string()).await.unwrap();
+    let type2 = create_item_type(pool, "Test Type B".to_string(), "fsrs".to_string()).await.unwrap();
     let types = [type1.get_id(), type2.get_id()];
 
     let mut items = vec![];
@@ -765,7 +765,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
 
             let mut items = vec![];
             for i in 0..n_items {
@@ -801,7 +801,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
 
             let mut items = vec![];
             for i in 0..n_items {
@@ -836,7 +836,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
 
             for i in 0..n_items {
                 let item = create_item(
@@ -865,7 +865,7 @@ async fn create_n_cards(
     pool: &std::sync::Arc<crate::db::DbPool>,
     n: usize,
 ) -> Vec<Card> {
-    let item_type = create_item_type(pool, "Basic".to_string()).await.unwrap();
+    let item_type = create_item_type(pool, "Basic".to_string(), "fsrs".to_string()).await.unwrap();
     let mut cards = Vec::new();
     for i in 0..n {
         let item = create_item(
@@ -1176,7 +1176,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "Basic".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "Basic".to_string(), "fsrs".to_string()).await.unwrap();
 
             // Card A: low priority, will get sort_position
             let item_a = create_item(&pool, &item_type.get_id(), "A".to_string(),

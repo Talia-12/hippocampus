@@ -65,7 +65,7 @@ async fn test_list_tags_for_item() {
     let pool = setup_test_db();
 
     // Create necessary objects
-    let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create some items
     let item1 = crate::repo::create_item(
@@ -112,7 +112,7 @@ async fn test_list_tags_for_card() {
     let pool = setup_test_db();
 
     // Create necessary objects
-    let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item
     let item = crate::repo::create_item(
@@ -148,7 +148,7 @@ async fn test_add_tag_to_item() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item
     let item = crate::repo::create_item(
@@ -178,7 +178,7 @@ async fn test_remove_tag_from_item() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = crate::repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item
     let item = crate::repo::create_item(

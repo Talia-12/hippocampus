@@ -10,7 +10,7 @@ proptest! {
     /// IT1.1: ItemType::new produces a valid UUID
     #[test]
     fn prop_it1_1_new_produces_valid_uuid(name in "\\PC+") {
-        let item_type = ItemType::new(name);
+        let item_type = ItemType::new(name, "fsrs".to_string());
         prop_assert!(Uuid::parse_str(&item_type.get_id()).is_ok(),
             "get_id() should be a valid UUID, got: {}", item_type.get_id());
     }
@@ -18,14 +18,14 @@ proptest! {
     /// IT1.2: ItemType::new preserves name
     #[test]
     fn prop_it1_2_new_preserves_name(name in "\\PC+") {
-        let item_type = ItemType::new(name.clone());
+        let item_type = ItemType::new(name.clone(), "fsrs".to_string());
         prop_assert_eq!(item_type.get_name(), name);
     }
 
     /// IT1.3: ItemType::new timestamp is recent
     #[test]
     fn prop_it1_3_new_timestamp_recent(name in "\\PC+") {
-        let item_type = ItemType::new(name);
+        let item_type = ItemType::new(name, "fsrs".to_string());
         let diff = (Utc::now() - item_type.get_created_at()).num_seconds();
         prop_assert!(diff < 2, "created_at should be recent, diff: {}s", diff);
     }
@@ -37,9 +37,10 @@ proptest! {
         name in "\\PC+",
         created_at in arb_datetime_utc(),
     ) {
-        let item_type = ItemType::new_with_fields(id.clone(), name.clone(), created_at);
+        let item_type = ItemType::new_with_fields(id.clone(), name.clone(), created_at, "fsrs".to_string());
         prop_assert_eq!(item_type.get_id(), id);
         prop_assert_eq!(item_type.get_name(), name);
+        prop_assert_eq!(item_type.get_review_function(), "fsrs");
         let diff = (item_type.get_created_at() - created_at).num_seconds().abs();
         prop_assert!(diff == 0, "created_at should match, diff: {}s", diff);
     }
@@ -54,7 +55,7 @@ proptest! {
     #[test]
     fn prop_it1r_1_new_does_not_panic(name in arb_messy_string()) {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            ItemType::new(name.clone())
+            ItemType::new(name.clone(), "fsrs".to_string())
         }));
         prop_assert!(result.is_ok(),
             "ItemType::new should not panic for name={:?}", name);
@@ -68,7 +69,7 @@ proptest! {
         created_at in arb_datetime_utc(),
     ) {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            ItemType::new_with_fields(id.clone(), name.clone(), created_at)
+            ItemType::new_with_fields(id.clone(), name.clone(), created_at, "fsrs".to_string())
         }));
         prop_assert!(result.is_ok(),
             "new_with_fields should not panic for id={:?}, name={:?}", id, name);
@@ -83,7 +84,7 @@ proptest! {
     /// IT2.1: set_name / get_name roundtrip
     #[test]
     fn prop_it2_1_name_roundtrip(name in arb_messy_string()) {
-        let mut item_type = ItemType::new("initial".to_string());
+        let mut item_type = ItemType::new("initial".to_string(), "fsrs".to_string());
         item_type.set_name(name.clone());
         prop_assert_eq!(item_type.get_name(), name);
     }
@@ -97,11 +98,12 @@ proptest! {
     /// IT3.1: Serde roundtrip preserves all fields
     #[test]
     fn prop_it3_1_serde_roundtrip(name in "\\PC+") {
-        let item_type = ItemType::new(name);
+        let item_type = ItemType::new(name, "fsrs".to_string());
         let json = serde_json::to_string(&item_type).unwrap();
         let deserialized: ItemType = serde_json::from_str(&json).unwrap();
         prop_assert_eq!(item_type.get_id(), deserialized.get_id());
         prop_assert_eq!(item_type.get_name(), deserialized.get_name());
         prop_assert_eq!(item_type.get_created_at_raw(), deserialized.get_created_at_raw());
+        prop_assert_eq!(item_type.get_review_function(), deserialized.get_review_function());
     }
 }

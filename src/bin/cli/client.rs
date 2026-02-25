@@ -123,10 +123,18 @@ impl HippocampusClient {
     }
 
     /// Creates a new item type
-    pub async fn create_item_type(&self, name: String) -> Result<ItemType, ClientError> {
+    pub async fn create_item_type(&self, name: String, review_function: Option<String>) -> Result<ItemType, ClientError> {
         let url = format!("{}/item_types", self.base_url);
-        let dto = CreateItemTypeDto { name };
+        let dto = CreateItemTypeDto { name, review_function };
         let response = self.client.post(&url).json(&dto).send().await.map_err(ClientError::Request)?.check().await?;
+        response.json().await.map_err(ClientError::Request)
+    }
+
+    /// Updates an item type's review function
+    pub async fn update_item_type(&self, id: &str, review_function: String) -> Result<ItemType, ClientError> {
+        let url = format!("{}/item_types/{}", self.base_url, id);
+        let dto = hippocampus::dto::UpdateItemTypeDto { review_function: Some(review_function) };
+        let response = self.client.patch(&url).json(&dto).send().await.map_err(ClientError::Request)?.check().await?;
         response.json().await.map_err(ClientError::Request)
     }
 

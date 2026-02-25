@@ -17,7 +17,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let data = serde_json::json!({"key": "value"});
 
             let created = create_item(&pool, &item_type.get_id(), title.clone(), data).await.unwrap();
@@ -37,7 +37,7 @@ proptest! {
         rt.block_on(async {
             let pool = setup_test_db();
             let name = format!("Test {}", suffix);
-            let item_type = create_item_type(&pool, name).await.unwrap();
+            let item_type = create_item_type(&pool, name, "fsrs".to_string()).await.unwrap();
             let data = serde_json::json!({"key": "value"});
 
             let created = create_item(&pool, &item_type.get_id(), "Title".to_string(), data).await.unwrap();
@@ -53,7 +53,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
 
             let created = create_item(&pool, &item_type.get_id(), "Title".to_string(), data.clone()).await.unwrap();
             let retrieved = get_item(&pool, &created.get_id()).unwrap().unwrap();
@@ -70,7 +70,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let data = serde_json::json!({"key": "value"});
 
             let item = create_item(&pool, &item_type.get_id(), title, data).await.unwrap();
@@ -100,7 +100,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let count = titles.len();
 
             let mut created = Vec::with_capacity(count);
@@ -143,7 +143,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
 
             let created = create_item(&pool, &item_type.get_id(), orig_title, data.clone()).await.unwrap();
             let updated = update_item(&pool, &created.get_id(), Some(new_title.clone()), None).await.unwrap();
@@ -164,7 +164,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
 
             let created = create_item(&pool, &item_type.get_id(), title.clone(), orig_data).await.unwrap();
             let updated = update_item(&pool, &created.get_id(), None, Some(new_data.clone())).await.unwrap();
@@ -181,7 +181,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
 
             let created = create_item(&pool, &item_type.get_id(), title.clone(), data.clone()).await.unwrap();
             let updated = update_item(&pool, &created.get_id(), None, None).await.unwrap();
@@ -202,7 +202,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let data = serde_json::json!({"key": "value"});
 
             let created = create_item(&pool, &item_type.get_id(), title, data).await.unwrap();
@@ -219,7 +219,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let data = serde_json::json!({"key": "value"});
 
             let created = create_item(&pool, &item_type.get_id(), title.clone(), data).await.unwrap();
@@ -258,7 +258,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let count = titles.len();
 
             for title in &titles {
@@ -281,8 +281,8 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let type_a = create_item_type(&pool, "Test TypeA".to_string()).await.unwrap();
-            let type_b = create_item_type(&pool, "Test TypeB".to_string()).await.unwrap();
+            let type_a = create_item_type(&pool, "Test TypeA".to_string(), "fsrs".to_string()).await.unwrap();
+            let type_b = create_item_type(&pool, "Test TypeB".to_string(), "fsrs".to_string()).await.unwrap();
 
             for i in 0..count_a {
                 let data = serde_json::json!({"key": "a"});
@@ -327,7 +327,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
 
             for i in 0..count {
                 let data = serde_json::json!({"key": "value"});
@@ -352,8 +352,8 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let type_a = create_item_type(&pool, "Test TypeA".to_string()).await.unwrap();
-            let type_b = create_item_type(&pool, "Test TypeB".to_string()).await.unwrap();
+            let type_a = create_item_type(&pool, "Test TypeA".to_string(), "fsrs".to_string()).await.unwrap();
+            let type_b = create_item_type(&pool, "Test TypeB".to_string(), "fsrs".to_string()).await.unwrap();
 
             for i in 0..count {
                 let data = serde_json::json!({"key": "value"});
@@ -381,7 +381,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
 
             for i in 0..count {
                 let data = serde_json::json!({"key": "value"});
@@ -412,7 +412,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let data = serde_json::json!({"key": "value"});
 
             let item = create_item(&pool, &item_type.get_id(), title, data).await.unwrap();

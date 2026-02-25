@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 2fc6918e5455994b9bec860c39ee6d2e730b48b9ed026d862c8b752d1391bfaa # shrinks to name = "0"
+cc e02dfcb401a81de0ae884a164b28832ebfaee2ae8c6eabd61a59820f42beb04b # shrinks to data = Object {"": Object {"": Number(-4.2205342708699e-310)}}

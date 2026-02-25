@@ -144,7 +144,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up test data
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
@@ -179,7 +179,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up test data
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
         
         let item = repo::create_item(
             &pool,
@@ -235,7 +235,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up test data
-        let item_type = repo::create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),

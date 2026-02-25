@@ -281,8 +281,11 @@ pub fn json_approx_eq(a: &Value, b: &Value) -> bool {
                     if fa == fb { return true; }
                     let abs_diff = (fa - fb).abs();
                     let max_abs = fa.abs().max(fb.abs());
-                    if max_abs == 0.0 { abs_diff < 1e-15 }
-                    else { abs_diff / max_abs < 1e-14 }
+
+                    const ABS_TOLERANCE: f64 = 1e-323;
+                    const REL_TOLERANCE: f64 = 1e-14;
+
+                    abs_diff <= ABS_TOLERANCE || abs_diff <= REL_TOLERANCE * max_abs
                 }
                 _ => a == b,
             }

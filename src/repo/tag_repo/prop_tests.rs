@@ -106,7 +106,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let item = crate::repo::create_item(
                 &pool, &item_type.get_id(), "Item".to_string(),
                 serde_json::json!({"key": "value"}),
@@ -130,7 +130,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let item = crate::repo::create_item(
                 &pool, &item_type.get_id(), "Item".to_string(),
                 serde_json::json!({"key": "value"}),
@@ -161,7 +161,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let item_a = crate::repo::create_item(
                 &pool, &item_type.get_id(), "ItemA".to_string(),
                 serde_json::json!({"key": "a"}),
@@ -206,7 +206,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let item = crate::repo::create_item(
                 &pool, &item_type.get_id(), "Item".to_string(),
                 serde_json::json!({"key": "value"}),
@@ -226,7 +226,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let item = crate::repo::create_item(
                 &pool, &item_type.get_id(), "Item".to_string(),
                 serde_json::json!({"key": "value"}),
@@ -264,7 +264,7 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string()).await.unwrap();
+            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
             let item = crate::repo::create_item(
                 &pool, &item_type.get_id(), "Item".to_string(),
                 serde_json::json!({"key": "value"}),

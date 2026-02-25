@@ -118,7 +118,7 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
     Router::new()
         // Routes for item types
         .route("/item_types", post(handlers::create_item_type_handler).get(handlers::list_item_types_handler))
-        .route("/item_types/{item_type_id}", get(handlers::get_item_type_handler))
+        .route("/item_types/{item_type_id}", get(handlers::get_item_type_handler).patch(handlers::update_item_type_handler))
         .route("/item_types/{item_type_id}/items", get(handlers::list_items_by_item_type_handler))
         
         // Routes for items
@@ -411,7 +411,7 @@ mod tests {
         let app = create_app(pool.clone());
         
         // Create an item type first
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Create a request with a JSON body
         let request = Request::builder()
@@ -450,7 +450,7 @@ mod tests {
         let app = create_app(pool.clone());
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool, 
             &item_type.get_id(), 
@@ -498,7 +498,7 @@ mod tests {
         let app = create_app(pool.clone());
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool, 
             &item_type.get_id(), 
@@ -579,7 +579,7 @@ mod tests {
         let app = create_app(pool.clone());
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool, 
             &item_type.get_id(), 
@@ -626,7 +626,7 @@ mod tests {
         // Set up a test database
         let pool = setup_test_db();
 
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Create a few items first
         let titles = vec!["Item 1", "Item 2", "Item 3"];
@@ -681,7 +681,7 @@ mod tests {
         
         // Create an item first
         let title = "Item to Get".to_string();
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(&pool, &item_type.get_id(), title.clone(), serde_json::Value::Null).await.unwrap();
         
         // Create the application
@@ -724,7 +724,7 @@ mod tests {
         
         // Create an item first
         let title = "Item to Review".to_string();
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(&pool, &item_type.get_id(), title.clone(), serde_json::Value::Null).await.unwrap();
         let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
         let card = cards.first().unwrap();
@@ -835,7 +835,7 @@ mod tests {
         
         // Create an item type first
         let name = "Item Type to Get".to_string();
-        let item_type = repo::create_item_type(&pool, name.clone()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, name.clone(), "fsrs".to_string()).await.unwrap();
         
         // Create the application
         let app = create_app(pool.clone());

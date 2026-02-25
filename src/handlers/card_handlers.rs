@@ -390,7 +390,7 @@ mod tests {
         let pool = setup_test_db();
         
         // First create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Then create an item of that type
         let item = repo::create_item(
@@ -447,7 +447,7 @@ mod tests {
         let pool = setup_test_db();
         
         // First create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
         
         // Then create an item of that type
         let item = repo::create_item(
@@ -494,7 +494,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up some test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
@@ -524,7 +524,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Set up some test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
         let item1 = repo::create_item(
             &pool,
             &item_type.get_id(),
@@ -580,7 +580,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
@@ -613,7 +613,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
@@ -656,7 +656,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),
@@ -687,7 +687,7 @@ mod tests {
         let pool = setup_test_db();
         
         // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string()).await.unwrap();
+        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
         let item = repo::create_item(
             &pool,
             &item_type.get_id(),

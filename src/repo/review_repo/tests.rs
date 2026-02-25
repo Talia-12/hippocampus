@@ -8,7 +8,7 @@ async fn test_record_review() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item
     let item = create_item(
@@ -52,7 +52,7 @@ async fn test_get_reviews_for_card() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item
     let item = create_item(
@@ -91,7 +91,7 @@ async fn test_record_review_edge_cases() {
     let pool = setup_test_db();
 
     // Create an item type
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
 
     // Create an item
     let item = create_item(
@@ -207,7 +207,7 @@ pub(super) fn card_with_fsrs_data(stability: f32, difficulty: f32) -> Card {
 
 /// Extract the interval in days from calculate_next_review's next_review datetime
 pub(super) fn interval_days_for(card: &Card, rating: i32) -> f64 {
-    let (next_review, _) = calculate_next_review(card, rating).unwrap();
+    let (next_review, _) = calculate_next_fsrs_review(card, rating).unwrap();
     let diff = next_review - Utc::now();
     diff.num_hours() as f64 / 24.0
 }
@@ -267,7 +267,7 @@ async fn test_migrate_scheduler_data() {
     let pool = setup_test_db();
 
     // Create an item type and item
-    let item_type = create_item_type(&pool, "Test Type".to_string()).await.unwrap();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
     let item = create_item(
         &pool,
         &item_type.get_id(),
@@ -312,7 +312,7 @@ async fn test_migrate_scheduler_data() {
         .select(metadata::value)
         .first::<String>(&mut pool.get().unwrap())
         .unwrap();
-    assert_eq!(marker, "fsrs-0");
+    assert_eq!(marker, "fsrs-1");
 
     // Run migration again - should be a no-op
     migrate_scheduler_data(&pool).await.unwrap();

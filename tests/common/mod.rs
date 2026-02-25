@@ -91,10 +91,13 @@ pub async fn create_item_type(app: &mut Router, name: String) -> ItemType {
         "%Y-%m-%dT%H:%M:%S%.f"
     ).unwrap().and_utc();
     
+    let review_function = item_type["review_function"].as_str().unwrap_or("fsrs").to_string();
+
     ItemType::new_with_fields(
         item_type_id.to_string(),
         name,
         created_at,
+        review_function,
     )
 }
 

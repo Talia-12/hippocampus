@@ -58,6 +58,18 @@ pub struct CreateReviewDto {
 pub struct CreateItemTypeDto {
     /// The name of the item type
     pub name: String,
+    /// The review function to use for scheduling (defaults to "fsrs" if not provided)
+    #[serde(default)]
+    pub review_function: Option<String>,
+}
+
+/// Data transfer object for updating an item type
+///
+/// This struct is used to deserialize JSON requests for updating item types.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct UpdateItemTypeDto {
+    /// The new review function for the item type
+    pub review_function: Option<String>,
 }
 
 /// Data transfer object for creating a new card

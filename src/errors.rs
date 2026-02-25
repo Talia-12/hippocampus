@@ -16,6 +16,8 @@ pub enum ApiError {
     InvalidRating(String),
     #[error("Invalid priority: {0}")]
     InvalidPriority(String),
+    #[error("Invalid review function: {0}")]
+    InvalidReviewFunction(String),
     #[error("Method not allowed")]
     MethodNotAllowed,
 }
@@ -41,6 +43,11 @@ impl IntoResponse for ApiError {
             ApiError::InvalidPriority(msg) => {
                 // Client errors are logged at warn level
                 warn!(error.kind = "invalid_priority", message = %msg, "Invalid priority: {}", msg);
+                (StatusCode::BAD_REQUEST, msg.clone())
+            },
+            ApiError::InvalidReviewFunction(msg) => {
+                // Client errors are logged at warn level
+                warn!(error.kind = "invalid_review_function", message = %msg, "Invalid review function: {}", msg);
                 (StatusCode::BAD_REQUEST, msg.clone())
             },
             ApiError::MethodNotAllowed => {
