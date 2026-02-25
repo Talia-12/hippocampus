@@ -149,6 +149,9 @@ impl Review {
 }
 
 #[cfg(test)]
+mod prop_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     

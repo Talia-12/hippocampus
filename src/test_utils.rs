@@ -201,6 +201,103 @@ pub fn arb_any_f32() -> impl Strategy<Value = f32> {
     proptest::num::f32::ANY
 }
 
+/// Generates a valid review rating in [1, 4]
+pub fn arb_rating() -> impl Strategy<Value = i32> {
+    1i32..=4i32
+}
+
+/// Generates an invalid review rating outside [1, 4]
+pub fn arb_invalid_rating() -> impl Strategy<Value = i32> {
+    prop_oneof![
+        i32::MIN..=0i32,
+        5i32..=i32::MAX,
+    ]
+}
+
+/// Generates a valid FSRS stability value
+pub fn arb_stability() -> impl Strategy<Value = f32> {
+    (1u32..=36500u32).prop_map(|v| v as f32 / 100.0)
+}
+
+/// Generates a valid FSRS difficulty value in [1.0, 10.0]
+pub fn arb_difficulty() -> impl Strategy<Value = f32> {
+    (100u32..=1000u32).prop_map(|v| v as f32 / 100.0)
+}
+
+/// Deduplicates a vec of strings by appending increasing indices to duplicates.
+///
+/// For example: `["cat", "cat", "cat1"]` → `["cat", "cat1", "cat2"]`
+/// Handles cascading collisions (e.g. appending "1" creates a new collision).
+pub fn dedup_names(names: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut result = Vec::with_capacity(names.len());
+
+    for name in names {
+        if seen.insert(name.clone()) {
+            result.push(name);
+        } else {
+            let mut idx = 1u64;
+            loop {
+                let candidate = format!("{}{}", name, idx);
+                if seen.insert(candidate.clone()) {
+                    result.push(candidate);
+                    break;
+                }
+                idx += 1;
+            }
+        }
+    }
+
+    result
+}
+
+/// Generates an arbitrary string including unicode, control chars, empty, null bytes
+pub fn arb_messy_string() -> impl Strategy<Value = String> {
+    prop_oneof![
+        Just(String::new()),
+        "\\PC*",                              // printable + control characters
+        prop::collection::vec(0u8..=255, 0..100)
+            .prop_map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
+    ]
+}
+
+/// Recursively compares two JSON values with numeric tolerance.
+///
+/// All non-numeric types are compared exactly. Numbers are compared with
+/// relative tolerance (1e-14) to handle f64 precision loss through
+/// serde_json serialize→deserialize roundtrips.
+///
+/// Note: serde_json cannot represent NaN/Infinity (Number::from_f64
+/// returns None for them), so they can never appear in JSON values.
+/// The `arb_json()` strategy filters them out accordingly.
+pub fn json_approx_eq(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Null, Value::Null) => true,
+        (Value::Bool(a), Value::Bool(b)) => a == b,
+        (Value::String(a), Value::String(b)) => a == b,
+        (Value::Number(a), Value::Number(b)) => {
+            match (a.as_f64(), b.as_f64()) {
+                (Some(fa), Some(fb)) => {
+                    if fa == fb { return true; }
+                    let abs_diff = (fa - fb).abs();
+                    let max_abs = fa.abs().max(fb.abs());
+                    if max_abs == 0.0 { abs_diff < 1e-15 }
+                    else { abs_diff / max_abs < 1e-14 }
+                }
+                _ => a == b,
+            }
+        }
+        (Value::Array(a), Value::Array(b)) => {
+            a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| json_approx_eq(x, y))
+        }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter().all(|(k, v)| b.get(k).is_some_and(|bv| json_approx_eq(v, bv)))
+        }
+        _ => false,
+    }
+}
+
 pub fn arb_json() -> impl Strategy<Value = Value> {
     let leaf = prop_oneof![
         Just(Value::Null),
