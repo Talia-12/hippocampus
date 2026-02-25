@@ -1,36 +1,9 @@
 use super::*;
 use crate::repo::tests::setup_test_db;
-use crate::test_utils::arb_messy_string;
+use crate::test_utils::{arb_messy_string, dedup_names};
 use proptest::prelude::*;
 use std::collections::HashSet;
 use uuid::Uuid;
-
-/// Deduplicates a vec of strings by appending increasing indices to duplicates.
-///
-/// For example: ["cat", "cat", "cat1"] → ["cat", "cat1", "cat2"]
-/// Handles cascading collisions (e.g. appending "1" creates a new collision).
-fn dedup_names(names: Vec<String>) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut result = Vec::with_capacity(names.len());
-
-    for name in names {
-        if seen.insert(name.clone()) {
-            result.push(name);
-        } else {
-            let mut idx = 1u64;
-            loop {
-                let candidate = format!("{}{}", name, idx);
-                if seen.insert(candidate.clone()) {
-                    result.push(candidate);
-                    break;
-                }
-                idx += 1;
-            }
-        }
-    }
-
-    result
-}
 
 // ============================================================================
 // ITR1: CRUD Roundtrip Properties

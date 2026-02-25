@@ -224,6 +224,33 @@ pub fn arb_difficulty() -> impl Strategy<Value = f32> {
     (100u32..=1000u32).prop_map(|v| v as f32 / 100.0)
 }
 
+/// Deduplicates a vec of strings by appending increasing indices to duplicates.
+///
+/// For example: `["cat", "cat", "cat1"]` → `["cat", "cat1", "cat2"]`
+/// Handles cascading collisions (e.g. appending "1" creates a new collision).
+pub fn dedup_names(names: Vec<String>) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut result = Vec::with_capacity(names.len());
+
+    for name in names {
+        if seen.insert(name.clone()) {
+            result.push(name);
+        } else {
+            let mut idx = 1u64;
+            loop {
+                let candidate = format!("{}{}", name, idx);
+                if seen.insert(candidate.clone()) {
+                    result.push(candidate);
+                    break;
+                }
+                idx += 1;
+            }
+        }
+    }
+
+    result
+}
+
 /// Generates an arbitrary string including unicode, control chars, empty, null bytes
 pub fn arb_messy_string() -> impl Strategy<Value = String> {
     prop_oneof![
