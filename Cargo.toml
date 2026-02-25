@@ -44,6 +44,9 @@ chrono = { version = "0.4.40", features = ["serde"] }
 # Random number generation
 rand = "0.9"
 
+# Spaced repetition scheduling
+fsrs = "5"
+
 # Error handling
 anyhow = "1.0.97"
 thiserror = "2.0.12"

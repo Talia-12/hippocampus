@@ -68,7 +68,12 @@ async fn main() {
 	// This pool will be shared across all request handlers
 	info!("Initializing database connection pool");
 	let pool = Arc::new(db::init_pool(&config.database_url));
-	
+
+	// Migrate scheduler data from SM-2 to FSRS if needed
+	info!("Checking for scheduler data migration");
+	repo::migrate_scheduler_data(&pool).await
+		.expect("Failed to migrate scheduler data");
+
 	// Build our application with routes
 	// This sets up all the API endpoints
 	let app = create_app(pool);
