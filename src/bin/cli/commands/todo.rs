@@ -166,7 +166,7 @@ pub async fn execute(
         TodoCommands::Due { tag } => {
             let query = build_due_query(client, &tag).await?;
             let cards = client.list_cards(&query).await?;
-            let mut cards_with_items = fetch_cards_with_items(client, cards).await?;
+            let cards_with_items = fetch_cards_with_items(client, cards).await?;
             output::print_todo_cards(&cards_with_items, config);
         }
 

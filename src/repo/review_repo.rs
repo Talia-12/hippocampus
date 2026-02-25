@@ -196,7 +196,7 @@ fn calculate_next_review(card: &Card, rating: i32) -> Result<(chrono::DateTime<U
            ease_factor, interval, repetitions);
     
     // Calculate the next review date
-    let next_review = Utc::now() + Duration::days(interval as i64);
+    let next_review = Utc::now() + Duration::days(interval as i64) - Duration::hours(1);
     
     // Create updated scheduler data
     let scheduler_data = JsonValue(json!({
