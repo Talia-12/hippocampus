@@ -544,3 +544,24 @@ async fn test_update_with_empty_changes() {
     // The updated_at timestamp should be different, but we can't easily test for that
     // without mocking time or introducing complex test logic
 }
+
+/// Regression: create_item with an item type whose name doesn't contain "Test"
+/// (or match "Basic"/"Cloze"/"Todo") fails because create_cards_for_item
+/// doesn't know how to construct cards for unknown item type names.
+#[tokio::test]
+async fn test_create_item_unknown_item_type_name_fails() {
+    let pool = setup_test_db();
+
+    let item_type = create_item_type(&pool, "0".to_string()).await.unwrap();
+    let result = create_item(
+        &pool,
+        &item_type.get_id(),
+        "Title".to_string(),
+        json!({"key": "value"}),
+    ).await;
+
+    assert!(result.is_err(), "create_item should fail for unknown item type name");
+    let err = result.unwrap_err().to_string();
+    assert!(err.contains("Unable to construct cards for unknown item type"),
+        "Error should mention unknown item type, got: {}", err);
+}

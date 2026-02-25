@@ -28,11 +28,15 @@ proptest! {
     }
 
     /// IR1.2: create→get preserves item_type
+    ///
+    /// Item type names must contain "Test" for card creation to succeed,
+    /// so we prefix the arbitrary name accordingly.
     #[test]
-    fn prop_ir1_2_create_get_preserves_item_type(name in "\\PC+") {
+    fn prop_ir1_2_create_get_preserves_item_type(suffix in "\\PC+") {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
+            let name = format!("Test {}", suffix);
             let item_type = create_item_type(&pool, name).await.unwrap();
             let data = serde_json::json!({"key": "value"});
 
@@ -277,8 +281,8 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let type_a = create_item_type(&pool, "TypeA".to_string()).await.unwrap();
-            let type_b = create_item_type(&pool, "TypeB".to_string()).await.unwrap();
+            let type_a = create_item_type(&pool, "Test TypeA".to_string()).await.unwrap();
+            let type_b = create_item_type(&pool, "Test TypeB".to_string()).await.unwrap();
 
             for i in 0..count_a {
                 let data = serde_json::json!({"key": "a"});
@@ -348,8 +352,8 @@ proptest! {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let type_a = create_item_type(&pool, "TypeA".to_string()).await.unwrap();
-            let type_b = create_item_type(&pool, "TypeB".to_string()).await.unwrap();
+            let type_a = create_item_type(&pool, "Test TypeA".to_string()).await.unwrap();
+            let type_b = create_item_type(&pool, "Test TypeB".to_string()).await.unwrap();
 
             for i in 0..count {
                 let data = serde_json::json!({"key": "value"});
