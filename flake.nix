@@ -21,6 +21,12 @@
       
       perSystem = { config, self', pkgs, lib, system, ... }:
         let
+          rustToolchain = pkgs.rust-bin.selectLatestNightlyWith (toolchain:
+            toolchain.default.override {
+              extensions = [ "llvm-tools-preview" ];
+            }
+          );
+
           diesel-cli = pkgs.diesel-cli.override {
             sqliteSupport = true;
             mysqlSupport = false;
@@ -37,6 +43,7 @@
           devDeps = [
             diesel-cli
             pkgs.rustc.llvmPackages.llvm
+            pkgs.cargo-llvm-cov
           ];
 
           mkDevShell = rustc: pkgs.mkShell {
@@ -73,10 +80,10 @@
           };
 
           packages.default = self'.packages.hippocampus;
-          packages.hippocampus = mkRustPkg (pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default));
-          
+          packages.hippocampus = mkRustPkg rustToolchain;
+
           devShells.default = self'.devShells.nightly;
-          devShells.nightly = (mkDevShell (pkgs.rust-bin.selectLatestNightlyWith (toolchain: toolchain.default)));
+          devShells.nightly = mkDevShell rustToolchain;
         };
     };
 }
