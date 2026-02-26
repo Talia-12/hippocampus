@@ -1,35 +1,12 @@
 use super::*;
 use super::tests::{card_with_fsrs_data, interval_days_for};
 use crate::repo::tests::setup_test_db;
-use crate::repo::{create_item, create_item_type};
 use crate::test_utils::{
     arb_difficulty, arb_invalid_rating, arb_json, arb_messy_string, arb_rating, arb_stability,
+    arb_setup_card_params, setup_card, SetupCardParams,
 };
 use proptest::prelude::*;
 use serde_json::json;
-
-// ============================================================================
-// Helper: create a card in the database for property tests
-// ============================================================================
-
-/// Creates an item type, item, and returns the card for property testing
-async fn setup_card(pool: &crate::db::DbPool) -> Card {
-    let item_type = create_item_type(pool, "Prop Test Type".to_string(), "fsrs".to_string())
-        .await
-        .unwrap();
-    let item = create_item(
-        pool,
-        &item_type.get_id(),
-        "Prop Test Item".to_string(),
-        json!({"front": "Q", "back": "A"}),
-    )
-    .await
-    .unwrap();
-    crate::schema::cards::table
-        .filter(crate::schema::cards::item_id.eq(item.get_id()))
-        .first::<Card>(&mut pool.get().unwrap())
-        .unwrap()
-}
 
 // ============================================================================
 // T1: calculate_next_review Pure-Logic Properties
@@ -194,15 +171,18 @@ proptest! {
 proptest! {
     /// T2.1: Review count increases by 1 after record_review
     #[test]
-    fn prop_t2_1_review_count_increases(rating in arb_rating()) {
+    fn prop_t2_1_review_count_increases(
+        rating in arb_rating(),
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
-            let before = get_reviews_for_card(&pool, &card.get_id()).unwrap().len();
-            record_review(&pool, &card.get_id(), rating).await.unwrap();
-            let after = get_reviews_for_card(&pool, &card.get_id()).unwrap().len();
+            let before = get_reviews_for_card(&pool, &tc.card.get_id()).unwrap().len();
+            record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
+            let after = get_reviews_for_card(&pool, &tc.card.get_id()).unwrap().len();
 
             assert_eq!(after, before + 1, "Review count should increase by 1");
         });
@@ -210,65 +190,86 @@ proptest! {
 
     /// T2.2: Review references correct card
     #[test]
-    fn prop_t2_2_review_references_correct_card(rating in arb_rating()) {
+    fn prop_t2_2_review_references_correct_card(
+        rating in arb_rating(),
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
-            let review = record_review(&pool, &card.get_id(), rating).await.unwrap();
-            assert_eq!(review.get_card_id(), card.get_id());
+            let review = record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
+            assert_eq!(review.get_card_id(), tc.card.get_id());
         });
     }
 
     /// T2.3: Review has correct rating
     #[test]
-    fn prop_t2_3_review_has_correct_rating(rating in arb_rating()) {
+    fn prop_t2_3_review_has_correct_rating(
+        rating in arb_rating(),
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
-            let review = record_review(&pool, &card.get_id(), rating).await.unwrap();
+            let review = record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
             assert_eq!(review.get_rating(), rating);
         });
     }
 
-    /// T2.4: Card's scheduler_data is set after review
+    /// T2.4: Card's scheduler_data is set after review with appropriate keys
     #[test]
-    fn prop_t2_4_scheduler_data_set(rating in arb_rating()) {
+    fn prop_t2_4_scheduler_data_set(
+        rating in arb_rating(),
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let review_fn = params.review_function.clone();
+            let tc = setup_card(&pool, params).await;
 
-            record_review(&pool, &card.get_id(), rating).await.unwrap();
+            record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
 
             let updated = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
             let data = updated.get_scheduler_data();
             assert!(data.is_some(), "scheduler_data should be set after review");
-            let obj = data.unwrap().0;
-            assert!(obj["stability"].as_f64().is_some(), "Should have stability");
-            assert!(obj["difficulty"].as_f64().is_some(), "Should have difficulty");
+            let obj = data.unwrap().0.as_object().unwrap().clone();
+            match review_fn.as_str() {
+                "fsrs" => {
+                    assert!(obj.contains_key("stability"), "FSRS should have stability key");
+                    assert!(obj.contains_key("difficulty"), "FSRS should have difficulty key");
+                }
+                "incremental_queue" => {
+                    assert!(obj.contains_key("interval"), "IQ should have interval key");
+                }
+                _ => panic!("Unexpected review function: {}", review_fn),
+            }
         });
     }
 
     /// T2.5: Card's last_review is set after review
     #[test]
-    fn prop_t2_5_last_review_set(rating in arb_rating()) {
+    fn prop_t2_5_last_review_set(
+        rating in arb_rating(),
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
-            record_review(&pool, &card.get_id(), rating).await.unwrap();
+            record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
 
             let updated = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
@@ -280,16 +281,19 @@ proptest! {
 
     /// T2.6: Card's next_review moves forward after review with rating >= 2
     #[test]
-    fn prop_t2_6_next_review_moves_forward(rating in 2i32..=4i32) {
+    fn prop_t2_6_next_review_moves_forward(
+        rating in 2i32..=4i32,
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
-            record_review(&pool, &card.get_id(), rating).await.unwrap();
+            record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
 
             let updated = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
@@ -302,24 +306,27 @@ proptest! {
 
     /// T2.7: Invalid rating returns Err without side effects
     #[test]
-    fn prop_t2_7_invalid_rating_no_side_effects(rating in arb_invalid_rating()) {
+    fn prop_t2_7_invalid_rating_no_side_effects(
+        rating in arb_invalid_rating(),
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
-            let before_reviews = get_reviews_for_card(&pool, &card.get_id()).unwrap().len();
+            let before_reviews = get_reviews_for_card(&pool, &tc.card.get_id()).unwrap().len();
             let before_card = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
-            let result = record_review(&pool, &card.get_id(), rating).await;
+            let result = record_review(&pool, &tc.card.get_id(), rating).await;
             assert!(result.is_err(), "Should fail for rating {}", rating);
 
-            let after_reviews = get_reviews_for_card(&pool, &card.get_id()).unwrap().len();
+            let after_reviews = get_reviews_for_card(&pool, &tc.card.get_id()).unwrap().len();
             let after_card = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
@@ -353,35 +360,41 @@ proptest! {
 proptest! {
     /// T3.1: Returns exactly 4 results (one per rating)
     #[test]
-    fn prop_t3_1_returns_four_results(rating in arb_rating()) {
+    fn prop_t3_1_returns_four_results(
+        rating in arb_rating(),
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
             // Optionally review first to give the card some state
             if rating > 1 {
-                record_review(&pool, &card.get_id(), rating).await.unwrap();
+                record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
             }
 
-            let results = get_all_next_reviews_for_card(&pool, &card.get_id()).await.unwrap();
+            let results = get_all_next_reviews_for_card(&pool, &tc.card.get_id()).await.unwrap();
             assert_eq!(results.len(), 4, "Should return exactly 4 results");
         });
     }
 
     /// T3.2: Results are monotonically increasing in next_review time
     #[test]
-    fn prop_t3_2_monotonically_increasing(rating in arb_rating()) {
+    fn prop_t3_2_monotonically_increasing(
+        rating in arb_rating(),
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
             if rating > 1 {
-                record_review(&pool, &card.get_id(), rating).await.unwrap();
+                record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
             }
 
-            let results = get_all_next_reviews_for_card(&pool, &card.get_id()).await.unwrap();
+            let results = get_all_next_reviews_for_card(&pool, &tc.card.get_id()).await.unwrap();
             for i in 0..3 {
                 assert!(
                     results[i].0 <= results[i + 1].0,
@@ -394,24 +407,27 @@ proptest! {
 
     /// T3.3: Read-only: calling get_all_next_reviews_for_card does not modify card state
     #[test]
-    fn prop_t3_3_read_only(rating in arb_rating()) {
+    fn prop_t3_3_read_only(
+        rating in arb_rating(),
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
             // Record a review to give the card some state
-            record_review(&pool, &card.get_id(), rating).await.unwrap();
+            record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
 
             let card_before = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
-            let _ = get_all_next_reviews_for_card(&pool, &card.get_id()).await.unwrap();
+            let _ = get_all_next_reviews_for_card(&pool, &tc.card.get_id()).await.unwrap();
 
             let card_after = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
@@ -419,25 +435,39 @@ proptest! {
         });
     }
 
-    /// T3.4: Each result contains valid FSRS data (stability > 0, difficulty > 0)
+    /// T3.4: Each result contains valid scheduler data for the review function
     #[test]
-    fn prop_t3_4_valid_fsrs_data(rating in arb_rating()) {
+    fn prop_t3_4_valid_scheduler_data(
+        rating in arb_rating(),
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let review_fn = params.review_function.clone();
+            let tc = setup_card(&pool, params).await;
 
             if rating > 1 {
-                record_review(&pool, &card.get_id(), rating).await.unwrap();
+                record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
             }
 
-            let results = get_all_next_reviews_for_card(&pool, &card.get_id()).await.unwrap();
+            let results = get_all_next_reviews_for_card(&pool, &tc.card.get_id()).await.unwrap();
             for (i, (_, data)) in results.iter().enumerate() {
                 let obj = data.0.as_object().unwrap();
-                let s = obj["stability"].as_f64().unwrap();
-                let d = obj["difficulty"].as_f64().unwrap();
-                assert!(s > 0.0, "Rating {} stability should be positive, got {}", i + 1, s);
-                assert!(d > 0.0, "Rating {} difficulty should be positive, got {}", i + 1, d);
+                match review_fn.as_str() {
+                    "fsrs" => {
+                        let s = obj["stability"].as_f64().unwrap();
+                        let d = obj["difficulty"].as_f64().unwrap();
+                        assert!(s > 0.0, "Rating {} stability should be positive, got {}", i + 1, s);
+                        assert!(d > 0.0, "Rating {} difficulty should be positive, got {}", i + 1, d);
+                    }
+                    "incremental_queue" => {
+                        let interval = obj["interval"].as_f64().unwrap();
+                        assert!(interval >= 1.0,
+                            "Rating {} interval should be >= 1.0, got {}", i + 1, interval);
+                    }
+                    _ => panic!("Unexpected review function: {}", review_fn),
+                }
             }
         });
     }
@@ -450,18 +480,21 @@ proptest! {
 proptest! {
     /// T4.1: Returns reviews in descending timestamp order
     #[test]
-    fn prop_t4_1_descending_order(num_reviews in 2usize..=5usize) {
+    fn prop_t4_1_descending_order(
+        num_reviews in 2usize..=5usize,
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
             for _ in 0..num_reviews {
-                record_review(&pool, &card.get_id(), 3).await.unwrap();
+                record_review(&pool, &tc.card.get_id(), 3).await.unwrap();
                 std::thread::sleep(std::time::Duration::from_millis(10));
             }
 
-            let reviews = get_reviews_for_card(&pool, &card.get_id()).unwrap();
+            let reviews = get_reviews_for_card(&pool, &tc.card.get_id()).unwrap();
             for i in 0..reviews.len() - 1 {
                 assert!(
                     reviews[i].get_review_timestamp() >= reviews[i + 1].get_review_timestamp(),
@@ -473,17 +506,20 @@ proptest! {
 
     /// T4.2: All returned reviews belong to the queried card
     #[test]
-    fn prop_t4_2_reviews_belong_to_card(rating in arb_rating()) {
+    fn prop_t4_2_reviews_belong_to_card(
+        rating in arb_rating(),
+        params in arb_setup_card_params(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
-            record_review(&pool, &card.get_id(), rating).await.unwrap();
+            record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
 
-            let reviews = get_reviews_for_card(&pool, &card.get_id()).unwrap();
+            let reviews = get_reviews_for_card(&pool, &tc.card.get_id()).unwrap();
             for review in &reviews {
-                assert_eq!(review.get_card_id(), card.get_id(),
+                assert_eq!(review.get_card_id(), tc.card.get_id(),
                     "Review should belong to queried card");
             }
         });
@@ -491,14 +527,161 @@ proptest! {
 
     /// T4.3: Returns empty vec for card with no reviews (not an error)
     #[test]
-    fn prop_t4_3_empty_for_unreviewed_card(_dummy in 0..1i32) {
+    fn prop_t4_3_empty_for_unreviewed_card(params in arb_setup_card_params()) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
-            let reviews = get_reviews_for_card(&pool, &card.get_id()).unwrap();
+            let reviews = get_reviews_for_card(&pool, &tc.card.get_id()).unwrap();
             assert!(reviews.is_empty(), "Should return empty vec for unreviewed card");
+        });
+    }
+}
+
+// ============================================================================
+// IQ1: calculate_next_incremental_queue_review Properties
+// ============================================================================
+
+proptest! {
+    /// IQ1.1: Rating 1 always resets interval to 1.0
+    #[test]
+    fn prop_iq1_1_rating_1_resets_to_one(
+        interval in 1.0f64..=365.0f64,
+        priority in crate::test_utils::arb_priority(),
+    ) {
+        let card = super::tests::card_with_iq_data(interval, priority);
+        let (_, scheduler_data) = calculate_next_incremental_queue_review(&card, 1).unwrap();
+        let new_interval = scheduler_data.0["interval"].as_f64().unwrap();
+        prop_assert!(
+            (new_interval - 1.0).abs() < f64::EPSILON,
+            "Rating 1 should reset to 1.0, got {}", new_interval
+        );
+    }
+
+    /// IQ1.2: All valid ratings produce a next_review in the future
+    #[test]
+    fn prop_iq1_2_next_review_in_future(
+        interval in 1.0f64..=365.0f64,
+        priority in crate::test_utils::arb_priority(),
+        rating in arb_rating(),
+    ) {
+        let card = super::tests::card_with_iq_data(interval, priority);
+        let (next_review, _) = calculate_next_incremental_queue_review(&card, rating).unwrap();
+        let threshold = Utc::now() - Duration::hours(2);
+        prop_assert!(
+            next_review > threshold,
+            "next_review {} should be after {} (now - 2h)", next_review, threshold
+        );
+    }
+
+    /// IQ1.3: Output always contains "interval" key
+    #[test]
+    fn prop_iq1_3_scheduler_data_has_interval_key(
+        interval in 1.0f64..=365.0f64,
+        priority in crate::test_utils::arb_priority(),
+        rating in arb_rating(),
+    ) {
+        let card = super::tests::card_with_iq_data(interval, priority);
+        let (_, scheduler_data) = calculate_next_incremental_queue_review(&card, rating).unwrap();
+        let obj = scheduler_data.0.as_object().unwrap();
+        prop_assert!(obj.contains_key("interval"), "Missing 'interval' key in {:?}", obj);
+    }
+
+    /// IQ1.4: Intervals respect minimum bounds per rating
+    #[test]
+    fn prop_iq1_4_interval_respects_minimums(
+        interval in 1.0f64..=365.0f64,
+        priority in crate::test_utils::arb_priority(),
+    ) {
+        let card = super::tests::card_with_iq_data(interval, priority);
+
+        let (_, data2) = calculate_next_incremental_queue_review(&card, 2).unwrap();
+        let int2 = data2.0["interval"].as_f64().unwrap();
+        prop_assert!(int2 >= 2.0, "Rating 2 interval should be >= 2.0, got {}", int2);
+
+        let (_, data3) = calculate_next_incremental_queue_review(&card, 3).unwrap();
+        let int3 = data3.0["interval"].as_f64().unwrap();
+        prop_assert!(int3 >= 4.0, "Rating 3 interval should be >= 4.0, got {}", int3);
+
+        let (_, data4) = calculate_next_incremental_queue_review(&card, 4).unwrap();
+        let int4 = data4.0["interval"].as_f64().unwrap();
+        prop_assert!(int4 >= 7.0, "Rating 4 interval should be >= 7.0, got {}", int4);
+    }
+
+    /// IQ1.5: Higher priority (1.0) produces shorter intervals than lower priority (0.0) for rating >= 2
+    ///
+    /// Priority 1.0 -> multiplier ~1.2 (slow growth), Priority 0.0 -> multiplier ~3.0 (fast growth)
+    /// So high-priority items should have shorter intervals (seen more often).
+    /// We test this statistically: on average, high priority should give shorter intervals.
+    /// Due to jitter, individual comparisons may not hold, so we run multiple samples.
+    #[test]
+    fn prop_iq1_5_priority_affects_growth(
+        interval in 10.0f64..=100.0f64,
+        rating in 2i32..=4i32,
+    ) {
+        let high_priority_card = super::tests::card_with_iq_data(interval, 1.0);
+        let low_priority_card = super::tests::card_with_iq_data(interval, 0.0);
+
+        // Run multiple samples to smooth out jitter
+        let samples = 20;
+        let mut high_sum = 0.0;
+        let mut low_sum = 0.0;
+        for _ in 0..samples {
+            let (_, high_data) = calculate_next_incremental_queue_review(&high_priority_card, rating).unwrap();
+            let (_, low_data) = calculate_next_incremental_queue_review(&low_priority_card, rating).unwrap();
+            high_sum += high_data.0["interval"].as_f64().unwrap();
+            low_sum += low_data.0["interval"].as_f64().unwrap();
+        }
+        let high_avg = high_sum / samples as f64;
+        let low_avg = low_sum / samples as f64;
+
+        prop_assert!(
+            high_avg < low_avg,
+            "High priority avg interval ({:.2}) should be < low priority avg interval ({:.2}) for rating {}",
+            high_avg, low_avg, rating
+        );
+    }
+
+    /// IQ1.6: Ratings outside 1-4 fail
+    #[test]
+    fn prop_iq1_6_invalid_rating_returns_err(
+        rating in crate::test_utils::arb_invalid_rating(),
+    ) {
+        let card = super::tests::card_with_iq_data(10.0, 0.5);
+        let result = calculate_next_incremental_queue_review(&card, rating);
+        prop_assert!(result.is_err(),
+            "Should fail for rating {}", rating);
+    }
+
+    /// IQ1.7: Full DB roundtrip: create item type with "incremental_queue", review, verify card updated
+    #[test]
+    fn prop_iq1_7_record_review_iq_db_roundtrip(rating in arb_rating()) {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let pool = setup_test_db();
+            let params = SetupCardParams {
+                item_type_name: "IQ Test Type".to_string(),
+                review_function: "incremental_queue".to_string(),
+                item_title: "IQ Test Item".to_string(),
+                item_data: json!({"content": "test"}),
+            };
+            let tc = setup_card(&pool, params).await;
+
+            let review = record_review(&pool, &tc.card.get_id(), rating).await.unwrap();
+            assert_eq!(review.get_card_id(), tc.card.get_id());
+            assert_eq!(review.get_rating(), rating);
+
+            let updated = crate::schema::cards::table
+                .find(tc.card.get_id())
+                .first::<Card>(&mut pool.get().unwrap())
+                .unwrap();
+
+            let data = updated.get_scheduler_data().unwrap().0;
+            assert!(data["interval"].as_f64().is_some(),
+                "Should have 'interval' key after IQ review");
+            assert!(updated.get_last_review().is_some(),
+                "last_review should be set after review");
         });
     }
 }
@@ -510,18 +693,18 @@ proptest! {
 proptest! {
     /// T5.1: Idempotency — calling migrate twice produces same result as once
     #[test]
-    fn prop_t5_1_idempotency(_dummy in 0..1i32) {
+    fn prop_t5_1_idempotency(params in arb_setup_card_params()) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
             // Set SM-2 data
             let sm2_data = JsonValue(json!({
                 "ease_factor": 2.5,
                 "interval": 10.0,
             }));
-            diesel::update(cards::table.find(card.get_id()))
+            diesel::update(cards::table.find(tc.card.get_id()))
                 .set(cards::scheduler_data.eq(Some(sm2_data)))
                 .execute(&mut pool.get().unwrap())
                 .unwrap();
@@ -529,14 +712,14 @@ proptest! {
             // Migrate once
             migrate_scheduler_data(&pool).await.unwrap();
             let after_first = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
             // Migrate again
             migrate_scheduler_data(&pool).await.unwrap();
             let after_second = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
@@ -553,17 +736,18 @@ proptest! {
     fn prop_t5_2_sm2_converted(
         ease in 1.3f64..=4.0f64,
         interval in 1.0f64..=365.0f64,
+        params in arb_setup_card_params(),
     ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
             let sm2_data = JsonValue(json!({
                 "ease_factor": ease,
                 "interval": interval,
             }));
-            diesel::update(cards::table.find(card.get_id()))
+            diesel::update(cards::table.find(tc.card.get_id()))
                 .set(cards::scheduler_data.eq(Some(sm2_data)))
                 .execute(&mut pool.get().unwrap())
                 .unwrap();
@@ -571,7 +755,7 @@ proptest! {
             migrate_scheduler_data(&pool).await.unwrap();
 
             let updated = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
@@ -588,17 +772,18 @@ proptest! {
     fn prop_t5_3_fsrs_data_untouched(
         stability in arb_stability(),
         difficulty in arb_difficulty(),
+        params in arb_setup_card_params(),
     ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
             let fsrs_data = JsonValue(json!({
                 "stability": stability,
                 "difficulty": difficulty,
             }));
-            diesel::update(cards::table.find(card.get_id()))
+            diesel::update(cards::table.find(tc.card.get_id()))
                 .set(cards::scheduler_data.eq(Some(fsrs_data.clone())))
                 .execute(&mut pool.get().unwrap())
                 .unwrap();
@@ -606,7 +791,7 @@ proptest! {
             migrate_scheduler_data(&pool).await.unwrap();
 
             let updated = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
@@ -623,19 +808,19 @@ proptest! {
 
     /// T5.4: Null scheduler_data untouched — cards with null remain null
     #[test]
-    fn prop_t5_4_null_data_untouched(_dummy in 0..1i32) {
+    fn prop_t5_4_null_data_untouched(params in arb_setup_card_params()) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let card = setup_card(&pool).await;
+            let tc = setup_card(&pool, params).await;
 
             // Card starts with null scheduler_data
-            assert!(card.get_scheduler_data().is_none());
+            assert!(tc.card.get_scheduler_data().is_none());
 
             migrate_scheduler_data(&pool).await.unwrap();
 
             let updated = crate::schema::cards::table
-                .find(card.get_id())
+                .find(tc.card.get_id())
                 .first::<Card>(&mut pool.get().unwrap())
                 .unwrap();
 
@@ -646,10 +831,11 @@ proptest! {
 
     /// T5.5: Metadata marker set after migration
     #[test]
-    fn prop_t5_5_metadata_marker_set(_dummy in 0..1i32) {
+    fn prop_t5_5_metadata_marker_set(params in arb_setup_card_params()) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
+            let _tc = setup_card(&pool, params).await;
 
             migrate_scheduler_data(&pool).await.unwrap();
 

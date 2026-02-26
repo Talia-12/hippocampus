@@ -347,3 +347,112 @@ mod proptests {
         }
     }
 }
+
+// ============================================================================
+// Incremental Queue tests
+// ============================================================================
+
+/// Helper: build a Card with incremental queue scheduler data for pure-logic tests
+pub(super) fn card_with_iq_data(interval: f64, priority: f32) -> Card {
+    Card::new_with_fields(
+        "test-id".to_string(),
+        "item-id".to_string(),
+        0,
+        Utc::now(),
+        Some(Utc::now()),
+        Some(JsonValue(json!({ "interval": interval }))),
+        priority,
+        None,
+    )
+}
+
+#[tokio::test]
+async fn test_record_review_incremental_queue() {
+    let pool = setup_test_db();
+
+    // Create an item type with incremental_queue review function
+    let item_type = create_item_type(&pool, "IQ Test Type".to_string(), "incremental_queue".to_string())
+        .await
+        .unwrap();
+
+    // Create an item
+    let item = create_item(
+        &pool,
+        &item_type.get_id(),
+        "IQ Item".to_string(),
+        json!({"content": "Some content"}),
+    )
+    .await
+    .unwrap();
+
+    // Get the card
+    let card = crate::schema::cards::table
+        .filter(crate::schema::cards::item_id.eq(item.get_id()))
+        .first::<Card>(&mut pool.get().unwrap())
+        .unwrap();
+
+    // Record a review
+    let review = record_review(&pool, &card.get_id(), 3).await.unwrap();
+    assert_eq!(review.get_card_id(), card.get_id());
+    assert_eq!(review.get_rating(), 3);
+
+    // Verify the card was updated with incremental queue scheduler data
+    let updated_card = crate::schema::cards::table
+        .find(card.get_id())
+        .first::<Card>(&mut pool.get().unwrap())
+        .unwrap();
+
+    let data = updated_card.get_scheduler_data().unwrap().0;
+    assert!(
+        data["interval"].as_f64().is_some(),
+        "Should have 'interval' key in scheduler_data"
+    );
+    assert!(
+        data.get("stability").is_none(),
+        "Should not have FSRS 'stability' key"
+    );
+}
+
+#[test]
+fn test_incremental_queue_rating_1_resets() {
+    let card = card_with_iq_data(30.0, 0.5);
+    let (_, scheduler_data) = calculate_next_incremental_queue_review(&card, 1).unwrap();
+    let interval = scheduler_data.0["interval"].as_f64().unwrap();
+    assert!(
+        (interval - 1.0).abs() < f64::EPSILON,
+        "Rating 1 should reset interval to 1.0, got {}",
+        interval
+    );
+}
+
+#[test]
+fn test_incremental_queue_intervals_bounded() {
+    let card = card_with_iq_data(1.0, 0.5);
+
+    // Rating 2: min 2 days
+    let (_, data2) = calculate_next_incremental_queue_review(&card, 2).unwrap();
+    let interval2 = data2.0["interval"].as_f64().unwrap();
+    assert!(
+        interval2 >= 2.0,
+        "Rating 2 interval should be >= 2.0, got {}",
+        interval2
+    );
+
+    // Rating 3: min 4 days
+    let (_, data3) = calculate_next_incremental_queue_review(&card, 3).unwrap();
+    let interval3 = data3.0["interval"].as_f64().unwrap();
+    assert!(
+        interval3 >= 4.0,
+        "Rating 3 interval should be >= 4.0, got {}",
+        interval3
+    );
+
+    // Rating 4: min 7 days
+    let (_, data4) = calculate_next_incremental_queue_review(&card, 4).unwrap();
+    let interval4 = data4.0["interval"].as_f64().unwrap();
+    assert!(
+        interval4 >= 7.0,
+        "Rating 4 interval should be >= 7.0, got {}",
+        interval4
+    );
+}

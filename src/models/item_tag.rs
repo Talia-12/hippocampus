@@ -62,4 +62,9 @@ impl ItemTag {
     pub fn get_created_at(&self) -> DateTime<Utc> {
         DateTime::from_naive_utc_and_offset(self.created_at, Utc)
     }
-} 
+}
+
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod prop_tests; 

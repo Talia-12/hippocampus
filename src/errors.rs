@@ -70,4 +70,7 @@ impl IntoResponse for ApiError {
 
         (status, body).into_response()
     }
-} 
+}
+
+#[cfg(test)]
+mod tests;

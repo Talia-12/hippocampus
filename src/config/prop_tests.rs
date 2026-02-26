@@ -195,3 +195,66 @@ proptest! {
         prop_assert_eq!(update.server_url, None);
     }
 }
+
+// ============================================================================
+// C4: config_from_args preserves arbitrary fields
+// ============================================================================
+
+proptest! {
+    /// C4.1: config_from_args preserves all field values including None
+    #[test]
+    fn prop_c4_1_config_from_args_preserves_fields(
+        database_url in prop::option::of("\\PC{0,50}"),
+        backup_interval_minutes in prop::option::of(0u64..=1_000_000u64),
+        backup_count in prop::option::of(0u32..=1000u32),
+        debug in any::<bool>(),
+    ) {
+        let args = CliArgs {
+            database_url: database_url.clone(),
+            backup_interval_minutes,
+            backup_count,
+            debug,
+        };
+
+        let update = config_from_args(args);
+
+        prop_assert_eq!(update.database_url, database_url);
+        prop_assert_eq!(update.backup_interval_minutes, backup_interval_minutes);
+        prop_assert_eq!(update.backup_count, backup_count);
+        prop_assert_eq!(update.server_url, None);
+    }
+}
+
+// ============================================================================
+// C5: config_from_file roundtrip
+// ============================================================================
+
+proptest! {
+    /// C5.1: Write Config fields to TOML, read back, fields match
+    #[test]
+    fn prop_c5_1_config_from_file_roundtrip(
+        database_url in "[a-zA-Z0-9_./]{1,50}",
+        backup_interval_minutes in 1u64..=1_000_000u64,
+        backup_count in 1u32..=1000u32,
+    ) {
+        use std::io::Write;
+
+        let toml_content = format!(
+            "database_url = \"{}\"\nbackup_interval_minutes = {}\nbackup_count = {}\n",
+            database_url, backup_interval_minutes, backup_count
+        );
+
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        let mut file = std::fs::File::create(&config_path).unwrap();
+        file.write_all(toml_content.as_bytes()).unwrap();
+
+        let result = config_from_file(Some(config_path));
+        prop_assert!(result.is_ok(), "config_from_file should succeed: {:?}", result.err());
+
+        let update = result.unwrap();
+        prop_assert_eq!(update.database_url.as_deref(), Some(database_url.as_str()));
+        prop_assert_eq!(update.backup_interval_minutes, Some(backup_interval_minutes));
+        prop_assert_eq!(update.backup_count, Some(backup_count));
+    }
+}

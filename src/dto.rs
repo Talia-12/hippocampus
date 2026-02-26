@@ -286,3 +286,8 @@ impl fmt::Display for GetQueryDto {
         write!(f, "}}")
     }
 }
+
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod prop_tests;

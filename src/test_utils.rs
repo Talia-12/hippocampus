@@ -4,7 +4,7 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::{DateTime, Utc};
 use diesel::connection::SimpleConnection;
-use diesel::RunQueryDsl;
+use diesel::prelude::*;
 use serde_json::{Value, Number};
 use std::sync::Arc;
 use tower::ServiceExt;
@@ -325,4 +325,94 @@ pub fn arb_json() -> impl Strategy<Value = Value> {
                 .prop_filter("hashmap to map must succeed", |v| v.is_ok())
                 .prop_map(|s| s.unwrap()),
         ])
+}
+
+
+/// Generates a valid review function name
+pub fn arb_review_function() -> impl Strategy<Value = String> {
+    prop_oneof![
+        Just("fsrs".to_string()),
+        Just("incremental_queue".to_string()),
+    ]
+}
+
+/// Generates an item type name accepted by card construction logic
+///
+/// Names must contain "Test" for the card_repo matching logic
+/// to know how many cards to create.
+pub fn arb_item_type_name() -> impl Strategy<Value = String> {
+    "\\PC{0,20}".prop_map(|suffix| format!("Test {}", suffix))
+}
+
+/// Parameters for creating a test card in the database
+#[derive(Debug, Clone)]
+pub struct SetupCardParams {
+    /// Item type name (must contain "Test" for card creation)
+    pub item_type_name: String,
+    /// Review function: "fsrs" or "incremental_queue"
+    pub review_function: String,
+    /// Title for the item
+    pub item_title: String,
+    /// JSON data for the item
+    pub item_data: Value,
+}
+
+/// Generates arbitrary SetupCardParams
+pub fn arb_setup_card_params() -> impl Strategy<Value = SetupCardParams> {
+    (
+        arb_item_type_name(),
+        arb_review_function(),
+        "\\PC+",
+        arb_json(),
+    )
+        .prop_map(|(item_type_name, review_function, item_title, item_data)| {
+            SetupCardParams {
+                item_type_name,
+                review_function,
+                item_title,
+                item_data,
+            }
+        })
+}
+
+/// Result of creating a test card in the database
+#[derive(Debug)]
+pub struct TestCard {
+    pub item_type: models::ItemType,
+    pub item: models::Item,
+    pub card: models::Card,
+}
+
+/// Creates an item type, item, and returns the first card for property testing
+///
+/// This is the standard way to get a card into the database for prop tests.
+/// Use `arb_setup_card_params()` to generate the parameters.
+pub async fn setup_card(pool: &db::DbPool, params: SetupCardParams) -> TestCard {
+    let item_type = repo::create_item_type(
+        pool,
+        params.item_type_name,
+        params.review_function,
+    )
+    .await
+    .unwrap();
+
+    let item = repo::create_item(
+        pool,
+        &item_type.get_id(),
+        params.item_title,
+        params.item_data,
+    )
+    .await
+    .unwrap();
+
+    let card = schema::cards::table
+        .filter(schema::cards::item_id.eq(item.get_id()))
+        .first::<models::Card>(&mut pool.get().unwrap())
+        .unwrap();
+
+    TestCard {
+        item_type,
+        item,
+        card,
+    }
 }

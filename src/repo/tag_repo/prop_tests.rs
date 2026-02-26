@@ -1,6 +1,6 @@
 use super::*;
 use crate::repo::tests::setup_test_db;
-use crate::test_utils::{arb_messy_string, dedup_names};
+use crate::test_utils::{arb_messy_string, arb_setup_card_params, dedup_names, setup_card, SetupCardParams};
 use proptest::prelude::*;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -102,22 +102,21 @@ proptest! {
 proptest! {
     /// TR2.1: add_tag_to_item is idempotent: adding same tag twice results in exactly 1 association
     #[test]
-    fn prop_tr2_1_add_tag_idempotent(repeats in 1usize..=5) {
+    fn prop_tr2_1_add_tag_idempotent(
+        params in arb_setup_card_params(),
+        repeats in 1usize..=5,
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
-            let item = crate::repo::create_item(
-                &pool, &item_type.get_id(), "Item".to_string(),
-                serde_json::json!({"key": "value"}),
-            ).await.unwrap();
+            let tc = setup_card(&pool, params).await;
             let tag = create_tag(&pool, "Tag".to_string(), true).await.unwrap();
 
             for _ in 0..repeats {
-                add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).await.unwrap();
+                add_tag_to_item(&pool, &tag.get_id(), &tc.item.get_id()).await.unwrap();
             }
 
-            let tags = list_tags_for_item(&pool, &item.get_id()).unwrap();
+            let tags = list_tags_for_item(&pool, &tc.item.get_id()).unwrap();
             assert_eq!(tags.len(), 1,
                 "Adding tag {} times should result in exactly 1 association, got {}",
                 repeats, tags.len());
@@ -126,27 +125,27 @@ proptest! {
 
     /// TR2.2: add then remove = original state: tag count returns to 0
     #[test]
-    fn prop_tr2_2_add_remove_identity(name in "\\PC+", visible in any::<bool>()) {
+    fn prop_tr2_2_add_remove_identity(
+        params in arb_setup_card_params(),
+        name in "\\PC+",
+        visible in any::<bool>(),
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
-            let item = crate::repo::create_item(
-                &pool, &item_type.get_id(), "Item".to_string(),
-                serde_json::json!({"key": "value"}),
-            ).await.unwrap();
+            let tc = setup_card(&pool, params).await;
             let tag = create_tag(&pool, name, visible).await.unwrap();
 
             // Before: no tags
-            let before = list_tags_for_item(&pool, &item.get_id()).unwrap();
+            let before = list_tags_for_item(&pool, &tc.item.get_id()).unwrap();
             assert_eq!(before.len(), 0);
 
             // Add then remove
-            add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).await.unwrap();
-            remove_tag_from_item(&pool, &tag.get_id(), &item.get_id()).await.unwrap();
+            add_tag_to_item(&pool, &tag.get_id(), &tc.item.get_id()).await.unwrap();
+            remove_tag_from_item(&pool, &tag.get_id(), &tc.item.get_id()).await.unwrap();
 
             // After: back to no tags
-            let after = list_tags_for_item(&pool, &item.get_id()).unwrap();
+            let after = list_tags_for_item(&pool, &tc.item.get_id()).unwrap();
             assert_eq!(after.len(), 0,
                 "After add+remove, tag count should be 0, got {}", after.len());
         });
@@ -155,33 +154,32 @@ proptest! {
     /// TR2.3: tag isolation: adding a tag to item A does not affect item B's tags
     #[test]
     fn prop_tr2_3_tag_isolation(
+        params in arb_setup_card_params(),
+        title_b in "\\PC+",
+        data_b in crate::test_utils::arb_json(),
         count_a in 0usize..=5,
         count_b in 0usize..=5,
     ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
-            let item_a = crate::repo::create_item(
-                &pool, &item_type.get_id(), "ItemA".to_string(),
-                serde_json::json!({"key": "a"}),
-            ).await.unwrap();
+            let tc_a = setup_card(&pool, params).await;
+            // Create a second item under the same item type to avoid UNIQUE constraint
             let item_b = crate::repo::create_item(
-                &pool, &item_type.get_id(), "ItemB".to_string(),
-                serde_json::json!({"key": "b"}),
+                &pool, &tc_a.item_type.get_id(), title_b, data_b,
             ).await.unwrap();
 
             // Create distinct tags for each item
             for i in 0..count_a {
                 let tag = create_tag(&pool, format!("TagA{}", i), true).await.unwrap();
-                add_tag_to_item(&pool, &tag.get_id(), &item_a.get_id()).await.unwrap();
+                add_tag_to_item(&pool, &tag.get_id(), &tc_a.item.get_id()).await.unwrap();
             }
             for i in 0..count_b {
                 let tag = create_tag(&pool, format!("TagB{}", i), true).await.unwrap();
                 add_tag_to_item(&pool, &tag.get_id(), &item_b.get_id()).await.unwrap();
             }
 
-            let tags_a = list_tags_for_item(&pool, &item_a.get_id()).unwrap();
+            let tags_a = list_tags_for_item(&pool, &tc_a.item.get_id()).unwrap();
             let tags_b = list_tags_for_item(&pool, &item_b.get_id()).unwrap();
 
             assert_eq!(tags_a.len(), count_a,
@@ -200,21 +198,18 @@ proptest! {
     /// TR2.4: remove_tag_from_item for nonexistent association returns Err
     #[test]
     fn prop_tr2_4_remove_nonexistent_association_returns_err(
+        params in arb_setup_card_params(),
         name in "\\PC+",
         visible in any::<bool>(),
     ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
-            let item = crate::repo::create_item(
-                &pool, &item_type.get_id(), "Item".to_string(),
-                serde_json::json!({"key": "value"}),
-            ).await.unwrap();
+            let tc = setup_card(&pool, params).await;
             let tag = create_tag(&pool, name, visible).await.unwrap();
 
             // Don't add the tag — removing should error
-            let result = remove_tag_from_item(&pool, &tag.get_id(), &item.get_id()).await;
+            let result = remove_tag_from_item(&pool, &tag.get_id(), &tc.item.get_id()).await;
             assert!(result.is_err(),
                 "remove_tag_from_item should return Err for nonexistent association");
         });
@@ -222,24 +217,23 @@ proptest! {
 
     /// TR2.5: adding N distinct tags → list_tags_for_item has N entries
     #[test]
-    fn prop_tr2_5_multiple_tags_on_one_item(count in 0usize..=20) {
+    fn prop_tr2_5_multiple_tags_on_one_item(
+        params in arb_setup_card_params(),
+        count in 0usize..=20,
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
-            let item = crate::repo::create_item(
-                &pool, &item_type.get_id(), "Item".to_string(),
-                serde_json::json!({"key": "value"}),
-            ).await.unwrap();
+            let tc = setup_card(&pool, params).await;
 
             let mut tag_ids = Vec::new();
             for i in 0..count {
                 let tag = create_tag(&pool, format!("Tag{}", i), true).await.unwrap();
-                add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).await.unwrap();
+                add_tag_to_item(&pool, &tag.get_id(), &tc.item.get_id()).await.unwrap();
                 tag_ids.push(tag.get_id());
             }
 
-            let tags = list_tags_for_item(&pool, &item.get_id()).unwrap();
+            let tags = list_tags_for_item(&pool, &tc.item.get_id()).unwrap();
             assert_eq!(tags.len(), count,
                 "Expected {} tags on item, got {}", count, tags.len());
 
@@ -260,30 +254,24 @@ proptest! {
 proptest! {
     /// TR3.1: list_tags_for_card returns same set as list_tags_for_item for that card's item
     #[test]
-    fn prop_tr3_1_card_item_tag_consistency(count in 0usize..=10) {
+    fn prop_tr3_1_card_item_tag_consistency(
+        params in arb_setup_card_params(),
+        count in 0usize..=10,
+    ) {
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let pool = setup_test_db();
-            let item_type = crate::repo::create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
-            let item = crate::repo::create_item(
-                &pool, &item_type.get_id(), "Item".to_string(),
-                serde_json::json!({"key": "value"}),
-            ).await.unwrap();
-
-            // Get the card for this item
-            let cards = crate::repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
-            assert!(!cards.is_empty(), "Item should have at least one card");
-            let card = &cards[0];
+            let tc = setup_card(&pool, params).await;
 
             // Add some tags to the item
             for i in 0..count {
                 let tag = create_tag(&pool, format!("Tag{}", i), true).await.unwrap();
-                add_tag_to_item(&pool, &tag.get_id(), &item.get_id()).await.unwrap();
+                add_tag_to_item(&pool, &tag.get_id(), &tc.item.get_id()).await.unwrap();
             }
 
             // Compare tags from both paths
-            let item_tags = list_tags_for_item(&pool, &item.get_id()).unwrap();
-            let card_tags = list_tags_for_card(&pool, &card.get_id()).unwrap();
+            let item_tags = list_tags_for_item(&pool, &tc.item.get_id()).unwrap();
+            let card_tags = list_tags_for_card(&pool, &tc.card.get_id()).unwrap();
 
             let item_tag_ids: HashSet<_> = item_tags.iter().map(|t| t.get_id()).collect();
             let card_tag_ids: HashSet<_> = card_tags.iter().map(|t| t.get_id()).collect();

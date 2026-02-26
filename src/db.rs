@@ -150,16 +150,67 @@ mod tests {
         // This is faster than using a file-based database and avoids cleanup
         let database_url = ":memory:";
         let pool = init_pool(database_url);
-        
+
         // Verify we can get a connection from the pool
         // This ensures the pool is properly configured
         let conn_result = pool.get();
         assert!(conn_result.is_ok(), "Should be able to get a connection from the pool");
-        
+
         // Verify the connection works by executing a simple query
         // This ensures the connection is valid and can execute SQL
         let mut conn = conn_result.unwrap();
         let result = diesel::sql_query("SELECT 1").execute(&mut *conn);
         assert!(result.is_ok(), "Should be able to execute a simple query");
+    }
+
+    #[test]
+    fn test_is_retryable_error_serialization_failure() {
+        let err = DieselError::DatabaseError(
+            DatabaseErrorKind::SerializationFailure,
+            Box::new("serialization failure".to_string()),
+        );
+        assert!(is_retryable_error(&err));
+    }
+
+    #[test]
+    fn test_is_retryable_error_locked() {
+        let err = DieselError::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            Box::new("database is locked".to_string()),
+        );
+        assert!(is_retryable_error(&err));
+    }
+
+    #[test]
+    fn test_is_retryable_error_busy() {
+        let err = DieselError::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            Box::new("database busy".to_string()),
+        );
+        assert!(is_retryable_error(&err));
+    }
+
+    #[test]
+    fn test_is_retryable_error_not_found() {
+        let err = DieselError::NotFound;
+        assert!(!is_retryable_error(&err));
+    }
+
+    #[test]
+    fn test_is_retryable_error_other_database() {
+        let err = DieselError::DatabaseError(
+            DatabaseErrorKind::UniqueViolation,
+            Box::new("UNIQUE constraint failed".to_string()),
+        );
+        assert!(!is_retryable_error(&err));
+    }
+
+    #[test]
+    fn test_is_retryable_error_unknown_non_lock() {
+        let err = DieselError::DatabaseError(
+            DatabaseErrorKind::Unknown,
+            Box::new("some other error".to_string()),
+        );
+        assert!(!is_retryable_error(&err));
     }
 } 
