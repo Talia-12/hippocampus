@@ -1,6 +1,6 @@
 use super::*;
 use crate::repo::tests::setup_test_db;
-use crate::test_utils::{arb_messy_string, arb_setup_card_params, dedup_names, setup_card, SetupCardParams};
+use crate::test_utils::{arb_messy_string, arb_setup_card_params, dedup_names, setup_card};
 use proptest::prelude::*;
 use std::collections::HashSet;
 use uuid::Uuid;

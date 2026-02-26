@@ -25,6 +25,7 @@
 /// - GET /item_types: List all item types (handlers::list_item_types_handler)
 /// - POST /item_types: Create a new item type (handlers::create_item_type_handler)
 /// - GET /item_types/{id}: Get a specific item type (handlers::get_item_type_handler)
+/// - PATCH /item_types/{id}: Update the review function for an item type (handlers::update_item_type_handler)
 /// - GET /item_types/{id}/items: List all items of a specific type (handlers::list_items_by_item_type_handler)
 ///
 /// Routes for items:

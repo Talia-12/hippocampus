@@ -456,3 +456,375 @@ fn test_incremental_queue_intervals_bounded() {
         interval4
     );
 }
+
+// ============================================================================
+// Edge-case / error-path tests
+// ============================================================================
+
+use diesel::connection::SimpleConnection;
+
+/// Helper: insert a card via raw SQL with FK constraints disabled,
+/// so the card references a nonexistent item_id.
+fn insert_orphaned_card(pool: &crate::db::DbPool) -> String {
+    let mut conn = pool.get().unwrap();
+    conn.batch_execute("PRAGMA foreign_keys = OFF").unwrap();
+
+    let card_id = uuid::Uuid::new_v4().to_string();
+    let now = Utc::now().naive_utc().format("%Y-%m-%d %H:%M:%S").to_string();
+    diesel::sql_query(format!(
+        "INSERT INTO cards (id, item_id, card_index, next_review, priority, priority_offset) \
+         VALUES ('{}', 'nonexistent-item', 0, '{}', 0.5, 0.0)",
+        card_id, now,
+    ))
+    .execute(&mut conn)
+    .unwrap();
+
+    conn.batch_execute("PRAGMA foreign_keys = ON").unwrap();
+    card_id
+}
+
+/// record_review returns error when the item→item_type join fails
+/// (i.e. the card's item_id doesn't map to an item with a valid item_type)
+#[tokio::test]
+async fn test_record_review_review_function_lookup_fails() {
+    let pool = setup_test_db();
+    let card_id = insert_orphaned_card(&pool);
+
+    let result = record_review(&pool, &card_id, 3).await;
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().to_string().contains("Failed to look up review function"),
+        "Expected 'Failed to look up review function' error"
+    );
+}
+
+/// calculate_next_review returns error for an unknown review function
+#[test]
+fn test_calculate_next_review_unknown_function() {
+    let card = card_with_fsrs_data(5.0, 3.0);
+    let result = calculate_next_review(&card, "unknown_function", 3);
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().to_string().contains("Unknown review function: unknown_function"),
+        "Expected 'Unknown review function' error"
+    );
+}
+
+/// get_all_next_reviews_for_card returns error for a nonexistent card_id
+#[tokio::test]
+async fn test_get_all_next_reviews_nonexistent_card() {
+    let pool = setup_test_db();
+    let result = get_all_next_reviews_for_card(&pool, "nonexistent-card-id").await;
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().to_string().contains("Card not found"),
+        "Expected 'Card not found' error"
+    );
+}
+
+/// get_all_next_reviews_for_card returns error when the review function lookup fails
+#[tokio::test]
+async fn test_get_all_next_reviews_review_function_lookup_fails() {
+    let pool = setup_test_db();
+    let card_id = insert_orphaned_card(&pool);
+
+    let result = get_all_next_reviews_for_card(&pool, &card_id).await;
+    assert!(result.is_err());
+    assert!(
+        result.unwrap_err().to_string().contains("Failed to look up review function"),
+        "Expected 'Failed to look up review function' error"
+    );
+}
+
+/// migrate_scheduler_data_none_fsrs_0 propagates error when memory_state_from_sm2 fails.
+///
+/// Triggers the error by setting ease_factor to a value that overflows f32 (producing
+/// f32::INFINITY), which causes FSRS to return InvalidInput.
+#[tokio::test]
+async fn test_migrate_none_fsrs_0_memory_state_from_sm2_err() {
+    let pool = setup_test_db();
+
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string())
+        .await
+        .unwrap();
+    let item = create_item(
+        &pool,
+        &item_type.get_id(),
+        "Test Item".to_string(),
+        json!({"front": "a", "back": "b"}),
+    )
+    .await
+    .unwrap();
+
+    let card = crate::schema::cards::table
+        .filter(crate::schema::cards::item_id.eq(item.get_id()))
+        .first::<Card>(&mut pool.get().unwrap())
+        .unwrap();
+
+    // Set SM-2 data with ease_factor that overflows f32 → f32::INFINITY
+    let bad_sm2_data = JsonValue(json!({
+        "ease_factor": 1e40,
+        "interval": 10.0,
+    }));
+    diesel::update(cards::table.find(card.get_id()))
+        .set(cards::scheduler_data.eq(Some(bad_sm2_data)))
+        .execute(&mut pool.get().unwrap())
+        .unwrap();
+
+    let result = migrate_scheduler_data(&pool).await;
+    assert!(result.is_err(), "Migration should fail when memory_state_from_sm2 returns Err");
+}
+
+/// Cards with NULL scheduler_data are not loaded by the migration query
+/// (filtered out by `is_not_null()`), so the migration succeeds and leaves them untouched.
+#[tokio::test]
+async fn test_migrate_none_fsrs_0_scheduler_data_none_skipped() {
+    let pool = setup_test_db();
+
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string())
+        .await
+        .unwrap();
+    let item = create_item(
+        &pool,
+        &item_type.get_id(),
+        "Test Item".to_string(),
+        json!({"front": "a", "back": "b"}),
+    )
+    .await
+    .unwrap();
+
+    // Card starts with scheduler_data = None (default after creation)
+    let card_before = crate::schema::cards::table
+        .filter(crate::schema::cards::item_id.eq(item.get_id()))
+        .first::<Card>(&mut pool.get().unwrap())
+        .unwrap();
+    assert!(card_before.get_scheduler_data().is_none(), "Precondition: scheduler_data is None");
+
+    migrate_scheduler_data(&pool).await.unwrap();
+
+    // Card should still have None scheduler_data — migration skipped it
+    let card_after = crate::schema::cards::table
+        .find(card_before.get_id())
+        .first::<Card>(&mut pool.get().unwrap())
+        .unwrap();
+    assert!(card_after.get_scheduler_data().is_none(), "Card with None scheduler_data should be unchanged");
+}
+
+/// Cards whose scheduler_data is not a JSON object (e.g. a JSON array) are
+/// skipped by the `as_object()` check and left unchanged.
+#[tokio::test]
+async fn test_migrate_none_fsrs_0_scheduler_data_not_object_skipped() {
+    let pool = setup_test_db();
+
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string())
+        .await
+        .unwrap();
+    let item = create_item(
+        &pool,
+        &item_type.get_id(),
+        "Test Item".to_string(),
+        json!({"front": "a", "back": "b"}),
+    )
+    .await
+    .unwrap();
+
+    let card = crate::schema::cards::table
+        .filter(crate::schema::cards::item_id.eq(item.get_id()))
+        .first::<Card>(&mut pool.get().unwrap())
+        .unwrap();
+
+    // Set scheduler_data to a JSON array (not an object)
+    let array_data = JsonValue(json!([1, 2, 3]));
+    diesel::update(cards::table.find(card.get_id()))
+        .set(cards::scheduler_data.eq(Some(array_data.clone())))
+        .execute(&mut pool.get().unwrap())
+        .unwrap();
+
+    migrate_scheduler_data(&pool).await.unwrap();
+
+    // scheduler_data should be unchanged
+    let card_after = crate::schema::cards::table
+        .find(card.get_id())
+        .first::<Card>(&mut pool.get().unwrap())
+        .unwrap();
+    let data = card_after.get_scheduler_data().unwrap();
+    assert!(data.0.is_array(), "Non-object scheduler_data should be left unchanged");
+}
+
+/// Helper: insert an item type, item, and card using raw SQL to bypass the
+/// card_repo type-name matching logic (which doesn't know "Incremental Reading" etc.)
+fn insert_raw_item_with_card(
+    pool: &crate::db::DbPool,
+    type_name: &str,
+    item_title: &str,
+) -> (String, String, String) {
+    let mut conn = pool.get().unwrap();
+    let type_id = uuid::Uuid::new_v4().to_string();
+    let item_id = uuid::Uuid::new_v4().to_string();
+    let card_id = uuid::Uuid::new_v4().to_string();
+    let now = Utc::now().naive_utc().format("%Y-%m-%d %H:%M:%S").to_string();
+
+    diesel::sql_query(format!(
+        "INSERT INTO item_types (id, name, created_at, review_function) \
+         VALUES ('{}', '{}', '{}', 'fsrs')",
+        type_id, type_name, now,
+    ))
+    .execute(&mut conn)
+    .unwrap();
+
+    diesel::sql_query(format!(
+        "INSERT INTO items (id, item_type, title, item_data, created_at, updated_at) \
+         VALUES ('{}', '{}', '{}', '{{}}', '{}', '{}')",
+        item_id, type_id, item_title, now, now,
+    ))
+    .execute(&mut conn)
+    .unwrap();
+
+    diesel::sql_query(format!(
+        "INSERT INTO cards (id, item_id, card_index, next_review, priority, priority_offset) \
+         VALUES ('{}', '{}', 0, '{}', 0.5, 0.0)",
+        card_id, item_id, now,
+    ))
+    .execute(&mut conn)
+    .unwrap();
+
+    (type_id, item_id, card_id)
+}
+
+/// migrate_scheduler_data_fsrs_0_fsrs_1 converts IQ item types and their cards
+/// when iq_type_ids is not empty.
+///
+/// Creates item types with the magic names ("Todo", "Incremental Reading"),
+/// sets migration state to "fsrs-0", and verifies:
+/// - review_function is updated to "incremental_queue"
+/// - card scheduler_data is converted from FSRS format (stability) to IQ format (interval)
+/// - non-IQ item types are left unchanged
+#[tokio::test]
+async fn test_migrate_fsrs_0_fsrs_1_with_iq_types() {
+    let pool = setup_test_db();
+
+    // Insert IQ-style item types with the magic names the migration looks for.
+    // Use raw SQL because card_repo doesn't know "Incremental Reading".
+    let (todo_type_id, _todo_item_id, todo_card_id) =
+        insert_raw_item_with_card(&pool, "Todo", "Todo Item");
+    let (ir_type_id, _ir_item_id, ir_card_id) =
+        insert_raw_item_with_card(&pool, "Incremental Reading", "IR Item");
+
+    // Create a normal FSRS type through the normal path
+    let fsrs_type = create_item_type(&pool, "Test Flashcards".to_string(), "fsrs".to_string())
+        .await
+        .unwrap();
+    let fsrs_item = create_item(
+        &pool, &fsrs_type.get_id(), "Test Flashcard".to_string(), json!({"front": "a", "back": "b"}),
+    ).await.unwrap();
+    let fsrs_card = crate::schema::cards::table
+        .filter(crate::schema::cards::item_id.eq(fsrs_item.get_id()))
+        .first::<Card>(&mut pool.get().unwrap())
+        .unwrap();
+
+    // Set FSRS-format scheduler_data on all cards
+    let fsrs_data = |stability: f64| {
+        Some(JsonValue(json!({"stability": stability, "difficulty": 5.0})))
+    };
+    diesel::update(cards::table.find(&todo_card_id))
+        .set(cards::scheduler_data.eq(fsrs_data(15.0)))
+        .execute(&mut pool.get().unwrap())
+        .unwrap();
+    diesel::update(cards::table.find(&ir_card_id))
+        .set(cards::scheduler_data.eq(fsrs_data(30.0)))
+        .execute(&mut pool.get().unwrap())
+        .unwrap();
+    diesel::update(cards::table.find(fsrs_card.get_id()))
+        .set(cards::scheduler_data.eq(fsrs_data(20.0)))
+        .execute(&mut pool.get().unwrap())
+        .unwrap();
+
+    // Set migration state to fsrs-0 so only fsrs-0 → fsrs-1 runs
+    diesel::replace_into(metadata::table)
+        .values((metadata::key.eq("sr-scheduler"), metadata::value.eq("fsrs-0")))
+        .execute(&mut pool.get().unwrap())
+        .unwrap();
+
+    migrate_scheduler_data(&pool).await.unwrap();
+
+    // Verify IQ item types had review_function updated
+    let updated_todo_type = crate::schema::item_types::table
+        .find(&todo_type_id)
+        .first::<crate::models::ItemType>(&mut pool.get().unwrap())
+        .unwrap();
+    assert_eq!(
+        updated_todo_type.get_review_function(), "incremental_queue",
+        "Todo review_function should be updated to incremental_queue"
+    );
+
+    let updated_ir_type = crate::schema::item_types::table
+        .find(&ir_type_id)
+        .first::<crate::models::ItemType>(&mut pool.get().unwrap())
+        .unwrap();
+    assert_eq!(
+        updated_ir_type.get_review_function(), "incremental_queue",
+        "Incremental Reading review_function should be updated to incremental_queue"
+    );
+
+    // Verify normal FSRS type was NOT changed
+    let unchanged_fsrs_type = crate::schema::item_types::table
+        .find(fsrs_type.get_id())
+        .first::<crate::models::ItemType>(&mut pool.get().unwrap())
+        .unwrap();
+    assert_eq!(
+        unchanged_fsrs_type.get_review_function(), "fsrs",
+        "Non-IQ type should remain fsrs"
+    );
+
+    // Verify IQ cards had scheduler_data converted from stability to interval
+    let updated_todo_card = crate::schema::cards::table
+        .find(&todo_card_id)
+        .first::<Card>(&mut pool.get().unwrap())
+        .unwrap();
+    let todo_data = updated_todo_card.get_scheduler_data().unwrap().0;
+    assert!(
+        todo_data.get("interval").is_some(),
+        "Todo card should have 'interval' key after migration"
+    );
+    assert_eq!(
+        todo_data["interval"].as_f64().unwrap(), 15.0,
+        "Todo card interval should equal the original stability"
+    );
+    assert!(
+        todo_data.get("stability").is_none(),
+        "Todo card should not have 'stability' key after migration"
+    );
+
+    let updated_ir_card = crate::schema::cards::table
+        .find(&ir_card_id)
+        .first::<Card>(&mut pool.get().unwrap())
+        .unwrap();
+    let ir_data = updated_ir_card.get_scheduler_data().unwrap().0;
+    assert_eq!(
+        ir_data["interval"].as_f64().unwrap(), 30.0,
+        "IR card interval should equal the original stability"
+    );
+
+    // Verify FSRS card was NOT changed
+    let unchanged_fsrs_card = crate::schema::cards::table
+        .find(fsrs_card.get_id())
+        .first::<Card>(&mut pool.get().unwrap())
+        .unwrap();
+    let fsrs_card_data = unchanged_fsrs_card.get_scheduler_data().unwrap().0;
+    assert!(
+        fsrs_card_data.get("stability").is_some(),
+        "FSRS card should still have 'stability' key"
+    );
+    assert!(
+        fsrs_card_data.get("interval").is_none(),
+        "FSRS card should not have 'interval' key"
+    );
+
+    // Verify metadata was updated to fsrs-1
+    let marker: String = metadata::table
+        .find("sr-scheduler")
+        .select(metadata::value)
+        .first::<String>(&mut pool.get().unwrap())
+        .unwrap();
+    assert_eq!(marker, "fsrs-1");
+}
