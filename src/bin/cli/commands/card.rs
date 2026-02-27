@@ -145,6 +145,8 @@ pub async fn execute(
 				suspended_after,
 				suspended_before,
 				split_priority: if split_priority { Some(true) } else { None },
+				parent_item_id: None,
+				child_item_id: None,
 			};
 			let cards = client.list_cards(&query).await?;
 			output::print_cards(&cards, config);
@@ -226,6 +228,8 @@ pub async fn execute(
 				suspended_after,
 				suspended_before,
 				split_priority: None,
+				parent_item_id: None,
+				child_item_id: None,
 			};
 			client.clear_sort_positions(&query).await?;
 			output::print_success("Cleared card ordering", config);

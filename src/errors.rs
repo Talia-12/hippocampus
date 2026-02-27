@@ -20,6 +20,8 @@ pub enum ApiError {
 	InvalidReviewFunction(String),
 	#[error("Method not allowed")]
 	MethodNotAllowed,
+	#[error("Cycle detected: adding this relation would create a cycle")]
+	CycleDetected,
 }
 
 impl IntoResponse for ApiError {
@@ -62,6 +64,16 @@ impl IntoResponse for ApiError {
 				(
 					StatusCode::METHOD_NOT_ALLOWED,
 					"Method not allowed".to_string(),
+				)
+			}
+			ApiError::CycleDetected => {
+				warn!(
+					error.kind = "cycle_detected",
+					"Adding this relation would create a cycle"
+				);
+				(
+					StatusCode::CONFLICT,
+					"Adding this relation would create a cycle".to_string(),
 				)
 			}
 		};
