@@ -99,7 +99,7 @@ async fn test_get_item_type() {
 	// Check that the item type has the correct ID and name
 	assert_eq!(
 		retrieved_item_type["id"].as_str().unwrap(),
-		item_type.get_id()
+		item_type.get_id().0
 	);
 	assert_eq!(
 		retrieved_item_type["name"].as_str().unwrap(),
@@ -147,7 +147,7 @@ async fn test_list_item_types() {
 	// Check that our created item type is in the list
 	let found = item_types
 		.iter()
-		.any(|it| it["id"].as_str().unwrap() == item_type.get_id());
+		.any(|it| it["id"].as_str().unwrap() == item_type.get_id().0);
 	assert!(found, "Created item type should be in the list");
 }
 

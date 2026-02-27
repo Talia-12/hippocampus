@@ -1,10 +1,8 @@
 use super::tests::{card_with_fsrs_data, interval_days_for};
 use super::*;
+use crate::models::ItemId;
 use crate::repo::tests::setup_test_db;
-use crate::test_utils::{
-	SetupCardParams, arb_difficulty, arb_invalid_rating, arb_json, arb_messy_string, arb_rating,
-	arb_setup_card_params, arb_stability, setup_card,
-};
+use crate::test_utils::*;
 use proptest::prelude::*;
 use serde_json::json;
 
@@ -112,8 +110,8 @@ proptest! {
 	#[test]
 	fn prop_t1_7_fresh_card_succeeds(rating in arb_rating()) {
 		let card = Card::new_with_fields(
-			"test-id".to_string(),
-			"item-id".to_string(),
+			CardId("test-id".to_string()),
+			ItemId("item-id".to_string()),
 			0,
 			Utc::now(),
 			None,
@@ -121,6 +119,7 @@ proptest! {
 			0.5,
 			None,
 		);
+
 		let result = calculate_next_fsrs_review(&card, rating);
 		prop_assert!(result.is_ok(),
 			"Fresh card should succeed for rating {}, got: {:?}", rating, result.err());
@@ -139,8 +138,8 @@ proptest! {
 		rating in arb_rating(),
 	) {
 		let card = Card::new_with_fields(
-			"test-id".to_string(),
-			"item-id".to_string(),
+			CardId("test-id".to_string()),
+			ItemId("item-id".to_string()),
 			0,
 			Utc::now(),
 			Some(Utc::now()),
@@ -341,7 +340,7 @@ proptest! {
 	/// T2.8: Nonexistent card_id returns Err
 	#[test]
 	fn prop_t2_8_nonexistent_card_returns_err(
-		card_id in arb_messy_string(),
+		card_id in arb_card_id(),
 		rating in arb_rating(),
 	) {
 		let rt = tokio::runtime::Runtime::new().unwrap();

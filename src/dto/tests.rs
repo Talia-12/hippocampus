@@ -30,12 +30,12 @@ fn test_sort_position_action_serde_top() {
 #[test]
 fn test_sort_position_action_serde_before() {
 	let action = SortPositionAction::Before {
-		card_id: "card-123".to_string(),
+		card_id: CardId("card-123".to_string()),
 	};
 	let json_str = serde_json::to_string(&action).unwrap();
 	let deserialized: SortPositionAction = serde_json::from_str(&json_str).unwrap();
 	match deserialized {
-		SortPositionAction::Before { card_id } => assert_eq!(card_id, "card-123"),
+		SortPositionAction::Before { card_id } => assert_eq!(card_id.0, "card-123"),
 		_ => panic!("Expected Before variant"),
 	}
 }
@@ -43,12 +43,12 @@ fn test_sort_position_action_serde_before() {
 #[test]
 fn test_sort_position_action_serde_after() {
 	let action = SortPositionAction::After {
-		card_id: "card-456".to_string(),
+		card_id: CardId("card-456".to_string()),
 	};
 	let json_str = serde_json::to_string(&action).unwrap();
 	let deserialized: SortPositionAction = serde_json::from_str(&json_str).unwrap();
 	match deserialized {
-		SortPositionAction::After { card_id } => assert_eq!(card_id, "card-456"),
+		SortPositionAction::After { card_id } => assert_eq!(card_id.0, "card-456"),
 		_ => panic!("Expected After variant"),
 	}
 }
@@ -68,8 +68,8 @@ fn test_get_query_dto_display_full() {
 	use chrono::TimeZone;
 
 	let dto = GetQueryDto {
-		item_type_id: Some("type-1".to_string()),
-		tag_ids: vec!["tag-a".to_string(), "tag-b".to_string()],
+		item_type_id: Some(ItemTypeId("type-1".to_string())),
+		tag_ids: vec![TagId("tag-a".to_string()), TagId("tag-b".to_string())],
 		next_review_before: Some(Utc.with_ymd_and_hms(2025, 6, 15, 12, 0, 0).unwrap()),
 		last_review_after: Some(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap()),
 		suspended_filter: SuspendedFilter::Include,
@@ -104,14 +104,14 @@ fn test_suspended_filter_serde_roundtrip() {
 #[test]
 fn test_create_item_dto_serde_roundtrip() {
 	let dto = CreateItemDto {
-		item_type_id: "type-1".to_string(),
+		item_type_id: ItemTypeId("type-1".to_string()),
 		title: "Test Item".to_string(),
 		item_data: json!({"key": "value"}),
 		priority: 0.7,
 	};
 	let json_str = serde_json::to_string(&dto).unwrap();
 	let deserialized: CreateItemDto = serde_json::from_str(&json_str).unwrap();
-	assert_eq!(deserialized.item_type_id, "type-1");
+	assert_eq!(deserialized.item_type_id.0, "type-1");
 	assert_eq!(deserialized.title, "Test Item");
 	assert_eq!(deserialized.item_data, json!({"key": "value"}));
 	assert!((deserialized.priority - 0.7).abs() < f32::EPSILON);

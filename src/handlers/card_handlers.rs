@@ -6,11 +6,14 @@ use axum_extra::extract::Query;
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
 
-use crate::db::DbPool;
-use crate::dto::{CreateCardDto, GetQueryDto, SortPositionAction};
 use crate::errors::ApiError;
 use crate::models::Card;
 use crate::repo;
+use crate::{db::DbPool, models::ItemId};
+use crate::{
+	dto::{CreateCardDto, GetQueryDto, SortPositionAction},
+	models::CardId,
+};
 
 /// Handler for creating a new card for an item
 ///
@@ -30,7 +33,7 @@ pub async fn create_card_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the item ID from the URL path
-	Path(item_id): Path<String>,
+	Path(item_id): Path<ItemId>,
 	// Extract and deserialize the JSON request body
 	Json(payload): Json<CreateCardDto>,
 ) -> Result<Json<Card>, ApiError> {
@@ -69,7 +72,7 @@ pub async fn get_card_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the card ID from the URL path
-	Path(card_id): Path<String>,
+	Path(card_id): Path<CardId>,
 	// Extract query parameters
 	Query(query): Query<GetQueryDto>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -164,7 +167,7 @@ pub async fn list_cards_by_item_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the item ID from the URL path
-	Path(item_id): Path<String>,
+	Path(item_id): Path<ItemId>,
 	// Extract query parameters
 	Query(query): Query<GetQueryDto>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
@@ -219,7 +222,7 @@ pub async fn suspend_card_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the card ID from the URL path
-	Path(id): Path<String>,
+	Path(id): Path<CardId>,
 	// Extract and deserialize the JSON request body
 	Json(payload): Json<bool>,
 ) -> Result<(), ApiError> {
@@ -260,7 +263,7 @@ pub async fn update_card_priority_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the card ID from the URL path
-	Path(id): Path<String>,
+	Path(id): Path<CardId>,
 	// Extract and deserialize the JSON request body
 	Json(priority): Json<f32>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -306,7 +309,7 @@ pub async fn update_card_priority_handler(
 #[instrument(skip(pool), fields(card_id = %card_id))]
 pub async fn set_sort_position_handler(
 	State(pool): State<Arc<DbPool>>,
-	Path(card_id): Path<String>,
+	Path(card_id): Path<CardId>,
 	Json(payload): Json<SortPositionAction>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
 	info!("Setting card sort position");
@@ -349,7 +352,7 @@ pub async fn set_sort_position_handler(
 #[instrument(skip(pool), fields(card_id = %card_id))]
 pub async fn clear_card_sort_position_handler(
 	State(pool): State<Arc<DbPool>>,
-	Path(card_id): Path<String>,
+	Path(card_id): Path<CardId>,
 ) -> Result<(), ApiError> {
 	info!("Clearing card sort position");
 
@@ -445,7 +448,7 @@ mod tests {
 		// Call the handler with a non-existent item ID
 		let result = create_card_handler(
 			State(pool.clone()),
-			Path("nonexistent".to_string()),
+			Path(ItemId("nonexistent".to_string())),
 			Json(payload),
 		)
 		.await;
@@ -492,8 +495,8 @@ mod tests {
 		// Check the result
 		let retrieved_card = &result.0;
 		assert!(!retrieved_card.is_null());
-		assert_eq!(retrieved_card["id"], card.get_id());
-		assert_eq!(retrieved_card["item_id"], item.get_id());
+		assert_eq!(retrieved_card["id"], card.get_id().0);
+		assert_eq!(retrieved_card["item_id"], item.get_id().0);
 	}
 
 	#[tokio::test]
@@ -503,7 +506,7 @@ mod tests {
 		// Call the handler with a non-existent card ID
 		let result = get_card_handler(
 			State(pool.clone()),
-			Path("nonexistent".to_string()),
+			Path(CardId("nonexistent".to_string())),
 			Query(GetQueryDto::default()),
 		)
 		.await
@@ -547,8 +550,8 @@ mod tests {
 		// Check the result
 		let cards = result.0;
 		assert_eq!(cards.len(), 4);
-		assert!(cards.iter().any(|c| c["id"] == card1.get_id()));
-		assert!(cards.iter().any(|c| c["id"] == card2.get_id()));
+		assert!(cards.iter().any(|c| c["id"] == card1.get_id().0));
+		assert!(cards.iter().any(|c| c["id"] == card2.get_id().0));
 	}
 
 	#[tokio::test]
@@ -599,11 +602,11 @@ mod tests {
 		let cards = result.0;
 		assert_eq!(cards.len(), 3);
 		assert!(
-			cards.iter().any(|c| c["id"] == card1.get_id()),
+			cards.iter().any(|c| c["id"] == card1.get_id().0),
 			"item 1's cards not found in list"
 		);
 		assert!(
-			!cards.iter().any(|c| c["id"] == card2.get_id()),
+			!cards.iter().any(|c| c["id"] == card2.get_id().0),
 			"item 2's cards found in list"
 		);
 	}
@@ -615,7 +618,7 @@ mod tests {
 		// Call the handler with a non-existent item ID
 		let result = list_cards_by_item_handler(
 			State(pool.clone()),
-			Path("nonexistent".to_string()),
+			Path(ItemId("nonexistent".to_string())),
 			Query(GetQueryDto::default()),
 		)
 		.await;
@@ -790,12 +793,12 @@ mod tests {
 		let pool = setup_test_db();
 
 		// Try to update a card that doesn't exist
-		let nonexistent_card_id = "00000000-0000-0000-0000-000000000000";
+		let nonexistent_card_id = CardId("00000000-0000-0000-0000-000000000000".to_string());
 		let payload = 0.5;
 
 		let result = update_card_priority_handler(
 			State(pool.clone()),
-			Path(nonexistent_card_id.to_string()),
+			Path(nonexistent_card_id),
 			Json(payload),
 		)
 		.await;

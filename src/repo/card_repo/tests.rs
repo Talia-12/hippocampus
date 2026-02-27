@@ -1,5 +1,6 @@
 use super::*;
 use crate::GetQueryDtoBuilder;
+use crate::models::{ItemTypeId, TagId};
 use crate::repo::tests::setup_test_db;
 use crate::repo::{add_tag_to_item, create_item, create_item_type, create_tag};
 use chrono::{Duration, Utc};
@@ -341,7 +342,7 @@ async fn test_filter_cards_by_next_review() {
 	assert_eq!(due_cards.len(), 2); // Cards 1 and 4 are due
 
 	// Verify specific cards
-	let due_card_ids: Vec<String> = due_cards.iter().map(|c| c.get_id()).collect();
+	let due_card_ids: Vec<_> = due_cards.iter().map(|c| c.get_id()).collect();
 	assert!(due_card_ids.contains(&cards[0].get_id())); // Card 1 is due
 	assert!(!due_card_ids.contains(&cards[1].get_id())); // Card 2 is not due
 	assert!(!due_card_ids.contains(&cards[2].get_id())); // Card 3 is not due (suspended)
@@ -449,7 +450,7 @@ fn test_filter_cards_edge_cases() {
 
 	// Test with non-existent item type
 	let query = GetQueryDtoBuilder::new()
-		.item_type_id("nonexistent".to_string())
+		.item_type_id(ItemTypeId("nonexistent".to_string()))
 		.build();
 
 	let cards = list_cards_with_filters(&pool, &query).unwrap();
@@ -457,7 +458,7 @@ fn test_filter_cards_edge_cases() {
 
 	// Test with non-existent tag
 	let query = GetQueryDtoBuilder::new()
-		.add_tag_id("nonexistent".to_string())
+		.add_tag_id(TagId("nonexistent".to_string()))
 		.build();
 
 	let cards = list_cards_with_filters(&pool, &query).unwrap();
@@ -559,7 +560,7 @@ async fn test_update_card_priority_nonexistent_card() {
 
 	// Try to update a card that doesn't exist
 	let nonexistent_card_id = "00000000-0000-0000-0000-000000000000";
-	let result = update_card_priority(&pool, nonexistent_card_id, 0.5).await;
+	let result = update_card_priority(&pool, &CardId(nonexistent_card_id.to_string()), 0.5).await;
 	assert!(result.is_err());
 }
 
@@ -1230,7 +1231,7 @@ async fn test_clear_sort_positions_with_tag_filter() {
 	}
 
 	// Record item2 positions before
-	let item2_before: Vec<(String, f32)> = get_cards_for_item(&pool, &item2.get_id())
+	let item2_before: Vec<_> = get_cards_for_item(&pool, &item2.get_id())
 		.unwrap()
 		.iter()
 		.map(|c| (c.get_id(), c.get_sort_position()))
@@ -1327,6 +1328,7 @@ async fn test_clear_sort_positions_no_matching_cards() {
 	let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string())
 		.await
 		.unwrap();
+
 	let _item = create_item(
 		&pool,
 		&item_type.get_id(),
@@ -1343,7 +1345,7 @@ async fn test_clear_sort_positions_no_matching_cards() {
 	}
 
 	// Record positions before
-	let before: Vec<(String, f32)> = list_all_cards(&pool)
+	let before: Vec<_> = list_all_cards(&pool)
 		.unwrap()
 		.iter()
 		.map(|c| (c.get_id(), c.get_sort_position()))
@@ -1351,7 +1353,7 @@ async fn test_clear_sort_positions_no_matching_cards() {
 
 	// Clear with nonexistent type filter
 	let query = GetQueryDtoBuilder::new()
-		.item_type_id("nonexistent-type-id".to_string())
+		.item_type_id(ItemTypeId("nonexistent-type-id".to_string()))
 		.suspended_filter(SuspendedFilter::Include)
 		.build();
 	clear_sort_positions(&pool, &query).await.unwrap();
@@ -1403,7 +1405,7 @@ async fn test_clear_sort_positions_mixed_sort_positions() {
 	// cards_a[1] and all type B cards have default sort position (0.0)
 
 	// Record positions before
-	let before: Vec<(String, f32)> = list_all_cards(&pool)
+	let before: Vec<_> = list_all_cards(&pool)
 		.unwrap()
 		.iter()
 		.map(|c| (c.get_id(), c.get_sort_position()))
@@ -1479,7 +1481,7 @@ async fn test_clear_sort_positions_with_suspended_filter() {
 	}
 
 	// Record non-suspended card positions before
-	let non_suspended_before: Vec<(String, f32)> = get_cards_for_item(&pool, &item2.get_id())
+	let non_suspended_before: Vec<_> = get_cards_for_item(&pool, &item2.get_id())
 		.unwrap()
 		.iter()
 		.map(|c| (c.get_id(), c.get_sort_position()))

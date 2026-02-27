@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 ///
 /// Does NOT include `start` in the returned set unless it is reachable
 /// via a cycle. This means: a cycle exists iff `start ∈ bfs_reachable(adj, start)`.
-fn bfs_reachable(adj: &HashMap<String, Vec<String>>, start: &str) -> HashSet<String> {
+fn bfs_reachable(adj: &HashMap<ItemId, Vec<ItemId>>, start: &ItemId) -> HashSet<ItemId> {
 	let mut visited = HashSet::new();
 	let mut queue = VecDeque::new();
 	for neighbor in adj.get(start).unwrap_or(&vec![]) {
@@ -26,8 +26,8 @@ fn bfs_reachable(adj: &HashMap<String, Vec<String>>, start: &str) -> HashSet<Str
 }
 
 /// Builds a parent→children adjacency list from a list of ItemRelation
-fn build_adj(relations: &[crate::models::ItemRelation]) -> HashMap<String, Vec<String>> {
-	let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+fn build_adj(relations: &[crate::models::ItemRelation]) -> HashMap<ItemId, Vec<ItemId>> {
+	let mut adj: HashMap<ItemId, Vec<ItemId>> = HashMap::new();
 	for rel in relations {
 		adj.entry(rel.get_parent_item_id())
 			.or_default()
@@ -37,8 +37,8 @@ fn build_adj(relations: &[crate::models::ItemRelation]) -> HashMap<String, Vec<S
 }
 
 /// Builds a child→parents adjacency list (reverse direction) from a list of ItemRelation
-fn build_reverse_adj(relations: &[crate::models::ItemRelation]) -> HashMap<String, Vec<String>> {
-	let mut adj: HashMap<String, Vec<String>> = HashMap::new();
+fn build_reverse_adj(relations: &[crate::models::ItemRelation]) -> HashMap<ItemId, Vec<ItemId>> {
+	let mut adj: HashMap<ItemId, Vec<ItemId>> = HashMap::new();
 	for rel in relations {
 		adj.entry(rel.get_child_item_id())
 			.or_default()
@@ -485,7 +485,7 @@ proptest! {
 				let desc_edges = get_all_descendants(&pool, &item.get_id()).unwrap();
 
 				// Collect only child_ids reachable through the edge set
-				let desc_child_ids: HashSet<String> = desc_edges.iter()
+				let desc_child_ids: HashSet<_> = desc_edges.iter()
 					.map(|e| e.child_id.clone())
 					.collect();
 
@@ -516,7 +516,7 @@ proptest! {
 				let anc_edges = get_all_ancestors(&pool, &item.get_id()).unwrap();
 
 				// Collect parent IDs from ancestor edges
-				let anc_parent_ids: HashSet<String> = anc_edges.iter()
+				let anc_parent_ids: HashSet<_> = anc_edges.iter()
 					.map(|e| e.parent_id.clone())
 					.collect();
 

@@ -1,7 +1,8 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+use crate::models::TagId;
 
 /// Represents a tag in the system
 #[derive(
@@ -11,7 +12,7 @@ use uuid::Uuid;
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Tag {
 	/// Unique identifier for the tag (UUID v4 as string)
-	id: String,
+	id: TagId,
 
 	/// The name of the tag
 	name: String,
@@ -36,7 +37,7 @@ impl Tag {
 	/// A new `Tag` instance with the specified name and visibility
 	pub fn new(name: String, visible: bool) -> Self {
 		Self {
-			id: Uuid::new_v4().to_string(),
+			id: TagId::new(),
 			name,
 			created_at: Utc::now().naive_utc(),
 			visible,
@@ -56,7 +57,7 @@ impl Tag {
 	///
 	/// A new `Tag` instance with the specified fields
 	pub fn new_with_fields(
-		id: String,
+		id: TagId,
 		name: String,
 		visible: bool,
 		created_at: DateTime<Utc>,
@@ -74,7 +75,7 @@ impl Tag {
 	/// ### Returns
 	///
 	/// The unique identifier of the tag
-	pub fn get_id(&self) -> String {
+	pub fn get_id(&self) -> TagId {
 		self.id.clone()
 	}
 
@@ -149,7 +150,6 @@ mod tests {
 
 		assert_eq!(tag.get_name(), name);
 		assert_eq!(tag.get_visible(), visible);
-		assert!(Uuid::parse_str(&tag.get_id()).is_ok());
 
 		// Ensure created_at is within the last second
 		let now = Utc::now();

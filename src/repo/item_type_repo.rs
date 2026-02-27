@@ -1,5 +1,5 @@
 use crate::db::{DbPool, ExecuteWithRetry};
-use crate::models::ItemType;
+use crate::models::{ItemType, ItemTypeId};
 use anyhow::Result;
 use diesel::prelude::*;
 use tracing::{debug, info, instrument};
@@ -67,7 +67,7 @@ pub async fn create_item_type(
 /// - Unable to get a connection from the pool
 /// - The database query fails for reasons other than the item type not existing
 #[instrument(skip(pool), fields(item_type_id = %id))]
-pub fn get_item_type(pool: &DbPool, id: &str) -> Result<Option<ItemType>> {
+pub fn get_item_type(pool: &DbPool, id: &ItemTypeId) -> Result<Option<ItemType>> {
 	debug!("Retrieving item type");
 
 	// Get a connection from the pool
@@ -141,7 +141,7 @@ pub fn list_item_types(pool: &DbPool) -> Result<Vec<ItemType>> {
 #[instrument(skip(pool), fields(item_type_id = %id, review_function = %review_function))]
 pub async fn update_item_type_review_function(
 	pool: &DbPool,
-	id: &str,
+	id: &ItemTypeId,
 	review_function: String,
 ) -> Result<ItemType> {
 	debug!("Updating item type review function");
@@ -149,8 +149,7 @@ pub async fn update_item_type_review_function(
 	let conn = &mut pool.get()?;
 
 	// Update the review_function field
-	let id_owned = id.to_string();
-	let updated = diesel::update(crate::schema::item_types::table.find(id_owned))
+	let updated = diesel::update(crate::schema::item_types::table.find(id.clone()))
 		.set(crate::schema::item_types::review_function.eq(review_function.clone()))
 		.execute_with_retry(conn)
 		.await?;

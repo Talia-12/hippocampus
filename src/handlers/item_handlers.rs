@@ -6,11 +6,14 @@ use axum_extra::extract::Query;
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
 
-use crate::dto::{CreateItemDto, GetQueryDto};
-use crate::errors::ApiError;
 use crate::models::Item;
 use crate::repo;
 use crate::{UpdateItemDto, db::DbPool};
+use crate::{
+	dto::{CreateItemDto, GetQueryDto},
+	models::ItemId,
+};
+use crate::{errors::ApiError, models::ItemTypeId};
 
 /// Handler for creating a new item
 ///
@@ -67,7 +70,7 @@ pub async fn get_item_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the item ID from the URL path
-	Path(item_id): Path<String>,
+	Path(item_id): Path<ItemId>,
 ) -> Result<Json<Option<Item>>, ApiError> {
 	debug!("Retrieving item");
 
@@ -102,7 +105,7 @@ pub async fn update_item_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the item ID from the URL path
-	Path(item_id): Path<String>,
+	Path(item_id): Path<ItemId>,
 	// Extract the payload from the request body
 	Json(payload): Json<UpdateItemDto>,
 ) -> Result<Json<Item>, ApiError> {
@@ -146,7 +149,7 @@ pub async fn delete_item_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the item ID from the URL path
-	Path(item_id): Path<String>,
+	Path(item_id): Path<ItemId>,
 ) -> Result<Json<()>, ApiError> {
 	info!("Deleting item with id: {}", item_id);
 
@@ -211,7 +214,7 @@ pub async fn list_items_by_item_type_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the item type ID from the URL path
-	Path(item_type_id): Path<String>,
+	Path(item_type_id): Path<ItemTypeId>,
 ) -> Result<Json<Vec<Item>>, ApiError> {
 	debug!("Listing items by item type");
 
@@ -495,7 +498,7 @@ mod tests {
 
 		// Call the handler with a non-existent item type ID
 		let result =
-			list_items_by_item_type_handler(State(pool.clone()), Path("nonexistent".to_string()))
+			list_items_by_item_type_handler(State(pool.clone()), Path(ItemTypeId("nonexistent".to_string())))
 				.await;
 
 		// Check that we got a NotFound error
@@ -543,7 +546,7 @@ mod tests {
 
 		// Call the handler with a non-existent item ID
 		let result =
-			delete_item_handler(State(pool.clone()), Path("nonexistent".to_string())).await;
+			delete_item_handler(State(pool.clone()), Path(ItemId("nonexistent".to_string()))).await;
 
 		// Check that we got a NotFound error
 		assert!(result.is_err());

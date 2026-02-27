@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::db::{DbPool, ExecuteWithRetry};
 use crate::dto::GetQueryDto;
-use crate::models::{Item, JsonValue};
+use crate::models::{Item, ItemId, ItemTypeId, JsonValue};
 use crate::schema::items;
 use anyhow::Result;
 use chrono::{NaiveDateTime, Utc};
@@ -32,7 +32,7 @@ use super::card_repo::{create_cards_for_item, list_cards_with_filters};
 #[instrument(skip(pool, item_data), fields(item_type_id = %item_type_id, title = %new_title))]
 pub async fn create_item(
 	pool: &DbPool,
-	item_type_id: &str,
+	item_type_id: &ItemTypeId,
 	new_title: String,
 	item_data: serde_json::Value,
 ) -> Result<Item> {
@@ -42,7 +42,7 @@ pub async fn create_item(
 	let mut conn = pool.get()?;
 
 	// Create a new item with the provided title
-	let new_item = Item::new(item_type_id.to_string(), new_title, JsonValue(item_data));
+	let new_item = Item::new(item_type_id.clone(), new_title, JsonValue(item_data));
 
 	debug!(
 		"Inserting item into database with id: {}",
@@ -88,7 +88,7 @@ pub async fn create_item(
 /// - Unable to get a connection from the pool
 /// - The database query fails for reasons other than the item not existing
 #[instrument(skip(pool), fields(item_id = %item_id))]
-pub fn get_item(pool: &DbPool, item_id: &str) -> Result<Option<Item>> {
+pub fn get_item(pool: &DbPool, item_id: &ItemId) -> Result<Option<Item>> {
 	debug!("Retrieving item by id");
 
 	// Get a connection from the pool
@@ -132,7 +132,7 @@ pub fn get_item(pool: &DbPool, item_id: &str) -> Result<Option<Item>> {
 #[instrument(skip(pool), fields(item_id = %item_id))]
 pub async fn update_item(
 	pool: &DbPool,
-	item_id: &str,
+	item_id: &ItemId,
 	title: Option<String>,
 	item_data: Option<serde_json::Value>,
 ) -> Result<Item> {
@@ -164,7 +164,7 @@ pub async fn update_item(
 	let mut conn = pool.get()?;
 
 	// Execute the update with the dynamic changeset
-	diesel::update(items::table.find(item_id.to_string()))
+	diesel::update(items::table.find(item_id.clone()))
 		.set(changeset)
 		.execute_with_retry(&mut conn)
 		.await?;
@@ -195,12 +195,12 @@ pub async fn update_item(
 /// - Unable to get a connection from the pool
 /// - The database delete operation fails
 #[instrument(skip(pool), fields(item_id = %item_id))]
-pub async fn delete_item(pool: &DbPool, item_id: &str) -> Result<()> {
+pub async fn delete_item(pool: &DbPool, item_id: &ItemId) -> Result<()> {
 	debug!("Deleting item by id");
 
 	let mut conn = pool.get()?;
 
-	diesel::delete(items::table.find(item_id.to_string()))
+	diesel::delete(items::table.find(item_id.clone()))
 		.execute_with_retry(&mut conn)
 		.await?;
 
@@ -265,12 +265,12 @@ pub fn list_items_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
 		|| query.suspended_filter != crate::dto::SuspendedFilter::default();
 
 	// Resolve relation filters into a set of allowed item IDs
-	let relation_item_ids: Option<HashSet<String>> = resolve_relation_filter(pool, query)?;
+	let relation_item_ids: Option<HashSet<ItemId>> = resolve_relation_filter(pool, query)?;
 
 	if !has_card_filters {
 		// Only item_type_id filter — query items directly
 		let mut result = if let Some(ref item_type_id) = query.item_type_id {
-			get_items_by_type(pool, item_type_id)?
+			get_items_by_type(pool, &item_type_id)?
 		} else {
 			list_items(pool)?
 		};
@@ -285,7 +285,7 @@ pub fn list_items_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
 
 	// Use card-level filtering, then collect unique item IDs
 	let cards = list_cards_with_filters(pool, query)?;
-	let mut item_ids: HashSet<String> = cards.into_iter().map(|c| c.get_item_id()).collect();
+	let mut item_ids: HashSet<ItemId> = cards.into_iter().map(|c| c.get_item_id()).collect();
 
 	// Intersect with relation filter if present
 	if let Some(ref allowed_ids) = relation_item_ids {
@@ -322,7 +322,7 @@ pub fn list_items_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
 /// - Unable to get a connection from the pool
 /// - The database query fails
 #[instrument(skip(pool), fields(item_type_id = %item_type_id))]
-pub fn get_items_by_type(pool: &DbPool, item_type_id: &str) -> Result<Vec<Item>> {
+pub fn get_items_by_type(pool: &DbPool, item_type_id: &ItemTypeId) -> Result<Vec<Item>> {
 	debug!("Getting items by type");
 
 	// Get a connection from the pool
@@ -344,23 +344,23 @@ pub fn get_items_by_type(pool: &DbPool, item_type_id: &str) -> Result<Vec<Item>>
 ///
 /// Returns `None` if no relation filters are set, meaning no restriction.
 /// Returns `Some(set)` with the item IDs that match the relation filter.
-fn resolve_relation_filter(pool: &DbPool, query: &GetQueryDto) -> Result<Option<HashSet<String>>> {
+fn resolve_relation_filter(pool: &DbPool, query: &GetQueryDto) -> Result<Option<HashSet<ItemId>>> {
 	match (&query.parent_item_id, &query.child_item_id) {
 		(Some(parent_id), None) => {
-			let children = super::item_relation_repo::get_children_of(pool, parent_id)?;
+			let children = super::item_relation_repo::get_children_of(pool, &parent_id)?;
 			Ok(Some(children.into_iter().collect()))
 		}
 		(None, Some(child_id)) => {
-			let parents = super::item_relation_repo::get_parents_of(pool, child_id)?;
+			let parents = super::item_relation_repo::get_parents_of(pool, &child_id)?;
 			Ok(Some(parents.into_iter().collect()))
 		}
 		(Some(parent_id), Some(child_id)) => {
-			let children: HashSet<String> =
-				super::item_relation_repo::get_children_of(pool, parent_id)?
+			let children: HashSet<ItemId> =
+				super::item_relation_repo::get_children_of(pool, &parent_id)?
 					.into_iter()
 					.collect();
-			let parents: HashSet<String> =
-				super::item_relation_repo::get_parents_of(pool, child_id)?
+			let parents: HashSet<ItemId> =
+				super::item_relation_repo::get_parents_of(pool, &child_id)?
 					.into_iter()
 					.collect();
 			Ok(Some(children.intersection(&parents).cloned().collect()))

@@ -1,6 +1,6 @@
 use crate::db::{DbPool, ExecuteWithRetry, transaction_with_retry};
 use crate::dto::{ItemChildGraphNode, ItemParentGraphNode};
-use crate::models::{Item, ItemRelation};
+use crate::models::{Item, ItemId, ItemRelation};
 use crate::schema::{item_relations, items};
 use anyhow::{Result, anyhow};
 use diesel::prelude::*;
@@ -30,7 +30,7 @@ struct CycleCount {
 ///
 /// A Result containing true if the edge would create a cycle, false otherwise
 #[instrument(skip(pool), fields(parent_id = %parent_id, child_id = %child_id))]
-pub fn would_create_cycle(pool: &DbPool, parent_id: &str, child_id: &str) -> Result<bool> {
+pub fn would_create_cycle(pool: &DbPool, parent_id: &ItemId, child_id: &ItemId) -> Result<bool> {
 	debug!("Checking for cycle");
 
 	// Self-loops are always cycles
@@ -47,8 +47,8 @@ pub fn would_create_cycle(pool: &DbPool, parent_id: &str, child_id: &str) -> Res
 /// Checks for cycles using an existing connection (for use within transactions)
 fn would_create_cycle_conn(
 	conn: &mut SqliteConnection,
-	parent_id: &str,
-	child_id: &str,
+	parent_id: &ItemId,
+	child_id: &ItemId,
 ) -> QueryResult<bool> {
 	if parent_id == child_id {
 		return Ok(true);
@@ -101,8 +101,8 @@ fn would_create_cycle_conn(
 #[instrument(skip(pool), fields(parent_id = %parent_id, child_id = %child_id, relation_type = %relation_type))]
 pub async fn create_item_relation(
 	pool: &DbPool,
-	parent_id: &str,
-	child_id: &str,
+	parent_id: &ItemId,
+	child_id: &ItemId,
 	relation_type: &str,
 ) -> Result<ItemRelation> {
 	debug!("Creating item relation");
@@ -110,29 +110,31 @@ pub async fn create_item_relation(
 	let conn = &mut pool.get()?;
 
 	let relation = ItemRelation::new(
-		parent_id.to_string(),
-		child_id.to_string(),
+		parent_id.clone(),
+		child_id.clone(),
 		relation_type.to_string(),
 	);
 
 	// Perform cycle check and insert atomically within an immediate transaction
 	// with retry on transient errors (database locked/busy).
 	// Returns true if inserted, false if a cycle was detected.
-	let relation_clone = relation.clone();
-	let parent_id_owned = parent_id.to_string();
-	let child_id_owned = child_id.to_string();
-	let inserted = transaction_with_retry(conn, move |conn| {
-		let has_cycle = would_create_cycle_conn(conn, &parent_id_owned, &child_id_owned)?;
+	// The relation is cloned once for the closure; retries re-clone inside
+	// because `values()` consumes it and the FnMut may be called multiple times.
+	let inserted = transaction_with_retry(conn, {
+		let relation = relation.clone();
+		move |conn| {
+			let has_cycle = would_create_cycle_conn(conn, parent_id, child_id)?;
 
-		if has_cycle {
-			return Ok(false);
+			if has_cycle {
+				return Ok(false);
+			}
+
+			diesel::insert_into(item_relations::table)
+				.values(relation.clone())
+				.execute(conn)?;
+
+			Ok(true)
 		}
-
-		diesel::insert_into(item_relations::table)
-			.values(relation_clone.clone())
-			.execute(conn)?;
-
-		Ok(true)
 	})
 	.await?;
 
@@ -163,7 +165,11 @@ pub async fn create_item_relation(
 ///
 /// Returns an error if the relation does not exist or the database operation fails
 #[instrument(skip(pool), fields(parent_id = %parent_id, child_id = %child_id))]
-pub async fn delete_item_relation(pool: &DbPool, parent_id: &str, child_id: &str) -> Result<()> {
+pub async fn delete_item_relation(
+	pool: &DbPool,
+	parent_id: &ItemId,
+	child_id: &ItemId,
+) -> Result<()> {
 	debug!("Deleting item relation");
 
 	let conn = &mut pool.get()?;
@@ -171,8 +177,8 @@ pub async fn delete_item_relation(pool: &DbPool, parent_id: &str, child_id: &str
 	let rows_deleted = diesel::delete(
 		item_relations::table.filter(
 			item_relations::parent_item_id
-				.eq(parent_id.to_string())
-				.and(item_relations::child_item_id.eq(child_id.to_string())),
+				.eq(parent_id.clone())
+				.and(item_relations::child_item_id.eq(child_id.clone())),
 		),
 	)
 	.execute_with_retry(conn)
@@ -200,8 +206,8 @@ pub async fn delete_item_relation(pool: &DbPool, parent_id: &str, child_id: &str
 #[instrument(skip(pool), fields(parent_id = %parent_id, child_id = %child_id))]
 pub fn get_item_relation(
 	pool: &DbPool,
-	parent_id: &str,
-	child_id: &str,
+	parent_id: &ItemId,
+	child_id: &ItemId,
 ) -> Result<Option<ItemRelation>> {
 	debug!("Getting item relation");
 
@@ -234,8 +240,8 @@ pub fn get_item_relation(
 #[instrument(skip(pool))]
 pub fn list_item_relations(
 	pool: &DbPool,
-	parent_id_filter: Option<&str>,
-	child_id_filter: Option<&str>,
+	parent_id_filter: Option<&ItemId>,
+	child_id_filter: Option<&ItemId>,
 	relation_type_filter: Option<&str>,
 ) -> Result<Vec<ItemRelation>> {
 	debug!("Listing item relations");
@@ -267,11 +273,11 @@ pub fn list_item_relations(
 pub struct RelationEdge {
 	/// The parent item ID
 	#[diesel(sql_type = Text)]
-	pub parent_id: String,
+	pub parent_id: ItemId,
 
 	/// The child item ID
 	#[diesel(sql_type = Text)]
-	pub child_id: String,
+	pub child_id: ItemId,
 
 	/// The type of relationship
 	#[diesel(sql_type = Text)]
@@ -292,7 +298,7 @@ pub struct RelationEdge {
 ///
 /// A Result containing a vector of Edge structs
 #[instrument(skip(pool), fields(item_id = %item_id))]
-pub fn get_all_descendants(pool: &DbPool, item_id: &str) -> Result<Vec<RelationEdge>> {
+pub fn get_all_descendants(pool: &DbPool, item_id: &ItemId) -> Result<Vec<RelationEdge>> {
 	debug!("Getting all descendants");
 
 	let conn = &mut pool.get()?;
@@ -333,7 +339,7 @@ pub fn get_all_descendants(pool: &DbPool, item_id: &str) -> Result<Vec<RelationE
 ///
 /// A Result containing a vector of Edge structs
 #[instrument(skip(pool), fields(item_id = %item_id))]
-pub fn get_all_ancestors(pool: &DbPool, item_id: &str) -> Result<Vec<RelationEdge>> {
+pub fn get_all_ancestors(pool: &DbPool, item_id: &ItemId) -> Result<Vec<RelationEdge>> {
 	debug!("Getting all ancestors");
 
 	let conn = &mut pool.get()?;
@@ -365,9 +371,9 @@ pub fn get_all_ancestors(pool: &DbPool, item_id: &str) -> Result<Vec<RelationEdg
 ///
 /// ### Returns
 ///
-/// A Result containing a vector of child item ID strings
+/// A Result containing a vector of child item IDs
 #[instrument(skip(pool), fields(parent_id = %parent_id))]
-pub fn get_children_of(pool: &DbPool, parent_id: &str) -> Result<Vec<String>> {
+pub fn get_children_of(pool: &DbPool, parent_id: &ItemId) -> Result<Vec<ItemId>> {
 	debug!("Getting children of item");
 
 	let conn = &mut pool.get()?;
@@ -375,7 +381,7 @@ pub fn get_children_of(pool: &DbPool, parent_id: &str) -> Result<Vec<String>> {
 	let results = item_relations::table
 		.filter(item_relations::parent_item_id.eq(parent_id))
 		.select(item_relations::child_item_id)
-		.load::<String>(conn)?;
+		.load::<ItemId>(conn)?;
 
 	info!("Found {} children of item {}", results.len(), parent_id);
 	Ok(results)
@@ -390,9 +396,9 @@ pub fn get_children_of(pool: &DbPool, parent_id: &str) -> Result<Vec<String>> {
 ///
 /// ### Returns
 ///
-/// A Result containing a vector of parent item ID strings
+/// A Result containing a vector of parent item IDs
 #[instrument(skip(pool), fields(child_id = %child_id))]
-pub fn get_parents_of(pool: &DbPool, child_id: &str) -> Result<Vec<String>> {
+pub fn get_parents_of(pool: &DbPool, child_id: &ItemId) -> Result<Vec<ItemId>> {
 	debug!("Getting parents of item");
 
 	let conn = &mut pool.get()?;
@@ -400,7 +406,7 @@ pub fn get_parents_of(pool: &DbPool, child_id: &str) -> Result<Vec<String>> {
 	let results = item_relations::table
 		.filter(item_relations::child_item_id.eq(child_id))
 		.select(item_relations::parent_item_id)
-		.load::<String>(conn)?;
+		.load::<ItemId>(conn)?;
 
 	info!("Found {} parents of item {}", results.len(), child_id);
 	Ok(results)
@@ -416,7 +422,7 @@ pub fn get_parents_of(pool: &DbPool, child_id: &str) -> Result<Vec<String>> {
 /// ### Returns
 ///
 /// A Result containing a HashMap mapping item IDs to Items
-fn load_items_map(pool: &DbPool, item_ids: &[String]) -> Result<HashMap<String, Item>> {
+fn load_items_map(pool: &DbPool, item_ids: &[ItemId]) -> Result<HashMap<ItemId, Item>> {
 	let conn = &mut pool.get()?;
 
 	let loaded_items: Vec<Item> = items::table
@@ -435,8 +441,8 @@ fn load_items_map(pool: &DbPool, item_ids: &[String]) -> Result<HashMap<String, 
 fn build_children_graph(
 	item: &Item,
 	relation_type: Option<String>,
-	items_map: &HashMap<String, Item>,
-	children_map: &HashMap<String, Vec<(String, String)>>,
+	items_map: &HashMap<ItemId, Item>,
+	children_map: &HashMap<ItemId, Vec<(ItemId, String)>>,
 ) -> ItemChildGraphNode {
 	let children = children_map
 		.get(&item.get_id())
@@ -468,8 +474,8 @@ fn build_children_graph(
 fn build_parent_graph(
 	item: &Item,
 	relation_type: Option<String>,
-	items_map: &HashMap<String, Item>,
-	parents_map: &HashMap<String, Vec<(String, String)>>,
+	items_map: &HashMap<ItemId, Item>,
+	parents_map: &HashMap<ItemId, Vec<(ItemId, String)>>,
 ) -> ItemParentGraphNode {
 	let parents = parents_map
 		.get(&item.get_id())
@@ -518,7 +524,7 @@ pub fn get_children_graph(pool: &DbPool, root_item: &Item) -> Result<ItemChildGr
 	let edges = get_all_descendants(pool, &item_id)?;
 
 	// Collect all item IDs (root + all children from edges)
-	let mut item_ids: Vec<String> = edges.iter().map(|e| e.child_id.clone()).collect();
+	let mut item_ids: Vec<_> = edges.iter().map(|e| e.child_id.clone()).collect();
 	item_ids.push(item_id.clone());
 	item_ids.sort();
 	item_ids.dedup();
@@ -527,7 +533,7 @@ pub fn get_children_graph(pool: &DbPool, root_item: &Item) -> Result<ItemChildGr
 	let items_map = load_items_map(pool, &item_ids)?;
 
 	// Build adjacency list: parent_id -> [(child_id, relation_type)]
-	let mut children_map: HashMap<String, Vec<(String, String)>> = HashMap::new();
+	let mut children_map: HashMap<ItemId, Vec<(ItemId, String)>> = HashMap::new();
 	for edge in &edges {
 		children_map
 			.entry(edge.parent_id.clone())
@@ -562,7 +568,7 @@ pub fn get_parent_graph(pool: &DbPool, root_item: &Item) -> Result<ItemParentGra
 	let edges = get_all_ancestors(pool, &item_id)?;
 
 	// Collect all item IDs (root + all parents from edges)
-	let mut item_ids: Vec<String> = edges.iter().map(|e| e.parent_id.clone()).collect();
+	let mut item_ids: Vec<_> = edges.iter().map(|e| e.parent_id.clone()).collect();
 	item_ids.push(item_id.clone());
 	item_ids.sort();
 	item_ids.dedup();
@@ -571,7 +577,7 @@ pub fn get_parent_graph(pool: &DbPool, root_item: &Item) -> Result<ItemParentGra
 	let items_map = load_items_map(pool, &item_ids)?;
 
 	// Build adjacency list: child_id -> [(parent_id, relation_type)]
-	let mut parents_map: HashMap<String, Vec<(String, String)>> = HashMap::new();
+	let mut parents_map: HashMap<ItemId, Vec<(ItemId, String)>> = HashMap::new();
 	for edge in &edges {
 		parents_map
 			.entry(edge.child_id.clone())

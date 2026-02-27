@@ -1,7 +1,7 @@
 use chrono::{TimeZone, Utc};
 use clap::Subcommand;
 use hippocampus::dto::{GetQueryDto, SuspendedFilter};
-use hippocampus::models::{Card, Item};
+use hippocampus::models::{Card, CardId, Item, ItemTypeId, TagId};
 
 use crate::client::HippocampusClient;
 use crate::output::{self, OutputConfig};
@@ -33,17 +33,17 @@ pub enum TodoCommands {
 	/// Mark a todo as complete (suspend the card)
 	Complete {
 		/// The card ID to complete
-		card_id: String,
+		card_id: CardId,
 	},
 	/// Mark a todo as incomplete (unsuspend the card)
 	Uncomplete {
 		/// The card ID to uncomplete
-		card_id: String,
+		card_id: CardId,
 	},
 	/// Record a review for a card
 	Review {
 		/// The card ID to review
-		card_id: String,
+		card_id: CardId,
 		/// The rating (1-4)
 		rating: i32,
 	},
@@ -52,7 +52,7 @@ pub enum TodoCommands {
 /// Resolves the todo item type name to its ID
 async fn resolve_todo_item_type_id(
 	client: &HippocampusClient,
-) -> Result<String, Box<dyn std::error::Error>> {
+) -> Result<ItemTypeId, Box<dyn std::error::Error>> {
 	let item_types = client.list_item_types().await?;
 	// Try name match first (case-insensitive)
 	for item_type in &item_types {
@@ -62,7 +62,7 @@ async fn resolve_todo_item_type_id(
 	}
 	// Fall back to ID match
 	for item_type in &item_types {
-		if item_type.get_id() == TODO_ITEM_TYPE {
+		if item_type.get_id().0 == TODO_ITEM_TYPE {
 			return Ok(item_type.get_id());
 		}
 	}
@@ -73,7 +73,7 @@ async fn resolve_todo_item_type_id(
 async fn resolve_tag_ids(
 	client: &HippocampusClient,
 	names_or_ids: &[String],
-) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+) -> Result<Vec<TagId>, Box<dyn std::error::Error>> {
 	if names_or_ids.is_empty() {
 		return Ok(Vec::new());
 	}
@@ -82,7 +82,7 @@ async fn resolve_tag_ids(
 	for name_or_id in names_or_ids {
 		let found = all_tags
 			.iter()
-			.find(|t| t.get_name().eq_ignore_ascii_case(name_or_id) || t.get_id() == *name_or_id);
+			.find(|t| t.get_name().eq_ignore_ascii_case(name_or_id) || t.get_id().0 == *name_or_id);
 		match found {
 			Some(tag) => ids.push(tag.get_id()),
 			None => return Err(format!("Tag not found: {}", name_or_id).into()),
@@ -190,7 +190,7 @@ pub async fn execute(
 		}
 
 		TodoCommands::Review { card_id, rating } => {
-			let review = client.create_review(&card_id, rating).await?;
+			let review = client.create_review(card_id, rating).await?;
 			output::print_review(&review, config);
 		}
 	}

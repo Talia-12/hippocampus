@@ -97,6 +97,11 @@ async fn test_update_item_type_review_function() {
 async fn test_update_item_type_review_function_not_found() {
 	let pool = setup_test_db();
 
-	let result = update_item_type_review_function(&pool, "nonexistent", "fsrs".to_string()).await;
+	let result = update_item_type_review_function(
+		&pool,
+		&ItemTypeId("nonexistent".to_string()),
+		"fsrs".to_string(),
+	)
+	.await;
 	assert!(result.is_err());
 }

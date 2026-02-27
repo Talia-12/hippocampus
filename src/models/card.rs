@@ -1,7 +1,8 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+use crate::models::{CardId, ItemId};
 
 use super::JsonValue;
 
@@ -11,10 +12,10 @@ use super::JsonValue;
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Card {
 	/// Unique identifier for the card (UUID v4 as string)
-	id: String,
+	id: CardId,
 
 	/// The ID of the item this card belongs to
-	item_id: String,
+	item_id: ItemId,
 
 	/// The index of this card within its item
 	card_index: i32,
@@ -56,13 +57,13 @@ impl Card {
 	///
 	/// A new `Card` instance with the specified item ID and card index
 	pub fn new(
-		item_id: String,
+		item_id: ItemId,
 		card_index: i32,
 		next_review: DateTime<Utc>,
 		priority: f32,
 	) -> Self {
 		Self {
-			id: Uuid::new_v4().to_string(),
+			id: CardId::new(),
 			item_id,
 			card_index,
 			next_review: next_review.naive_utc(),
@@ -90,8 +91,8 @@ impl Card {
 	///
 	/// A new `Card` instance with the specified fields
 	pub fn new_with_fields(
-		id: String,
-		item_id: String,
+		id: CardId,
+		item_id: ItemId,
 		card_index: i32,
 		next_review: DateTime<Utc>,
 		last_review: Option<DateTime<Utc>>,
@@ -118,7 +119,7 @@ impl Card {
 	/// ### Returns
 	///
 	/// The unique identifier of the card
-	pub fn get_id(&self) -> String {
+	pub fn get_id(&self) -> CardId {
 		self.id.clone()
 	}
 
@@ -127,7 +128,7 @@ impl Card {
 	/// ### Returns
 	///
 	/// The ID of the item this card belongs to
-	pub fn get_item_id(&self) -> String {
+	pub fn get_item_id(&self) -> ItemId {
 		self.item_id.clone()
 	}
 
@@ -136,7 +137,7 @@ impl Card {
 	/// ### Arguments
 	///
 	/// * `item_id` - The new item ID for the card
-	pub fn set_item_id(&mut self, item_id: String) {
+	pub fn set_item_id(&mut self, item_id: ItemId) {
 		self.item_id = item_id;
 	}
 
@@ -346,7 +347,7 @@ mod tests {
 
 	#[test]
 	fn test_card_new() {
-		let item_id = Uuid::new_v4().to_string();
+		let item_id = ItemId::new();
 		let card_index = 1;
 		let next_review = Utc::now();
 
@@ -354,7 +355,6 @@ mod tests {
 
 		assert_eq!(card.get_item_id(), item_id);
 		assert_eq!(card.get_card_index(), card_index);
-		assert!(Uuid::parse_str(&card.get_id()).is_ok());
 		assert_eq!(card.get_next_review(), next_review);
 		assert_eq!(card.get_last_review(), None);
 		assert_eq!(card.get_scheduler_data(), None);
@@ -362,21 +362,21 @@ mod tests {
 
 	#[test]
 	fn test_new_card_sort_position_default() {
-		let card = Card::new("item1".to_string(), 0, Utc::now(), 0.5);
+		let card = Card::new(ItemId("item1".to_string()), 0, Utc::now(), 0.5);
 		assert_eq!(card.get_sort_position(), 0.0);
 	}
 
 	#[test]
 	fn test_new_card_priority_offset_default() {
-		let card = Card::new("item1".to_string(), 0, Utc::now(), 0.5);
+		let card = Card::new(ItemId("item1".to_string()), 0, Utc::now(), 0.5);
 		assert_eq!(card.get_priority_offset(), 0.0);
 	}
 
 	#[test]
 	fn test_new_with_fields_sort_position_default() {
 		let card = Card::new_with_fields(
-			"id1".to_string(),
-			"item1".to_string(),
+			CardId("id1".to_string()),
+			ItemId("item1".to_string()),
 			0,
 			Utc::now(),
 			None,
@@ -390,8 +390,8 @@ mod tests {
 	#[test]
 	fn test_new_with_fields_priority_offset_default() {
 		let card = Card::new_with_fields(
-			"id1".to_string(),
-			"item1".to_string(),
+			CardId("id1".to_string()),
+			ItemId("item1".to_string()),
 			0,
 			Utc::now(),
 			None,
@@ -404,7 +404,7 @@ mod tests {
 
 	#[test]
 	fn test_to_json_hide_priority_offset_basic() {
-		let mut card = Card::new("item1".to_string(), 0, Utc::now(), 0.5);
+		let mut card = Card::new(ItemId("item1".to_string()), 0, Utc::now(), 0.5);
 		card.set_priority_offset(0.03);
 		let json = card.to_json_hide_priority_offset();
 		let priority = json["priority"].as_f64().unwrap();
@@ -421,7 +421,7 @@ mod tests {
 
 	#[test]
 	fn test_to_json_hide_priority_offset_clamps_low() {
-		let mut card = Card::new("item1".to_string(), 0, Utc::now(), 0.0);
+		let mut card = Card::new(ItemId("item1".to_string()), 0, Utc::now(), 0.0);
 		card.set_priority_offset(-0.5);
 		let json = card.to_json_hide_priority_offset();
 		let priority = json["priority"].as_f64().unwrap();
@@ -430,7 +430,7 @@ mod tests {
 
 	#[test]
 	fn test_to_json_hide_priority_offset_clamps_high() {
-		let mut card = Card::new("item1".to_string(), 0, Utc::now(), 1.0);
+		let mut card = Card::new(ItemId("item1".to_string()), 0, Utc::now(), 1.0);
 		card.set_priority_offset(0.5);
 		let json = card.to_json_hide_priority_offset();
 		let priority = json["priority"].as_f64().unwrap();
@@ -439,7 +439,7 @@ mod tests {
 
 	#[test]
 	fn test_card_scheduler_data() {
-		let item_id = Uuid::new_v4().to_string();
+		let item_id = ItemId::new();
 		let card_index = 1;
 		let next_review = Utc::now();
 		let scheduler_data = Some(JsonValue(json!({

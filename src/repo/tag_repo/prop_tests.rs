@@ -1,15 +1,18 @@
 use super::*;
 use crate::repo::tests::setup_test_db;
-use crate::test_utils::{
-	SetupCardParams, arb_messy_string, arb_setup_card_params, dedup_names, setup_card,
-};
+use crate::test_utils::*;
 use proptest::prelude::*;
 use std::collections::HashSet;
-use uuid::Uuid;
 
 // ============================================================================
 // TR1: CRUD Roundtrip Properties
 // ============================================================================
+
+fn strip_tag_prefix(id: &str) -> &str {
+	const PREFIX: &str = "tag-";
+	id.strip_prefix(PREFIX)
+		.expect("expected id to start with \"tag-\"")
+}
 
 proptest! {
 	/// TR1.1: create→get preserves name and visibility for arbitrary inputs
@@ -24,7 +27,11 @@ proptest! {
 			assert_eq!(retrieved.get_name(), name);
 			assert_eq!(retrieved.get_visible(), visible);
 			assert_eq!(retrieved.get_id(), created.get_id());
-			assert!(Uuid::parse_str(&retrieved.get_id()).is_ok(),
+
+			let raw_id = &retrieved.get_id().0;
+			let uuid_part = strip_tag_prefix(raw_id);
+
+			assert!(uuid::Uuid::parse_str(uuid_part).is_ok(),
 				"ID should be valid UUID, got: {}", retrieved.get_id());
 		});
 	}
@@ -51,7 +58,7 @@ proptest! {
 
 	/// TR1.3: get_tag returns Err for arbitrary nonexistent IDs
 	#[test]
-	fn prop_tr1_3_get_nonexistent_returns_err(id in arb_messy_string()) {
+	fn prop_tr1_3_get_nonexistent_returns_err(id in arb_tag_id()) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let pool = setup_test_db();

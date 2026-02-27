@@ -1,17 +1,28 @@
 use super::*;
-use crate::test_utils::{arb_datetime_utc, arb_messy_string};
+use crate::test_utils::*;
 use proptest::prelude::*;
+use uuid::Uuid;
 
 // ============================================================================
 // IT1: Constructor Properties
 // ============================================================================
+
+fn strip_item_type_prefix(id: &str) -> &str {
+	const PREFIX: &str = "item-type-";
+	id.strip_prefix(PREFIX)
+		.expect("expected id to start with \"item-type-\"")
+}
 
 proptest! {
 	/// IT1.1: ItemType::new produces a valid UUID
 	#[test]
 	fn prop_it1_1_new_produces_valid_uuid(name in "\\PC+") {
 		let item_type = ItemType::new(name, "fsrs".to_string());
-		prop_assert!(Uuid::parse_str(&item_type.get_id()).is_ok(),
+
+			let raw_id = &item_type.get_id().0;
+			let uuid_part = strip_item_type_prefix(raw_id);
+
+			assert!(Uuid::parse_str(uuid_part).is_ok(),
 			"get_id() should be a valid UUID, got: {}", item_type.get_id());
 	}
 
@@ -33,7 +44,7 @@ proptest! {
 	/// IT1.4: ItemType::new_with_fields preserves all fields roundtrip
 	#[test]
 	fn prop_it1_4_new_with_fields_roundtrip(
-		id in "\\PC+",
+		id in arb_item_type_id(),
 		name in "\\PC+",
 		created_at in arb_datetime_utc(),
 	) {
@@ -53,18 +64,18 @@ proptest! {
 proptest! {
 	/// IT1r.1: ItemType::new does not panic for any messy string
 	#[test]
-	fn prop_it1r_1_new_does_not_panic(name in arb_messy_string()) {
+	fn prop_it1r_1_new_does_not_panic(name in arb_messy_string(), review_function in arb_review_function()) {
 		let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-			ItemType::new(name.clone(), "fsrs".to_string())
+			ItemType::new(name.clone(), review_function.clone())
 		}));
 		prop_assert!(result.is_ok(),
-			"ItemType::new should not panic for name={:?}", name);
+			"ItemType::new should not panic for name={:?}, review_function={:?}", name, review_function);
 	}
 
 	/// IT1r.2: ItemType::new_with_fields does not panic for arbitrary inputs
 	#[test]
 	fn prop_it1r_2_new_with_fields_does_not_panic(
-		id in arb_messy_string(),
+		id in arb_item_type_id(),
 		name in arb_messy_string(),
 		created_at in arb_datetime_utc(),
 	) {

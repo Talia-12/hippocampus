@@ -2,6 +2,8 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
+use crate::models::ItemId;
+
 /// Represents a parent-child relationship between two items
 ///
 /// This supports SuperMemo-style incremental reading workflows where
@@ -14,10 +16,10 @@ use serde::{Deserialize, Serialize};
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ItemRelation {
 	/// The ID of the parent item
-	parent_item_id: String,
+	parent_item_id: ItemId,
 
 	/// The ID of the child item
-	child_item_id: String,
+	child_item_id: ItemId,
 
 	/// The type of relationship (e.g. "extract", "cloze", "simplify")
 	relation_type: String,
@@ -38,7 +40,7 @@ impl ItemRelation {
 	/// ### Returns
 	///
 	/// A new `ItemRelation` instance
-	pub fn new(parent_item_id: String, child_item_id: String, relation_type: String) -> Self {
+	pub fn new(parent_item_id: ItemId, child_item_id: ItemId, relation_type: String) -> Self {
 		Self {
 			parent_item_id,
 			child_item_id,
@@ -52,7 +54,7 @@ impl ItemRelation {
 	/// ### Returns
 	///
 	/// The ID of the parent item in this relation
-	pub fn get_parent_item_id(&self) -> String {
+	pub fn get_parent_item_id(&self) -> ItemId {
 		self.parent_item_id.clone()
 	}
 
@@ -61,7 +63,7 @@ impl ItemRelation {
 	/// ### Returns
 	///
 	/// The ID of the child item in this relation
-	pub fn get_child_item_id(&self) -> String {
+	pub fn get_child_item_id(&self) -> ItemId {
 		self.child_item_id.clone()
 	}
 
@@ -91,26 +93,26 @@ mod tests {
 	#[test]
 	fn test_new_item_relation() {
 		let relation = ItemRelation::new(
-			"parent-id".to_string(),
-			"child-id".to_string(),
+			ItemId("parent-id".to_string()),
+			ItemId("child-id".to_string()),
 			"extract".to_string(),
 		);
 
-		assert_eq!(relation.get_parent_item_id(), "parent-id");
-		assert_eq!(relation.get_child_item_id(), "child-id");
+		assert_eq!(relation.get_parent_item_id().0, "parent-id");
+		assert_eq!(relation.get_child_item_id().0, "child-id");
 		assert_eq!(relation.get_relation_type(), "extract");
 	}
 
 	#[test]
 	fn test_getters() {
 		let relation = ItemRelation::new(
-			"parent-123".to_string(),
-			"child-456".to_string(),
+			ItemId("parent-123".to_string()),
+			ItemId("child-456".to_string()),
 			"cloze".to_string(),
 		);
 
-		assert_eq!(relation.get_parent_item_id(), "parent-123");
-		assert_eq!(relation.get_child_item_id(), "child-456");
+		assert_eq!(relation.get_parent_item_id().0, "parent-123");
+		assert_eq!(relation.get_child_item_id().0, "child-456");
 		assert_eq!(relation.get_relation_type(), "cloze");
 		// created_at should be close to now
 		let now = Utc::now();
@@ -121,8 +123,8 @@ mod tests {
 	#[test]
 	fn test_clone_and_eq() {
 		let relation = ItemRelation::new(
-			"parent-id".to_string(),
-			"child-id".to_string(),
+			ItemId("parent-id".to_string()),
+			ItemId("child-id".to_string()),
 			"extract".to_string(),
 		);
 		let cloned = relation.clone();

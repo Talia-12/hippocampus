@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use clap::Subcommand;
 use hippocampus::dto::{GetQueryDto, SortPositionAction, SuspendedFilter};
+use hippocampus::models::{CardId, ItemId, ItemTypeId, TagId};
 
 use crate::client::HippocampusClient;
 use crate::output::{self, OutputConfig};
@@ -12,10 +13,10 @@ pub enum CardCommands {
 	List {
 		/// Filter by item type ID
 		#[clap(long)]
-		item_type_id: Option<String>,
+		item_type_id: Option<ItemTypeId>,
 		/// Filter by tag IDs
 		#[clap(long)]
-		tag_ids: Vec<String>,
+		tag_ids: Vec<TagId>,
 		/// Only cards with next review before this datetime (RFC 3339)
 		#[clap(long)]
 		next_review_before: Option<DateTime<Utc>>,
@@ -34,23 +35,29 @@ pub enum CardCommands {
 		/// Whether base priority and priority offset should be returned as separate fields
 		#[clap(long)]
 		split_priority: bool,
+		/// Filter by parent item ID
+		#[clap(long)]
+		parent_item_id: Option<ItemId>,
+		/// Filter by child item ID
+		#[clap(long)]
+		child_item_id: Option<ItemId>,
 	},
 	/// Get a specific card by ID
 	Get {
 		/// The card ID
-		id: String,
+		id: CardId,
 	},
 	/// Update a card's priority
 	Priority {
 		/// The card ID
-		id: String,
+		id: CardId,
 		/// The new priority value (0.0 to 1.0)
 		value: f32,
 	},
 	/// Suspend or unsuspend a card
 	Suspend {
 		/// The card ID
-		id: String,
+		id: CardId,
 		/// true to suspend, false to unsuspend
 		#[clap(num_args = 1, required = true, value_parser = clap::builder::BoolishValueParser::new())]
 		suspend: bool,
@@ -58,40 +65,40 @@ pub enum CardCommands {
 	/// Show all possible next review times for a card
 	NextReviews {
 		/// The card ID
-		id: String,
+		id: CardId,
 	},
 	/// Reorder a card to the top of the queue
 	ReorderToTop {
 		/// The card ID
-		id: String,
+		id: CardId,
 	},
 	/// Reorder a card to the bottom of the queue
 	ReorderToBottom {
 		/// The card ID
-		id: String,
+		id: CardId,
 	},
 	/// Reorder a card to before another card
 	ReorderBefore {
 		/// The card ID to move
-		id_to_move: String,
+		id_to_move: CardId,
 		/// The card ID to move before
-		target_id: String,
+		target_id: CardId,
 	},
 	/// Reorder a card to after another card
 	ReorderAfter {
 		/// The card ID to move
-		id_to_move: String,
+		id_to_move: CardId,
 		/// The card ID to move after
-		target_id: String,
+		target_id: CardId,
 	},
 	/// Clear user reordering, for all cards matching the query
 	ClearOrdering {
 		/// Filter by item type ID
 		#[clap(long)]
-		item_type_id: Option<String>,
+		item_type_id: Option<ItemTypeId>,
 		/// Filter by tag IDs
 		#[clap(long)]
-		tag_ids: Vec<String>,
+		tag_ids: Vec<TagId>,
 		/// Only cards with next review before this datetime (RFC 3339)
 		#[clap(long)]
 		next_review_before: Option<DateTime<Utc>>,
@@ -135,6 +142,8 @@ pub async fn execute(
 			suspended_after,
 			suspended_before,
 			split_priority,
+			parent_item_id,
+			child_item_id,
 		} => {
 			let query = GetQueryDto {
 				item_type_id,
@@ -145,8 +154,8 @@ pub async fn execute(
 				suspended_after,
 				suspended_before,
 				split_priority: if split_priority { Some(true) } else { None },
-				parent_item_id: None,
-				child_item_id: None,
+				parent_item_id,
+				child_item_id,
 			};
 			let cards = client.list_cards(&query).await?;
 			output::print_cards(&cards, config);

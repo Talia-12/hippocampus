@@ -1,6 +1,6 @@
 use super::*;
 use crate::repo::tests::setup_test_db;
-use crate::test_utils::{arb_messy_string, dedup_names};
+use crate::test_utils::*;
 use proptest::prelude::*;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -8,6 +8,12 @@ use uuid::Uuid;
 // ============================================================================
 // ITR1: CRUD Roundtrip Properties
 // ============================================================================
+
+fn strip_item_type_prefix(id: &str) -> &str {
+	const PREFIX: &str = "item-type-";
+	id.strip_prefix(PREFIX)
+		.expect("expected id to start with \"item-type-\"")
+}
 
 proptest! {
 	/// ITR1.1: create->get preserves name for arbitrary strings
@@ -32,7 +38,12 @@ proptest! {
 		rt.block_on(async {
 			let pool = setup_test_db();
 			let item_type = create_item_type(&pool, name, "fsrs".to_string()).await.unwrap();
-			assert!(Uuid::parse_str(&item_type.get_id()).is_ok(),
+
+
+			let raw_id = &item_type.get_id().0;
+			let uuid_part = strip_item_type_prefix(raw_id);
+
+			assert!(Uuid::parse_str(uuid_part).is_ok(),
 				"ID should be valid UUID, got: {}", item_type.get_id());
 		});
 	}
@@ -59,7 +70,7 @@ proptest! {
 
 	/// ITR1.4: get_item_type returns None for arbitrary nonexistent IDs
 	#[test]
-	fn prop_itr1_4_get_nonexistent_returns_none(id in arb_messy_string()) {
+	fn prop_itr1_4_get_nonexistent_returns_none(id in arb_item_type_id()) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let pool = setup_test_db();

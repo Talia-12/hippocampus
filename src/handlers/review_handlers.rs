@@ -6,11 +6,11 @@ use chrono::Utc;
 use std::sync::Arc;
 use tracing::{debug, info, instrument, warn};
 
-use crate::db::DbPool;
 use crate::dto::CreateReviewDto;
 use crate::errors::ApiError;
 use crate::models::Review;
 use crate::repo;
+use crate::{db::DbPool, models::CardId};
 
 /// Handler for recording a review for a card
 ///
@@ -77,7 +77,7 @@ pub async fn get_all_next_reviews_for_card_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the card ID from the URL path
-	Path(card_id): Path<String>,
+	Path(card_id): Path<CardId>,
 ) -> Result<Json<Vec<(chrono::DateTime<Utc>, serde_json::Value)>>, ApiError> {
 	debug!("Getting all possible next reviews for card {}", card_id);
 
@@ -114,7 +114,7 @@ pub async fn list_reviews_by_card_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the card ID from the URL path
-	Path(card_id): Path<String>,
+	Path(card_id): Path<CardId>,
 ) -> Result<Json<Vec<Review>>, ApiError> {
 	debug!("Listing reviews for card");
 
@@ -221,7 +221,7 @@ mod tests {
 
 		// Create a payload with a non-existent card ID
 		let payload = CreateReviewDto {
-			card_id: "nonexistent".to_string(),
+			card_id: CardId("nonexistent".to_string()),
 			rating: 2,
 		};
 
@@ -280,7 +280,7 @@ mod tests {
 
 		// Call the handler with a non-existent card ID
 		let result =
-			list_reviews_by_card_handler(State(pool.clone()), Path("nonexistent".to_string()))
+			list_reviews_by_card_handler(State(pool.clone()), Path(CardId("nonexistent".to_string())))
 				.await;
 
 		// Check that we got a NotFound error

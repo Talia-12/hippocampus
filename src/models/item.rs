@@ -1,7 +1,8 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+use crate::models::{ItemId, ItemTypeId};
 
 use super::JsonValue;
 
@@ -17,10 +18,10 @@ use super::JsonValue;
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Item {
 	/// Unique identifier for the item (UUID v4 as string)
-	id: String,
+	id: ItemId,
 
 	/// The type of this item
-	item_type: String,
+	item_type: ItemTypeId,
 
 	/// The title of the item
 	title: String,
@@ -48,10 +49,10 @@ impl Item {
 	/// ### Returns
 	///
 	/// A new `Item` instance with the specified title
-	pub fn new(item_type: String, title: String, data: JsonValue) -> Self {
+	pub fn new(item_type: ItemTypeId, title: String, data: JsonValue) -> Self {
 		let now = Utc::now().naive_utc();
 		Self {
-			id: Uuid::new_v4().to_string(),
+			id: ItemId::new(),
 			item_type,
 			title,
 			item_data: data,
@@ -77,8 +78,8 @@ impl Item {
 	///
 	/// A new `Item` instance with the specified fields
 	pub fn new_with_fields(
-		id: String,
-		item_type: String,
+		id: ItemId,
+		item_type: ItemTypeId,
 		title: String,
 		data: JsonValue,
 		created_at: DateTime<Utc>,
@@ -99,7 +100,7 @@ impl Item {
 	/// ### Returns
 	///
 	/// The unique identifier of the item
-	pub fn get_id(&self) -> String {
+	pub fn get_id(&self) -> ItemId {
 		self.id.clone()
 	}
 
@@ -108,7 +109,7 @@ impl Item {
 	/// ### Returns
 	///
 	/// The type of the item
-	pub fn get_item_type(&self) -> String {
+	pub fn get_item_type(&self) -> ItemTypeId {
 		self.item_type.clone()
 	}
 
@@ -117,7 +118,7 @@ impl Item {
 	/// ### Arguments
 	///
 	/// * `item_type` - The new type for the item
-	pub fn set_item_type(&mut self, item_type: String) {
+	pub fn set_item_type(&mut self, item_type: ItemTypeId) {
 		self.item_type = item_type;
 		self.updated_at = Utc::now().naive_utc();
 	}
@@ -209,7 +210,7 @@ mod tests {
 
 	#[test]
 	fn test_item_new() {
-		let item_type = "vocabulary".to_string();
+		let item_type = ItemTypeId("vocabulary".to_string());
 		let title = "Example Item".to_string();
 		let data = JsonValue(json!({
 			"front": "Hello",
@@ -221,7 +222,6 @@ mod tests {
 		assert_eq!(item.get_title(), title);
 		assert_eq!(item.get_item_type(), item_type);
 		assert_eq!(item.get_data().0, data.0);
-		assert!(Uuid::parse_str(&item.get_id()).is_ok());
 
 		// Ensure created_at and updated_at are within the last second
 		let now = Utc::now();
@@ -236,14 +236,13 @@ mod tests {
 
 	proptest! {
 		#[test]
-		fn prop_test_item_new_invertible(item_type in "\\PC*", title in "\\PC*", data in arb_json()) {
+		fn prop_test_item_new_invertible(item_type in arb_item_type_id(), title in "\\PC*", data in arb_json()) {
 			let data = JsonValue(data);
 			let item = Item::new(item_type.clone(), title.clone(), data.clone());
 
 			assert_eq!(item.get_item_type(), item_type);
 			assert_eq!(item.get_title(), title);
 			assert_eq!(item.get_data(), data);
-			assert!(Uuid::parse_str(&item.get_id()).is_ok());
 		}
 	}
 }

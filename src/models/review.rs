@@ -1,7 +1,8 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+use crate::models::{CardId, ReviewId};
 
 #[derive(
 	Queryable, Selectable, Insertable, Debug, Clone, PartialEq, Eq, Serialize, Deserialize,
@@ -10,10 +11,10 @@ use uuid::Uuid;
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct Review {
 	/// Unique identifier for the review (UUID v4 as string)
-	id: String,
+	id: ReviewId,
 
 	/// The ID of the card this review belongs to
-	card_id: String,
+	card_id: CardId,
 
 	/// The rating given during this review
 	rating: i32,
@@ -36,16 +37,16 @@ impl Review {
 	///
 	/// ### Panics
 	///
-	/// This function will panic if the rating is not in the range 1-3.
-	pub fn new(card_id: &str, rating: i32) -> Self {
+	/// This function will panic if the rating is not in the range 1-4.
+	pub fn new(card_id: CardId, rating: i32) -> Self {
 		// Validate the rating
 		if rating < 1 || rating > 4 {
 			panic!("Rating must be between 1 and 4, got {}", rating);
 		}
 
 		Self {
-			id: Uuid::new_v4().to_string(),
-			card_id: card_id.to_string(),
+			id: ReviewId::new(),
+			card_id,
 			rating,
 			review_timestamp: Utc::now().naive_utc(),
 		}
@@ -64,8 +65,8 @@ impl Review {
 	///
 	/// A new `Review` instance with the specified fields
 	pub fn new_with_fields(
-		id: String,
-		card_id: String,
+		id: ReviewId,
+		card_id: CardId,
 		rating: i32,
 		review_timestamp: DateTime<Utc>,
 	) -> Self {
@@ -82,7 +83,7 @@ impl Review {
 	/// ### Returns
 	///
 	/// The unique identifier of the review
-	pub fn get_id(&self) -> String {
+	pub fn get_id(&self) -> ReviewId {
 		self.id.clone()
 	}
 
@@ -118,7 +119,7 @@ impl Review {
 	/// ### Returns
 	///
 	/// The ID of the card this review belongs to
-	pub fn get_card_id(&self) -> String {
+	pub fn get_card_id(&self) -> CardId {
 		self.card_id.clone()
 	}
 
@@ -127,7 +128,7 @@ impl Review {
 	/// ### Arguments
 	///
 	/// * `card_id` - The new card ID for the review
-	pub fn set_card_id(&mut self, card_id: String) {
+	pub fn set_card_id(&mut self, card_id: CardId) {
 		self.card_id = card_id;
 	}
 
@@ -159,14 +160,13 @@ mod tests {
 
 	#[test]
 	fn test_review_new() {
-		let card_id = Uuid::new_v4().to_string();
+		let card_id = CardId::new();
 		let rating = 2;
 
-		let review = Review::new(&card_id, rating);
+		let review = Review::new(card_id.clone(), rating);
 
 		assert_eq!(review.get_card_id(), card_id);
 		assert_eq!(review.get_rating(), rating);
-		assert!(Uuid::parse_str(&review.get_id()).is_ok());
 
 		// Ensure review_timestamp is within the last second
 		let now = Utc::now();
@@ -179,10 +179,10 @@ mod tests {
 	#[test]
 	#[should_panic(expected = "Rating must be between 1 and 4")]
 	fn test_review_invalid_rating() {
-		let card_id = Uuid::new_v4().to_string();
+		let card_id = CardId::new();
 		let invalid_rating = 0;
 
 		// This should panic
-		let _ = Review::new(&card_id, invalid_rating);
+		let _ = Review::new(card_id, invalid_rating);
 	}
 }

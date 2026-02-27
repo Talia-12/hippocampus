@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use clap::Subcommand;
 use hippocampus::dto::{GetQueryDto, SuspendedFilter};
+use hippocampus::models::{ItemId, ItemTypeId, TagId};
 
 use crate::client::HippocampusClient;
 use crate::output::{self, OutputConfig};
@@ -12,11 +13,11 @@ pub enum ItemCommands {
 	List {
 		/// Filter by item type ID
 		#[clap(long)]
-		item_type_id: Option<String>,
+		item_type_id: Option<ItemTypeId>,
 		/// Filter by tag IDs
 		#[clap(long)]
-		tag_ids: Vec<String>,
-		/// Only cards with next review before this datetime (RFC 3339)
+		tag_ids: Vec<TagId>,
+		/// Only items with next review before this datetime (RFC 3339)
 		#[clap(long)]
 		next_review_before: Option<DateTime<Utc>>,
 		/// Only cards with last review after this datetime (RFC 3339)
@@ -25,18 +26,24 @@ pub enum ItemCommands {
 		/// Suspended filter: Include, Exclude, or Only
 		#[clap(long, default_value = "exclude")]
 		suspended_filter: String,
-		/// Only cards suspended after this datetime (RFC 3339)
+		/// Only items suspended after this datetime (RFC 3339)
 		#[clap(long)]
 		suspended_after: Option<DateTime<Utc>>,
-		/// Only cards suspended before this datetime (RFC 3339)
+		/// Only items suspended before this datetime (RFC 3339)
 		#[clap(long)]
 		suspended_before: Option<DateTime<Utc>>,
+		/// Filter by parent item ID
+		#[clap(long)]
+		parent_item_id: Option<ItemId>,
+		/// Filter by child item ID
+		#[clap(long)]
+		child_item_id: Option<ItemId>,
 	},
 	/// Create a new item
 	Create {
 		/// The item type ID
 		#[clap(long)]
-		item_type_id: String,
+		item_type_id: ItemTypeId,
 		/// The item title
 		#[clap(long)]
 		title: String,
@@ -50,12 +57,12 @@ pub enum ItemCommands {
 	/// Get a specific item by ID
 	Get {
 		/// The item ID
-		id: String,
+		id: ItemId,
 	},
 	/// Update an existing item
 	Update {
 		/// The item ID
-		id: String,
+		id: ItemId,
 		/// New title
 		#[clap(long)]
 		title: Option<String>,
@@ -66,7 +73,7 @@ pub enum ItemCommands {
 	/// Delete an item
 	Delete {
 		/// The item ID
-		id: String,
+		id: ItemId,
 	},
 }
 
@@ -94,6 +101,8 @@ pub async fn execute(
 			suspended_filter,
 			suspended_after,
 			suspended_before,
+			parent_item_id,
+			child_item_id,
 		} => {
 			let query = GetQueryDto {
 				item_type_id,
@@ -104,8 +113,8 @@ pub async fn execute(
 				suspended_after,
 				suspended_before,
 				split_priority: None,
-				parent_item_id: None,
-				child_item_id: None,
+				parent_item_id,
+				child_item_id,
 			};
 			let items = client.list_items(&query).await?;
 			output::print_items(&items, config);

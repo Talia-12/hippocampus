@@ -55,7 +55,7 @@ async fn test_tag_error_handling() {
 	let pool = setup_test_db();
 
 	// Try to get a non-existent tag
-	let result = get_tag(&pool, "nonexistent-id");
+	let result = get_tag(&pool, &TagId("nonexistent-id".to_string()));
 
 	// Verify that we got an error
 	assert!(result.is_err());

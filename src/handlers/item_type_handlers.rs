@@ -5,12 +5,12 @@ use axum::{
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
 
-use crate::db::DbPool;
 use crate::dto::{CreateItemTypeDto, UpdateItemTypeDto};
 use crate::errors::ApiError;
 use crate::models::ItemType;
 use crate::repo;
 use crate::repo::VALID_REVIEW_FUNCTIONS;
+use crate::{db::DbPool, models::ItemTypeId};
 
 /// Handler for creating a new item type
 ///
@@ -77,7 +77,7 @@ pub async fn get_item_type_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the item type ID from the URL path
-	Path(item_type_id): Path<String>,
+	Path(item_type_id): Path<ItemTypeId>,
 ) -> Result<Json<ItemType>, ApiError> {
 	debug!("Retrieving item type");
 
@@ -140,7 +140,7 @@ pub async fn list_item_types_handler(
 #[instrument(skip(pool), fields(item_type_id = %item_type_id))]
 pub async fn update_item_type_handler(
 	State(pool): State<Arc<DbPool>>,
-	Path(item_type_id): Path<String>,
+	Path(item_type_id): Path<ItemTypeId>,
 	Json(payload): Json<UpdateItemTypeDto>,
 ) -> Result<Json<ItemType>, ApiError> {
 	info!("Updating item type");
@@ -259,7 +259,7 @@ mod tests {
 		let pool = setup_test_db();
 
 		// Call the handler with a non-existent ID
-		let result = get_item_type_handler(State(pool.clone()), Path("nonexistent".to_string()))
+		let result = get_item_type_handler(State(pool.clone()), Path(ItemTypeId("nonexistent".to_string())))
 			.await
 			.unwrap_err();
 
@@ -309,10 +309,13 @@ mod tests {
 			review_function: Some("incremental_queue".to_string()),
 		};
 
-		let result =
-			update_item_type_handler(State(pool.clone()), Path(item_type.get_id()), Json(payload))
-				.await
-				.unwrap();
+		let result = update_item_type_handler(
+			State(pool.clone()),
+			Path(item_type.get_id()),
+			Json(payload),
+		)
+		.await
+		.unwrap();
 
 		assert_eq!(result.0.get_review_function(), "incremental_queue");
 	}
@@ -329,9 +332,12 @@ mod tests {
 			review_function: Some("invalid".to_string()),
 		};
 
-		let result =
-			update_item_type_handler(State(pool.clone()), Path(item_type.get_id()), Json(payload))
-				.await;
+		let result = update_item_type_handler(
+			State(pool.clone()),
+			Path(item_type.get_id()),
+			Json(payload),
+		)
+		.await;
 
 		assert!(matches!(result, Err(ApiError::InvalidReviewFunction(_))));
 	}
@@ -346,7 +352,7 @@ mod tests {
 
 		let result = update_item_type_handler(
 			State(pool.clone()),
-			Path("nonexistent".to_string()),
+			Path(ItemTypeId("nonexistent".to_string())),
 			Json(payload),
 		)
 		.await;

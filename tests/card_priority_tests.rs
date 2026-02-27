@@ -69,7 +69,7 @@ async fn test_update_card_priority() {
 	);
 
 	// Verify the card ID is the same
-	assert_eq!(updated_card["id"].as_str().unwrap(), card.get_id());
+	assert_eq!(updated_card["id"].as_str().unwrap(), card.get_id().0);
 }
 
 /// Tests updating a card's priority with boundary values

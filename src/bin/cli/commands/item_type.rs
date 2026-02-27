@@ -1,4 +1,5 @@
 use clap::Subcommand;
+use hippocampus::models::ItemTypeId;
 
 use crate::client::HippocampusClient;
 use crate::output::{self, OutputConfig};
@@ -20,12 +21,12 @@ pub enum ItemTypeCommands {
 	/// Get a specific item type by ID
 	Get {
 		/// The item type ID
-		id: String,
+		id: ItemTypeId,
 	},
 	/// Update an item type's review function
 	Update {
 		/// The item type ID
-		id: String,
+		id: ItemTypeId,
 		/// The new review function
 		#[clap(long)]
 		review_function: String,

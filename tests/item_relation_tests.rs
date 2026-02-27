@@ -10,7 +10,7 @@ use common::{
 };
 use hippocampus::{
 	dto::{ItemChildGraphNode, ItemParentGraphNode},
-	models::{Card, Item, ItemRelation},
+	models::{Card, CardId, Item, ItemId, ItemRelation},
 };
 use std::process::Command;
 use serde_json::json;
@@ -23,8 +23,8 @@ use tower::Service;
 /// Creates an item relation via the API
 async fn create_relation(
 	app: &mut axum::Router,
-	parent_id: &str,
-	child_id: &str,
+	parent_id: &ItemId,
+	child_id: &ItemId,
 	relation_type: &str,
 ) -> (StatusCode, Vec<u8>) {
 	let request = Request::builder()
@@ -74,8 +74,8 @@ async fn list_relations(
 /// Deletes an item relation via the API
 async fn delete_relation(
 	app: &mut axum::Router,
-	parent_id: &str,
-	child_id: &str,
+	parent_id: &ItemId,
+	child_id: &ItemId,
 ) -> StatusCode {
 	let request = Request::builder()
 		.uri(format!(
@@ -92,7 +92,7 @@ async fn delete_relation(
 /// Gets the children graph for an item via the API
 async fn get_children_graph(
 	app: &mut axum::Router,
-	item_id: &str,
+	item_id: &ItemId,
 ) -> (StatusCode, Vec<u8>) {
 	let request = Request::builder()
 		.uri(format!("/items/{}/children_graph", item_id))
@@ -109,7 +109,7 @@ async fn get_children_graph(
 /// Gets the parent graph for an item via the API
 async fn get_parent_graph(
 	app: &mut axum::Router,
-	item_id: &str,
+	item_id: &ItemId,
 ) -> (StatusCode, Vec<u8>) {
 	let request = Request::builder()
 		.uri(format!("/items/{}/parent_graph", item_id))
@@ -220,7 +220,8 @@ async fn test_create_item_relation_nonexistent_parent() {
 	let mut app = create_test_app();
 	let (_, item_b, _) = setup_three_items(&mut app).await;
 
-	let (status, _) = create_relation(&mut app, "nonexistent", &item_b.get_id(), "extract").await;
+	let nonexistent = ItemId("nonexistent".to_string());
+	let (status, _) = create_relation(&mut app, &nonexistent, &item_b.get_id(), "extract").await;
 
 	assert_eq!(status, StatusCode::NOT_FOUND);
 }
@@ -230,7 +231,8 @@ async fn test_create_item_relation_nonexistent_child() {
 	let mut app = create_test_app();
 	let (item_a, _, _) = setup_three_items(&mut app).await;
 
-	let (status, _) = create_relation(&mut app, &item_a.get_id(), "nonexistent", "extract").await;
+	let nonexistent = ItemId("nonexistent".to_string());
+	let (status, _) = create_relation(&mut app, &item_a.get_id(), &nonexistent, "extract").await;
 
 	assert_eq!(status, StatusCode::NOT_FOUND);
 }
@@ -280,7 +282,9 @@ async fn test_delete_item_relation() {
 async fn test_delete_item_relation_not_found() {
 	let mut app = create_test_app();
 
-	let status = delete_relation(&mut app, "nonexistent", "also-nonexistent").await;
+	let nonexistent = ItemId("nonexistent".to_string());
+	let also_nonexistent = ItemId("also-nonexistent".to_string());
+	let status = delete_relation(&mut app, &nonexistent, &also_nonexistent).await;
 	assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
@@ -451,7 +455,8 @@ async fn test_children_graph_leaf_node() {
 async fn test_children_graph_nonexistent_item() {
 	let mut app = create_test_app();
 
-	let (status, _) = get_children_graph(&mut app, "nonexistent").await;
+	let nonexistent = ItemId("nonexistent".to_string());
+	let (status, _) = get_children_graph(&mut app, &nonexistent).await;
 	assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
@@ -539,7 +544,8 @@ async fn test_parent_graph_root_node() {
 async fn test_parent_graph_nonexistent_item() {
 	let mut app = create_test_app();
 
-	let (status, _) = get_parent_graph(&mut app, "nonexistent").await;
+	let nonexistent = ItemId("nonexistent".to_string());
+	let (status, _) = get_parent_graph(&mut app, &nonexistent).await;
 	assert_eq!(status, StatusCode::NOT_FOUND);
 }
 
@@ -607,7 +613,7 @@ async fn test_list_items_with_parent_item_id_filter() {
 	let items = list_items(&mut app, &format!("parent_item_id={}", item_a.get_id())).await;
 
 	assert_eq!(items.len(), 2);
-	let item_ids: Vec<String> = items.iter().map(|i| i.get_id()).collect();
+	let item_ids: Vec<_> = items.iter().map(|i| i.get_id()).collect();
 	assert!(item_ids.contains(&item_b.get_id()));
 	assert!(item_ids.contains(&item_c.get_id()));
 	// A itself should NOT be in results (it's the parent, not a child)
@@ -626,7 +632,7 @@ async fn test_list_items_with_child_item_id_filter() {
 	let items = list_items(&mut app, &format!("child_item_id={}", item_c.get_id())).await;
 
 	assert_eq!(items.len(), 2);
-	let item_ids: Vec<String> = items.iter().map(|i| i.get_id()).collect();
+	let item_ids: Vec<_> = items.iter().map(|i| i.get_id()).collect();
 	assert!(item_ids.contains(&item_a.get_id()));
 	assert!(item_ids.contains(&item_b.get_id()));
 	// C itself should NOT be in results (it's the child, not a parent)
@@ -668,7 +674,7 @@ async fn test_list_cards_with_parent_item_id_filter() {
 	// Get the expected cards for B and C
 	let cards_b = get_cards_for_item(&mut app, &item_b.get_id()).await;
 	let cards_c = get_cards_for_item(&mut app, &item_c.get_id()).await;
-	let expected_card_ids: std::collections::HashSet<String> = cards_b
+	let expected_card_ids: std::collections::HashSet<_> = cards_b
 		.iter()
 		.chain(cards_c.iter())
 		.map(|c| c.get_id())
@@ -676,7 +682,7 @@ async fn test_list_cards_with_parent_item_id_filter() {
 
 	let cards = list_cards(&mut app, &format!("parent_item_id={}", item_a.get_id())).await;
 
-	let result_card_ids: std::collections::HashSet<String> =
+	let result_card_ids: std::collections::HashSet<_> =
 		cards.iter().map(|c| c.get_id()).collect();
 	assert_eq!(result_card_ids, expected_card_ids);
 
@@ -702,7 +708,7 @@ async fn test_list_cards_with_child_item_id_filter() {
 	// Get the expected cards for A and B (the parents)
 	let cards_a = get_cards_for_item(&mut app, &item_a.get_id()).await;
 	let cards_b = get_cards_for_item(&mut app, &item_b.get_id()).await;
-	let expected_card_ids: std::collections::HashSet<String> = cards_a
+	let expected_card_ids: std::collections::HashSet<_> = cards_a
 		.iter()
 		.chain(cards_b.iter())
 		.map(|c| c.get_id())
@@ -710,7 +716,7 @@ async fn test_list_cards_with_child_item_id_filter() {
 
 	let cards = list_cards(&mut app, &format!("child_item_id={}", item_c.get_id())).await;
 
-	let result_card_ids: std::collections::HashSet<String> =
+	let result_card_ids: std::collections::HashSet<_> =
 		cards.iter().map(|c| c.get_id()).collect();
 	assert_eq!(result_card_ids, expected_card_ids);
 

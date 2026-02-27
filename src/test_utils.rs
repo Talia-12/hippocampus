@@ -1,3 +1,4 @@
+use crate::models::{CardId, ItemId, ItemTypeId, ReviewId, TagId};
 use crate::*;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
@@ -271,6 +272,22 @@ pub fn arb_messy_string() -> impl Strategy<Value = String> {
 	]
 }
 
+pub fn arb_item_type_id() -> impl Strategy<Value = ItemTypeId> {
+	arb_messy_string().prop_map(ItemTypeId)
+}
+pub fn arb_tag_id() -> impl Strategy<Value = TagId> {
+	arb_messy_string().prop_map(TagId)
+}
+pub fn arb_item_id() -> impl Strategy<Value = ItemId> {
+	arb_messy_string().prop_map(ItemId)
+}
+pub fn arb_card_id() -> impl Strategy<Value = CardId> {
+	arb_messy_string().prop_map(CardId)
+}
+pub fn arb_review_id() -> impl Strategy<Value = ReviewId> {
+	arb_messy_string().prop_map(ReviewId)
+}
+
 /// Recursively compares two JSON values with numeric tolerance.
 ///
 /// All non-numeric types are compared exactly. Numbers are compared with
@@ -374,7 +391,7 @@ pub fn arb_item_params(max: usize) -> impl Strategy<Value = Vec<(String, Value)>
 /// A vec of the created Item models
 pub async fn create_items(
 	pool: &db::DbPool,
-	item_type_id: &str,
+	item_type_id: &ItemTypeId,
 	items: Vec<(String, serde_json::Value)>,
 ) -> Vec<models::Item> {
 	let mut result = Vec::with_capacity(items.len());

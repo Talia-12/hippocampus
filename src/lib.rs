@@ -602,7 +602,7 @@ mod tests {
 		let updated_card: Value = serde_json::from_slice(&body).unwrap();
 
 		// Verify the response contains the card with updated priority
-		assert_eq!(updated_card["id"], card.get_id());
+		assert_eq!(updated_card["id"], card.get_id().0);
 		assert!((updated_card["priority"].as_f64().unwrap() - new_priority).abs() < 0.0001);
 	}
 
@@ -863,7 +863,7 @@ mod tests {
 		let response_item: Value = serde_json::from_slice(&body).unwrap();
 
 		// Verify the response contains the correct item
-		assert_eq!(response_item["id"], item.get_id());
+		assert_eq!(response_item["id"], item.get_id().0);
 		assert_eq!(response_item["title"], title);
 	}
 
@@ -923,7 +923,7 @@ mod tests {
 		let review: Value = serde_json::from_slice(&body).unwrap();
 
 		// Verify the response contains the correct review
-		assert_eq!(review["card_id"], card.get_id());
+		assert_eq!(review["card_id"], card.get_id().0);
 		assert_eq!(review["rating"], 3);
 		assert!(review["id"].is_string());
 
@@ -1036,7 +1036,7 @@ mod tests {
 		let response_item_type: Value = serde_json::from_slice(&body).unwrap();
 
 		// Verify the response contains the correct item type
-		assert_eq!(response_item_type["id"], item_type.get_id());
+		assert_eq!(response_item_type["id"], item_type.get_id().0);
 		assert_eq!(response_item_type["name"], name);
 	}
 

@@ -9,6 +9,7 @@ use axum::{
 	body::{Body, to_bytes},
 	http::{Request, StatusCode},
 };
+use hippocampus::models::CardId;
 use serde_json::{Value, json};
 use tower::Service;
 
@@ -26,7 +27,7 @@ use common::*;
 /// ### Returns
 ///
 /// The review response as a JSON Value
-async fn create_review(app: &mut axum::Router, card_id: &str, rating: i32) -> Value {
+async fn create_review(app: &mut axum::Router, card_id: &CardId, rating: i32) -> Value {
 	// Create a request to create a review
 	let request = Request::builder()
 		.uri("/reviews")
@@ -87,7 +88,7 @@ async fn test_create_review_rating_again() {
 	let review = create_review(&mut app, &card.get_id(), 1).await;
 
 	// Check that the review has the correct card_id and rating
-	assert_eq!(review["card_id"].as_str().unwrap(), card.get_id());
+	assert_eq!(review["card_id"].as_str().unwrap(), card.get_id().0);
 	assert_eq!(review["rating"].as_i64().unwrap(), 1);
 
 	// Now get the updated card to verify scheduling
@@ -155,7 +156,7 @@ async fn test_create_review_rating_hard() {
 	let review = create_review(&mut app, &card.get_id(), 2).await;
 
 	// Check that the review has the correct card_id and rating
-	assert_eq!(review["card_id"].as_str().unwrap(), card.get_id());
+	assert_eq!(review["card_id"].as_str().unwrap(), card.get_id().0);
 	assert_eq!(review["rating"].as_i64().unwrap(), 2);
 
 	// Now get the updated card to verify scheduling
@@ -219,7 +220,7 @@ async fn test_create_review_rating_good() {
 	let review = create_review(&mut app, &card.get_id(), 3).await;
 
 	// Check that the review has the correct card_id and rating
-	assert_eq!(review["card_id"].as_str().unwrap(), card.get_id());
+	assert_eq!(review["card_id"].as_str().unwrap(), card.get_id().0);
 	assert_eq!(review["rating"].as_i64().unwrap(), 3);
 
 	// Now get the updated card to verify scheduling
@@ -283,7 +284,7 @@ async fn test_create_review_rating_easy() {
 	let review = create_review(&mut app, &card.get_id(), 4).await;
 
 	// Check that the review has the correct card_id and rating
-	assert_eq!(review["card_id"].as_str().unwrap(), card.get_id());
+	assert_eq!(review["card_id"].as_str().unwrap(), card.get_id().0);
 	assert_eq!(review["rating"].as_i64().unwrap(), 4);
 
 	// Now get the updated card to verify scheduling

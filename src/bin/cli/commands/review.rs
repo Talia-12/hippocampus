@@ -1,4 +1,5 @@
 use clap::Subcommand;
+use hippocampus::models::CardId;
 
 use crate::client::HippocampusClient;
 use crate::output::{self, OutputConfig};
@@ -10,7 +11,7 @@ pub enum ReviewCommands {
 	Create {
 		/// The card ID to review
 		#[clap(long)]
-		card_id: String,
+		card_id: CardId,
 		/// The rating (1-4)
 		#[clap(long)]
 		rating: i32,
@@ -20,7 +21,7 @@ pub enum ReviewCommands {
 	List {
 		/// The card ID to review
 		#[clap(long)]
-		card_id: String,
+		card_id: CardId,
 	},
 }
 
@@ -32,7 +33,7 @@ pub async fn execute(
 ) -> Result<(), Box<dyn std::error::Error>> {
 	match cmd {
 		ReviewCommands::Create { card_id, rating } => {
-			let review = client.create_review(&card_id, rating).await?;
+			let review = client.create_review(card_id, rating).await?;
 			output::print_review(&review, config);
 		}
 		ReviewCommands::List { card_id } => {

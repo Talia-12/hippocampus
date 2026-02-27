@@ -1,5 +1,6 @@
 use super::*;
 use crate::GetQueryDto;
+use crate::models::{ItemTypeId, TagId};
 use crate::repo::tests::setup_test_db;
 use crate::repo::{add_tag_to_item, create_item, create_item_type, create_tag};
 use crate::test_utils::{
@@ -22,17 +23,15 @@ use std::collections::HashMap;
 fn oracle_filter(
 	all_cards: &[Card],
 	query: &GetQueryDto,
-	item_type_map: &HashMap<String, String>,
-	item_tags_map: &HashMap<String, Vec<String>>,
-) -> Vec<String> {
+	item_type_map: &HashMap<ItemId, ItemTypeId>,
+	item_tags_map: &HashMap<ItemId, Vec<TagId>>,
+) -> Vec<CardId> {
 	all_cards
 		.iter()
 		.filter(|card| {
 			// item_type_id filter
 			if let Some(ref type_id) = query.item_type_id {
-				if item_type_map.get(&card.get_item_id()).map(|t| t.as_str())
-					!= Some(type_id.as_str())
-				{
+				if item_type_map.get(&card.get_item_id()) != Some(type_id) {
 					return false;
 				}
 			}
@@ -112,15 +111,10 @@ async fn apply_mutations_to_card(
 }
 
 /// Helper: collect card IDs as a sorted Vec for set comparison
-fn sorted_ids(cards: &[Card]) -> Vec<String> {
-	let mut ids: Vec<String> = cards.iter().map(|c| c.get_id()).collect();
+fn sorted_ids(cards: &[Card]) -> Vec<CardId> {
+	let mut ids: Vec<_> = cards.iter().map(|c| c.get_id()).collect();
 	ids.sort();
 	ids
-}
-
-fn sorted(mut v: Vec<String>) -> Vec<String> {
-	v.sort();
-	v
 }
 
 // ============================================================================
@@ -290,7 +284,11 @@ async fn setup_filter_universe(
 	pool: &std::sync::Arc<crate::db::DbPool>,
 	n_items: usize,
 	card_mutations: &[CardMutations],
-) -> (Vec<Card>, HashMap<String, String>, Vec<crate::models::Item>) {
+) -> (
+	Vec<Card>,
+	HashMap<ItemId, ItemTypeId>,
+	Vec<crate::models::Item>,
+) {
 	let type1 = create_item_type(pool, "Test Type A".to_string(), "fsrs".to_string())
 		.await
 		.unwrap();
@@ -360,9 +358,10 @@ proptest! {
 			};
 
 			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
-			let oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			oracle_result.sort();
 
-			prop_assert_eq!(sorted_ids(&sql_result), sorted(oracle_result));
+			prop_assert_eq!(sorted_ids(&sql_result), oracle_result);
 			// Also verify soundness directly: every result has the right type
 			for c in &sql_result {
 				prop_assert_eq!(
@@ -394,9 +393,10 @@ proptest! {
 			};
 
 			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
-			let oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			oracle_result.sort();
 
-			prop_assert_eq!(sorted_ids(&sql_result), sorted(oracle_result));
+			prop_assert_eq!(sorted_ids(&sql_result), oracle_result);
 			// Soundness: every result has next_review < cutoff
 			for c in &sql_result {
 				prop_assert!(c.get_next_review() < cutoff);
@@ -425,9 +425,10 @@ proptest! {
 			};
 
 			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
-			let oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			oracle_result.sort();
 
-			prop_assert_eq!(sorted_ids(&sql_result), sorted(oracle_result));
+			prop_assert_eq!(sorted_ids(&sql_result), oracle_result);
 			// Soundness: every result has last_review > cutoff (not None)
 			for c in &sql_result {
 				let lr = c.get_last_review();
@@ -456,9 +457,10 @@ proptest! {
 			};
 
 			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
-			let oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			oracle_result.sort();
 
-			prop_assert_eq!(sorted_ids(&sql_result), sorted(oracle_result));
+			prop_assert_eq!(sorted_ids(&sql_result), oracle_result);
 			for c in &sql_result {
 				prop_assert!(c.get_suspended().is_none());
 			}
@@ -484,9 +486,10 @@ proptest! {
 			};
 
 			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
-			let oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			oracle_result.sort();
 
-			prop_assert_eq!(sorted_ids(&sql_result), sorted(oracle_result));
+			prop_assert_eq!(sorted_ids(&sql_result), oracle_result);
 			for c in &sql_result {
 				prop_assert!(c.get_suspended().is_some());
 			}
@@ -537,9 +540,10 @@ proptest! {
 			};
 
 			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
-			let oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			oracle_result.sort();
 
-			prop_assert_eq!(sorted_ids(&sql_result), sorted(oracle_result));
+			prop_assert_eq!(sorted_ids(&sql_result), oracle_result);
 			// Soundness: every result has suspended < cutoff (and is_some)
 			for c in &sql_result {
 				let s = c.get_suspended();
@@ -570,9 +574,10 @@ proptest! {
 			};
 
 			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
-			let oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
+			oracle_result.sort();
 
-			prop_assert_eq!(sorted_ids(&sql_result), sorted(oracle_result));
+			prop_assert_eq!(sorted_ids(&sql_result), oracle_result);
 			for c in &sql_result {
 				let s = c.get_suspended();
 				prop_assert!(s.is_some(), "Non-suspended card in suspended_after result");
@@ -604,7 +609,7 @@ proptest! {
 			let tag_ids = [tag0.get_id(), tag1.get_id()];
 
 			// Assign tags to items based on bitmask
-			let mut item_tags_map: HashMap<String, Vec<String>> = HashMap::new();
+			let mut item_tags_map: HashMap<_, Vec::<_>> = HashMap::new();
 			for (i, item) in items.iter().enumerate() {
 				for (j, tid) in tag_ids.iter().enumerate() {
 					if tag_assign[i][j] {
@@ -629,9 +634,10 @@ proptest! {
 			let all_cards = list_all_cards(&pool).unwrap();
 
 			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
-			let oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &item_tags_map);
+			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &item_tags_map);
+			oracle_result.sort();
 
-			prop_assert_eq!(sorted_ids(&sql_result), sorted(oracle_result));
+			prop_assert_eq!(sorted_ids(&sql_result), oracle_result);
 			Ok::<_, TestCaseError>(())
 		})?;
 	}
@@ -661,7 +667,7 @@ proptest! {
 			let tag1 = create_tag(&pool, "TagB".to_string(), true).await.unwrap();
 			let tag_ids_all = [tag0.get_id(), tag1.get_id()];
 
-			let mut item_tags_map: HashMap<String, Vec<String>> = HashMap::new();
+			let mut item_tags_map: HashMap<_, Vec<_>> = HashMap::new();
 			for (i, item) in items.iter().enumerate() {
 				for (j, tid) in tag_ids_all.iter().enumerate() {
 					if tag_assign[i % tag_assign.len()][j] {
@@ -696,9 +702,10 @@ proptest! {
 
 			let all_cards = list_all_cards(&pool).unwrap();
 			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
-			let oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &item_tags_map);
+			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &item_tags_map);
+			oracle_result.sort();
 
-			prop_assert_eq!(sorted_ids(&sql_result), sorted(oracle_result));
+			prop_assert_eq!(sorted_ids(&sql_result), oracle_result);
 			Ok::<_, TestCaseError>(())
 		})?;
 	}
@@ -716,13 +723,13 @@ proptest! {
 
 			let query = if use_bad_type {
 				GetQueryDto {
-					item_type_id: Some("nonexistent-type-id".to_string()),
+					item_type_id: Some(ItemTypeId("nonexistent-type-id".to_string())),
 					suspended_filter: SuspendedFilter::Include,
 					..Default::default()
 				}
 			} else {
 				GetQueryDto {
-					tag_ids: vec!["nonexistent-tag-id".to_string()],
+					tag_ids: vec![TagId("nonexistent-tag-id".to_string())],
 					suspended_filter: SuspendedFilter::Include,
 					..Default::default()
 				}
@@ -819,7 +826,7 @@ proptest! {
 			}
 
 			let all_cards = list_all_cards(&pool).unwrap();
-			let mut union_ids: Vec<String> = vec![];
+			let mut union_ids: Vec<_> = vec![];
 			for item in &items {
 				let cards = get_cards_for_item(&pool, &item.get_id()).unwrap();
 				union_ids.extend(cards.iter().map(|c| c.get_id()));
@@ -939,7 +946,7 @@ proptest! {
 			let target_id = cards[n / 2].get_id();
 
 			// Record ordering of others before
-			let others_before: Vec<String> = before.iter()
+			let others_before: Vec<_> = before.iter()
 				.filter(|c| c.get_id() != target_id)
 				.map(|c| c.get_id())
 				.collect();
@@ -947,7 +954,7 @@ proptest! {
 			move_card_to_top(&pool, &target_id).await.unwrap();
 
 			let after = list_cards_with_filters(&pool, &query).unwrap();
-			let others_after: Vec<String> = after.iter()
+			let others_after: Vec<_> = after.iter()
 				.filter(|c| c.get_id() != target_id)
 				.map(|c| c.get_id())
 				.collect();
@@ -1069,7 +1076,7 @@ proptest! {
 			let mover_id = cards[0].get_id();
 			let target_id = cards[n - 1].get_id();
 
-			let others_before: Vec<String> = before.iter()
+			let others_before: Vec<_> = before.iter()
 				.filter(|c| c.get_id() != mover_id)
 				.map(|c| c.get_id())
 				.collect();
@@ -1077,7 +1084,7 @@ proptest! {
 			move_card_relative(&pool, &mover_id, &target_id, false).await.unwrap();
 
 			let after = list_cards_with_filters(&pool, &query).unwrap();
-			let others_after: Vec<String> = after.iter()
+			let others_after: Vec<_> = after.iter()
 				.filter(|c| c.get_id() != mover_id)
 				.map(|c| c.get_id())
 				.collect();
@@ -1123,7 +1130,7 @@ proptest! {
 			}
 
 			// Record positions before
-			let before: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
+			let before: Vec<_> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			let target_id = cards[n / 2].get_id();
@@ -1286,7 +1293,7 @@ proptest! {
 			}
 
 			// Record sort positions before clear
-			let before: HashMap<String, f32> = list_all_cards(&pool).unwrap()
+			let before: HashMap<_, _> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			// Build query with item_type filter to ensure non-default query
@@ -1311,7 +1318,7 @@ proptest! {
 
 			// Compute oracle matching set
 			let matching_ids = oracle_filter(&list_all_cards(&pool).unwrap(), &query, &item_type_map, &HashMap::new());
-			let matching_set: std::collections::HashSet<String> = matching_ids.into_iter().collect();
+			let matching_set: std::collections::HashSet<_> = matching_ids.into_iter().collect();
 
 			// Execute filtered clear
 			clear_sort_positions(&pool, &query).await.unwrap();
@@ -1357,7 +1364,7 @@ proptest! {
 			let tag1 = create_tag(&pool, "TagB".to_string(), true).await.unwrap();
 			let tag_ids_all = [tag0.get_id(), tag1.get_id()];
 
-			let mut item_tags_map: HashMap<String, Vec<String>> = HashMap::new();
+			let mut item_tags_map: HashMap<_, Vec<_>> = HashMap::new();
 			for (i, item) in items.iter().enumerate() {
 				for (j, tid) in tag_ids_all.iter().enumerate() {
 					if tag_assign[i][j] {
@@ -1377,7 +1384,7 @@ proptest! {
 			}
 
 			// Record sort positions before clear
-			let before: HashMap<String, f32> = list_all_cards(&pool).unwrap()
+			let before: HashMap<_, _> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			// Build query with tag filters (ensure at least one tag to make non-default)
@@ -1411,7 +1418,7 @@ proptest! {
 			// Compute oracle matching set
 			let fresh_cards = list_all_cards(&pool).unwrap();
 			let matching_ids = oracle_filter(&fresh_cards, &query, &item_type_map, &item_tags_map);
-			let matching_set: std::collections::HashSet<String> = matching_ids.into_iter().collect();
+			let matching_set: std::collections::HashSet<_> = matching_ids.into_iter().collect();
 
 			// Execute filtered clear
 			clear_sort_positions(&pool, &query).await.unwrap();
@@ -1454,12 +1461,12 @@ proptest! {
 			}
 
 			// Record sort positions before clear
-			let before: HashMap<String, f32> = list_all_cards(&pool).unwrap()
+			let before: HashMap<_, _> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			// Build a query matching nothing (nonexistent item type)
 			let query = GetQueryDto {
-				item_type_id: Some("nonexistent-type-id".to_string()),
+				item_type_id: Some(ItemTypeId("nonexistent-type-id".to_string())),
 				suspended_filter: SuspendedFilter::Include,
 				..Default::default()
 			};
@@ -1485,7 +1492,7 @@ proptest! {
 #[tokio::test]
 async fn test_t4_e1_move_to_top_nonexistent_card() {
 	let pool = setup_test_db();
-	let result = move_card_to_top(&pool, "nonexistent-id").await;
+	let result = move_card_to_top(&pool, &CardId("nonexistent-id".to_string())).await;
 	assert!(result.is_err());
 }
 
@@ -1494,7 +1501,13 @@ async fn test_t4_e2_move_relative_nonexistent_card() {
 	let pool = setup_test_db();
 	let cards = create_n_cards(&pool, 2).await;
 	move_card_to_top(&pool, &cards[1].get_id()).await.unwrap();
-	let result = move_card_relative(&pool, "nonexistent-id", &cards[1].get_id(), true).await;
+	let result = move_card_relative(
+		&pool,
+		&CardId("nonexistent-id".to_string()),
+		&cards[1].get_id(),
+		true,
+	)
+	.await;
 	assert!(result.is_err());
 }
 
@@ -1502,7 +1515,13 @@ async fn test_t4_e2_move_relative_nonexistent_card() {
 async fn test_t4_e3_move_relative_nonexistent_target() {
 	let pool = setup_test_db();
 	let cards = create_n_cards(&pool, 1).await;
-	let result = move_card_relative(&pool, &cards[0].get_id(), "nonexistent-id", true).await;
+	let result = move_card_relative(
+		&pool,
+		&cards[0].get_id(),
+		&CardId("nonexistent-id".to_string()),
+		true,
+	)
+	.await;
 	assert!(result.is_err());
 }
 
@@ -1518,7 +1537,7 @@ async fn test_t4_e4_move_relative_target_default_position() {
 #[tokio::test]
 async fn test_t4_e5_clear_card_sort_position_nonexistent() {
 	let pool = setup_test_db();
-	let result = clear_card_sort_position(&pool, "nonexistent-id").await;
+	let result = clear_card_sort_position(&pool, &CardId("nonexistent-id".to_string())).await;
 	assert!(result.is_err());
 }
 
@@ -1601,12 +1620,12 @@ proptest! {
 
 			regenerate_priority_offsets(&pool).await.unwrap();
 
-			let before: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
+			let before: Vec<_> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_priority_offset())).collect();
 
 			ensure_offsets_current(&pool).await.unwrap();
 
-			let after: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
+			let after: Vec<_> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_priority_offset())).collect();
 
 			prop_assert_eq!(before, after);
@@ -1654,12 +1673,12 @@ proptest! {
 				update_card_priority(&pool, &c.get_id(), p).await.unwrap();
 			}
 
-			let before: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
+			let before: Vec<_> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_priority())).collect();
 
 			regenerate_priority_offsets(&pool).await.unwrap();
 
-			let after: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
+			let after: Vec<_> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_priority())).collect();
 
 			for (id, before_p) in &before {
@@ -1684,12 +1703,12 @@ proptest! {
 				move_card_to_top(&pool, &c.get_id()).await.unwrap();
 			}
 
-			let before: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
+			let before: Vec<_> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			regenerate_priority_offsets(&pool).await.unwrap();
 
-			let after: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
+			let after: Vec<_> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			for (id, before_pos) in &before {

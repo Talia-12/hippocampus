@@ -1,5 +1,5 @@
 use crate::db::{DbPool, ExecuteWithRetry};
-use crate::models::{Card, JsonValue, Review};
+use crate::models::{Card, CardId, ItemTypeId, JsonValue, Review};
 use crate::schema::{cards, item_types, items, metadata, reviews};
 use anyhow::{Result, anyhow};
 use chrono::Duration;
@@ -34,7 +34,7 @@ pub const VALID_REVIEW_FUNCTIONS: &[&str] = &["fsrs", "incremental_queue"];
 /// - The card does not exist
 /// - The rating is invalid (not 1-4)
 #[instrument(skip(pool), fields(card_id = %card_id, rating = %rating_val))]
-pub async fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Result<Review> {
+pub async fn record_review(pool: &DbPool, card_id: &CardId, rating_val: i32) -> Result<Review> {
 	debug!("Recording new review for card");
 
 	let conn = &mut pool.get()?;
@@ -60,7 +60,7 @@ pub async fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Res
 	debug!("Found card, creating review");
 
 	// Create the review
-	let new_review = Review::new(card_id, rating_val);
+	let new_review = Review::new(card_id.clone(), rating_val);
 
 	// Insert the review into the database
 	diesel::insert_into(reviews::table)
@@ -87,7 +87,7 @@ pub async fn record_review(pool: &DbPool, card_id: &str, rating_val: i32) -> Res
 	debug!("Next review scheduled for: {}", next_review);
 
 	// Update the card in the database
-	diesel::update(cards::table.find(card_id.to_string()))
+	diesel::update(cards::table.find(card_id.clone()))
 		.set((
 			cards::last_review.eq(Utc::now().naive_utc()),
 			cards::next_review.eq(next_review.naive_utc()),
@@ -299,7 +299,7 @@ fn calculate_next_incremental_queue_review(
 #[instrument(skip(pool), fields(card_id = %card_id))]
 pub async fn get_all_next_reviews_for_card(
 	pool: &DbPool,
-	card_id: &str,
+	card_id: &CardId,
 ) -> Result<Vec<(chrono::DateTime<Utc>, JsonValue)>> {
 	debug!(
 		"Calculating all possible next review dates for card {}",
@@ -380,7 +380,7 @@ pub async fn get_all_next_reviews_for_card(
 /// - Unable to get a connection from the pool
 /// - The database query fails
 #[instrument(skip(pool), fields(card_id = %card_id))]
-pub fn get_reviews_for_card(pool: &DbPool, card_id: &str) -> Result<Vec<Review>> {
+pub fn get_reviews_for_card(pool: &DbPool, card_id: &CardId) -> Result<Vec<Review>> {
 	debug!("Getting reviews for card");
 
 	let conn = &mut pool.get()?;
@@ -462,7 +462,7 @@ fn migrate_scheduler_data_fsrs_0_fsrs_1(conn: &mut diesel::SqliteConnection) -> 
 		.filter(item_types::name.eq_any(&iq_type_names))
 		.load::<crate::models::ItemType>(conn)?;
 
-	let iq_type_ids: Vec<String> = iq_types.iter().map(|it| it.get_id()).collect();
+	let iq_type_ids: Vec<ItemTypeId> = iq_types.iter().map(|it| it.get_id()).collect();
 
 	if iq_type_ids.is_empty() {
 		info!("No incremental queue item types found, skipping fsrs-0 -> fsrs-1 migration");

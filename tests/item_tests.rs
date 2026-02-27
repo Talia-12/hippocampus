@@ -63,7 +63,7 @@ async fn test_create_item() {
 
 	// The ID should be a non-empty string (we don't check the exact value
 	// since it's randomly generated)
-	assert!(!item.get_id().is_empty());
+	assert!(!item.get_id().0.is_empty());
 }
 
 /// Tests retrieving an item by ID via the API

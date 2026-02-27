@@ -1,5 +1,5 @@
 use crate::db::{DbPool, ExecuteWithRetry};
-use crate::models::Tag;
+use crate::models::{CardId, ItemId, ItemTag, Tag, TagId};
 use crate::schema::{item_tags, tags};
 use anyhow::{Result, anyhow};
 use diesel::prelude::*;
@@ -63,7 +63,7 @@ pub async fn create_tag(pool: &DbPool, name: String, visible: bool) -> Result<Ta
 /// - The database query fails
 /// - The tag does not exist
 #[instrument(skip(pool), fields(tag_id = %tag_id))]
-pub fn get_tag(pool: &DbPool, tag_id: &str) -> Result<Tag> {
+pub fn get_tag(pool: &DbPool, tag_id: &TagId) -> Result<Tag> {
 	debug!("Retrieving tag by id");
 
 	// Get a connection from the pool
@@ -99,7 +99,7 @@ pub fn get_tag(pool: &DbPool, tag_id: &str) -> Result<Tag> {
 /// - The database query fails
 /// - The card does not exist
 #[instrument(skip(pool), fields(card_id = %card_id))]
-pub fn list_tags_for_card(pool: &DbPool, card_id: &str) -> Result<Vec<Tag>> {
+pub fn list_tags_for_card(pool: &DbPool, card_id: &CardId) -> Result<Vec<Tag>> {
 	debug!("Listing tags for card");
 
 	// Get the card to find its item_id
@@ -141,7 +141,7 @@ pub fn list_tags_for_card(pool: &DbPool, card_id: &str) -> Result<Vec<Tag>> {
 /// - Unable to get a connection from the pool
 /// - The database query fails
 #[instrument(skip(pool), fields(item_id = %item_id))]
-pub fn list_tags_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Tag>> {
+pub fn list_tags_for_item(pool: &DbPool, item_id: &ItemId) -> Result<Vec<Tag>> {
 	debug!("Listing tags for item");
 
 	let conn = &mut pool.get()?;
@@ -207,15 +207,13 @@ pub fn list_tags(pool: &DbPool) -> Result<Vec<Tag>> {
 /// - The database query fails
 /// - The item or tag does not exist (this will cause the database to return an error)
 #[instrument(skip(pool), fields(tag_id = %tag_id, item_id = %item_id))]
-pub async fn add_tag_to_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()> {
+pub async fn add_tag_to_item(pool: &DbPool, tag_id: &TagId, item_id: &ItemId) -> Result<()> {
 	debug!("Adding tag to item");
-
-	use crate::models::ItemTag;
 
 	let conn = &mut pool.get()?;
 
 	// Create the association
-	let item_tag = ItemTag::new(item_id.to_string(), tag_id.to_string());
+	let item_tag = ItemTag::new(item_id.clone(), tag_id.clone());
 
 	// Check if the association already exists to avoid duplicates
 	let exists: bool = item_tags::table
@@ -263,7 +261,7 @@ pub async fn add_tag_to_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Resu
 /// - The database query fails
 /// - The item or tag does not exist
 #[instrument(skip(pool), fields(tag_id = %tag_id, item_id = %item_id))]
-pub async fn remove_tag_from_item(pool: &DbPool, tag_id: &str, item_id: &str) -> Result<()> {
+pub async fn remove_tag_from_item(pool: &DbPool, tag_id: &TagId, item_id: &ItemId) -> Result<()> {
 	debug!("Removing tag from item");
 
 	// Make sure the tag exists
@@ -275,8 +273,8 @@ pub async fn remove_tag_from_item(pool: &DbPool, tag_id: &str, item_id: &str) ->
 	let rows_deleted = diesel::delete(
 		item_tags::table.filter(
 			item_tags::item_id
-				.eq(item_id.to_string())
-				.and(item_tags::tag_id.eq(tag_id.to_string())),
+				.eq(item_id.clone())
+				.and(item_tags::tag_id.eq(tag_id.clone())),
 		),
 	)
 	.execute_with_retry(conn)

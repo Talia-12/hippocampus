@@ -1,4 +1,5 @@
 use super::*;
+use crate::models::TagId;
 use crate::repo::create_item_type;
 use crate::repo::tests::setup_test_db;
 use serde_json::json;
@@ -62,7 +63,7 @@ async fn test_get_nonexistent_item() {
 	let pool = setup_test_db();
 
 	// Try to retrieve a non-existent item
-	let result = get_item(&pool, "nonexistent-id").unwrap();
+	let result = get_item(&pool, &ItemId("nonexistent-id".to_string())).unwrap();
 
 	assert!(result.is_none());
 }
@@ -360,7 +361,7 @@ async fn test_update_nonexistent_item() {
 	// Try to update a non-existent item
 	let result = update_item(
 		&pool,
-		"nonexistent-id",
+		&ItemId("nonexistent-id".to_string()),
 		Some("New Title".to_string()),
 		Some(json!({"front": "New", "back": "Content"})),
 	)
@@ -456,7 +457,7 @@ async fn test_list_items_with_filters_item_type_no_match() {
 	.unwrap();
 
 	let query = crate::dto::GetQueryDtoBuilder::new()
-		.item_type_id("nonexistent-type-id".to_string())
+		.item_type_id(ItemTypeId("nonexistent-type-id".to_string()))
 		.build();
 	let items = list_items_with_filters(&pool, &query).unwrap();
 
@@ -642,7 +643,7 @@ async fn test_list_items_with_filters_card_filter_no_match_returns_empty() {
 
 	// Use a tag that doesn't exist on any item
 	let query = crate::dto::GetQueryDtoBuilder::new()
-		.add_tag_id("nonexistent-tag-id".to_string())
+		.add_tag_id(TagId("nonexistent-tag-id".to_string()))
 		.build();
 	let items = list_items_with_filters(&pool, &query).unwrap();
 
@@ -824,7 +825,7 @@ async fn test_list_items_with_parent_item_id_filter() {
 
 	let result = list_items_with_filters(&pool, &query).unwrap();
 	assert_eq!(result.len(), 2);
-	let ids: Vec<String> = result.iter().map(|i| i.get_id()).collect();
+	let ids: Vec<_> = result.iter().map(|i| i.get_id()).collect();
 	assert!(ids.contains(&child1.get_id()));
 	assert!(ids.contains(&child2.get_id()));
 }
@@ -874,7 +875,7 @@ async fn test_list_items_with_child_item_id_filter() {
 
 	let result = list_items_with_filters(&pool, &query).unwrap();
 	assert_eq!(result.len(), 2);
-	let ids: Vec<String> = result.iter().map(|i| i.get_id()).collect();
+	let ids: Vec<_> = result.iter().map(|i| i.get_id()).collect();
 	assert!(ids.contains(&parent1.get_id()));
 	assert!(ids.contains(&parent2.get_id()));
 }

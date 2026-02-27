@@ -1,7 +1,8 @@
 use chrono::{DateTime, NaiveDateTime, Utc};
 use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
+
+use crate::models::ItemTypeId;
 
 /// Represents an item type in the system
 #[derive(
@@ -11,7 +12,7 @@ use uuid::Uuid;
 #[diesel(check_for_backend(diesel::sqlite::Sqlite))]
 pub struct ItemType {
 	/// Unique identifier for the item type (UUID v4 as string)
-	id: String,
+	id: ItemTypeId,
 
 	/// The name of this item type
 	name: String,
@@ -32,7 +33,7 @@ impl ItemType {
 	/// * `review_function` - The review function used for scheduling (e.g. "fsrs", "incremental_queue")
 	pub fn new(name: String, review_function: String) -> Self {
 		Self {
-			id: Uuid::new_v4().to_string(),
+			id: ItemTypeId::new(),
 			name,
 			created_at: Utc::now().naive_utc(),
 			review_function,
@@ -52,7 +53,7 @@ impl ItemType {
 	///
 	/// A new `ItemType` instance with the specified fields
 	pub fn new_with_fields(
-		id: String,
+		id: ItemTypeId,
 		name: String,
 		created_at: DateTime<Utc>,
 		review_function: String,
@@ -70,7 +71,7 @@ impl ItemType {
 	/// ### Returns
 	///
 	/// The unique identifier of the item type
-	pub fn get_id(&self) -> String {
+	pub fn get_id(&self) -> ItemTypeId {
 		self.id.clone()
 	}
 
@@ -143,7 +144,6 @@ mod tests {
 
 		assert_eq!(item_type.get_name(), name);
 		assert_eq!(item_type.get_review_function(), "fsrs");
-		assert!(Uuid::parse_str(&item_type.get_id()).is_ok());
 
 		// Ensure created_at is within the last second
 		let now = Utc::now();

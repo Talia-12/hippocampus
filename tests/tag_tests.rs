@@ -137,10 +137,10 @@ async fn test_list_tags() {
 	// Check that our tags are in the list
 	let tag1_found = tags
 		.iter()
-		.any(|t| t["id"].as_str().unwrap() == tag1.get_id());
+		.any(|t| t["id"].as_str().unwrap() == tag1.get_id().0);
 	let tag2_found = tags
 		.iter()
-		.any(|t| t["id"].as_str().unwrap() == tag2.get_id());
+		.any(|t| t["id"].as_str().unwrap() == tag2.get_id().0);
 
 	assert!(tag1_found, "Tag 'Important' should be in the list");
 	assert!(tag2_found, "Tag 'Difficult' should be in the list");
@@ -193,7 +193,7 @@ async fn test_add_tag_to_item() {
 
 	// Check that our tag is in the list
 	assert_eq!(tags.len(), 1);
-	assert_eq!(tags[0]["id"].as_str().unwrap(), tag.get_id());
+	assert_eq!(tags[0]["id"].as_str().unwrap(), tag.get_id().0);
 }
 
 /// Tests removing a tag from an item via the API
@@ -317,10 +317,10 @@ async fn test_list_tags_for_item() {
 	assert_eq!(tags.len(), 2);
 	let has_tag1 = tags
 		.iter()
-		.any(|t| t["id"].as_str().unwrap() == tag1.get_id());
+		.any(|t| t["id"].as_str().unwrap() == tag1.get_id().0);
 	let has_tag2 = tags
 		.iter()
-		.any(|t| t["id"].as_str().unwrap() == tag2.get_id());
+		.any(|t| t["id"].as_str().unwrap() == tag2.get_id().0);
 	assert!(has_tag1, "Item 1 should have tag 'Important'");
 	assert!(has_tag2, "Item 1 should have tag 'Difficult'");
 
@@ -339,7 +339,7 @@ async fn test_list_tags_for_item() {
 
 	// Check that item2 has only tag1
 	assert_eq!(tags.len(), 1);
-	assert_eq!(tags[0]["id"].as_str().unwrap(), tag1.get_id());
+	assert_eq!(tags[0]["id"].as_str().unwrap(), tag1.get_id().0);
 }
 
 /// Tests listing tags for a card via the API
@@ -403,10 +403,10 @@ async fn test_list_tags_for_card() {
 	assert_eq!(tags.len(), 2);
 	let has_tag1 = tags
 		.iter()
-		.any(|t| t["id"].as_str().unwrap() == tag1.get_id());
+		.any(|t| t["id"].as_str().unwrap() == tag1.get_id().0);
 	let has_tag2 = tags
 		.iter()
-		.any(|t| t["id"].as_str().unwrap() == tag2.get_id());
+		.any(|t| t["id"].as_str().unwrap() == tag2.get_id().0);
 	assert!(has_tag1, "Card should have tag 'Important'");
 	assert!(has_tag2, "Card should have tag 'Difficult'");
 }
@@ -577,7 +577,7 @@ async fn test_list_cards_filtered_by_tag_id() {
 	for card in &cards {
 		assert_eq!(
 			card["item_id"].as_str().unwrap(),
-			item1.get_id(),
+			item1.get_id().0,
 			"All cards should belong to item1"
 		);
 	}
@@ -588,7 +588,7 @@ async fn test_list_cards_filtered_by_tag_id() {
 		assert!(
 			!cards
 				.iter()
-				.any(|c| c["id"].as_str().unwrap() == item2_card.get_id()),
+				.any(|c| c["id"].as_str().unwrap() == item2_card.get_id().0),
 			"Item2's cards should not appear in tag-filtered results"
 		);
 	}
@@ -647,15 +647,15 @@ async fn test_list_items_filtered_by_multiple_tag_ids() {
 	// Only item1 has both tags
 	let item_ids: Vec<&str> = items.iter().map(|i| i["id"].as_str().unwrap()).collect();
 	assert!(
-		item_ids.contains(&item1.get_id().as_str()),
+		item_ids.contains(&item1.get_id().0.as_str()),
 		"Item1 (has both tags) should be in results"
 	);
 	assert!(
-		!item_ids.contains(&item2.get_id().as_str()),
+		!item_ids.contains(&item2.get_id().0.as_str()),
 		"Item2 (only TagA) should not be in results"
 	);
 	assert!(
-		!item_ids.contains(&item3.get_id().as_str()),
+		!item_ids.contains(&item3.get_id().0.as_str()),
 		"Item3 (no tags) should not be in results"
 	);
 }

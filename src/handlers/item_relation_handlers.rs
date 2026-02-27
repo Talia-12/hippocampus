@@ -5,13 +5,13 @@ use axum::{
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
 
-use crate::db::DbPool;
 use crate::dto::{
 	CreateItemRelationDto, ItemChildGraphNode, ItemParentGraphNode, ListItemRelationsQueryDto,
 };
 use crate::errors::ApiError;
 use crate::models::ItemRelation;
 use crate::repo;
+use crate::{db::DbPool, models::ItemId};
 
 /// Handler for creating a new item relation
 ///
@@ -31,7 +31,7 @@ use crate::repo;
 #[instrument(skip(pool), fields(parent_id = %parent_id, child_id = %child_id))]
 pub async fn create_item_relation_handler(
 	State(pool): State<Arc<DbPool>>,
-	Path((parent_id, child_id)): Path<(String, String)>,
+	Path((parent_id, child_id)): Path<(ItemId, ItemId)>,
 	Json(payload): Json<CreateItemRelationDto>,
 ) -> Result<Json<ItemRelation>, ApiError> {
 	info!("Creating item relation");
@@ -77,7 +77,7 @@ pub async fn create_item_relation_handler(
 #[instrument(skip(pool), fields(parent_id = %parent_id, child_id = %child_id))]
 pub async fn delete_item_relation_handler(
 	State(pool): State<Arc<DbPool>>,
-	Path((parent_id, child_id)): Path<(String, String)>,
+	Path((parent_id, child_id)): Path<(ItemId, ItemId)>,
 ) -> Result<(), ApiError> {
 	info!("Deleting item relation");
 
@@ -117,8 +117,8 @@ pub async fn list_item_relations_handler(
 
 	let relations = repo::list_item_relations(
 		&pool,
-		query.parent_item_id.as_deref(),
-		query.child_item_id.as_deref(),
+		query.parent_item_id.clone().as_ref(),
+		query.child_item_id.clone().as_ref(),
 		query.relation_type.as_deref(),
 	)
 	.map_err(ApiError::Database)?;
@@ -143,7 +143,7 @@ pub async fn list_item_relations_handler(
 #[instrument(skip(pool), fields(item_id = %item_id))]
 pub async fn get_children_graph_handler(
 	State(pool): State<Arc<DbPool>>,
-	Path(item_id): Path<String>,
+	Path(item_id): Path<ItemId>,
 ) -> Result<Json<ItemChildGraphNode>, ApiError> {
 	debug!("Getting children graph");
 
@@ -173,7 +173,7 @@ pub async fn get_children_graph_handler(
 #[instrument(skip(pool), fields(item_id = %item_id))]
 pub async fn get_parent_graph_handler(
 	State(pool): State<Arc<DbPool>>,
-	Path(item_id): Path<String>,
+	Path(item_id): Path<ItemId>,
 ) -> Result<Json<ItemParentGraphNode>, ApiError> {
 	debug!("Getting parent graph");
 
@@ -191,6 +191,7 @@ pub async fn get_parent_graph_handler(
 mod tests {
 	use super::*;
 	use crate::dto::ListItemRelationsQueryDto;
+	use crate::models::ItemTypeId;
 	use crate::repo;
 	use crate::test_utils::*;
 	use serde_json::json;
@@ -213,7 +214,7 @@ mod tests {
 
 	async fn create_test_item_with_type(
 		pool: &DbPool,
-		item_type_id: &str,
+		item_type_id: &ItemTypeId,
 		title: &str,
 	) -> crate::models::Item {
 		repo::create_item(
@@ -254,7 +255,7 @@ mod tests {
 
 		let result = create_item_relation_handler(
 			State(pool.clone()),
-			Path(("nonexistent".to_string(), "also-nonexistent".to_string())),
+			Path((ItemId("nonexistent".to_string()), ItemId("also-nonexistent".to_string()))),
 			Json(CreateItemRelationDto {
 				relation_type: "extract".to_string(),
 			}),
@@ -319,7 +320,7 @@ mod tests {
 
 		let result = delete_item_relation_handler(
 			State(pool.clone()),
-			Path(("nonexistent".to_string(), "also-nonexistent".to_string())),
+			Path((ItemId("nonexistent".to_string()), ItemId("also-nonexistent".to_string()))),
 		)
 		.await;
 
@@ -530,7 +531,7 @@ mod tests {
 		let pool = setup_test_db();
 
 		let result =
-			get_children_graph_handler(State(pool.clone()), Path("nonexistent".to_string())).await;
+			get_children_graph_handler(State(pool.clone()), Path(ItemId("nonexistent".to_string()))).await;
 
 		assert!(result.is_err());
 		assert!(matches!(result.unwrap_err(), ApiError::NotFound));
@@ -617,7 +618,7 @@ mod tests {
 		let pool = setup_test_db();
 
 		let result =
-			get_parent_graph_handler(State(pool.clone()), Path("nonexistent".to_string())).await;
+			get_parent_graph_handler(State(pool.clone()), Path(ItemId("nonexistent".to_string()))).await;
 
 		assert!(result.is_err());
 		assert!(matches!(result.unwrap_err(), ApiError::NotFound));

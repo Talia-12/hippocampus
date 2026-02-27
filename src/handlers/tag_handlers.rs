@@ -5,11 +5,11 @@ use axum::{
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
 
-use crate::db::DbPool;
-use crate::dto::CreateTagDto;
-use crate::errors::ApiError;
 use crate::models::Tag;
 use crate::repo;
+use crate::{db::DbPool, models::ItemId};
+use crate::{dto::CreateTagDto, models::CardId};
+use crate::{errors::ApiError, models::TagId};
 
 /// Handler for creating a new tag
 ///
@@ -87,7 +87,7 @@ pub async fn add_tag_to_item_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the item ID and tag ID from the URL path
-	Path((item_id, tag_id)): Path<(String, String)>,
+	Path((item_id, tag_id)): Path<(ItemId, TagId)>,
 ) -> Result<(), ApiError> {
 	info!("Adding tag to item");
 
@@ -126,7 +126,7 @@ pub async fn remove_tag_from_item_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the item ID and tag ID from the URL path
-	Path((item_id, tag_id)): Path<(String, String)>,
+	Path((item_id, tag_id)): Path<(ItemId, TagId)>,
 ) -> Result<(), ApiError> {
 	info!("Removing tag from item");
 
@@ -165,7 +165,7 @@ pub async fn list_tags_for_card_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the card ID from the URL path
-	Path(card_id): Path<String>,
+	Path(card_id): Path<CardId>,
 ) -> Result<Json<Vec<Tag>>, ApiError> {
 	debug!("Listing tags for card");
 
@@ -204,7 +204,7 @@ pub async fn list_tags_for_item_handler(
 	// Extract the database pool from the application state
 	State(pool): State<Arc<DbPool>>,
 	// Extract the item ID from the URL path
-	Path(item_id): Path<String>,
+	Path(item_id): Path<ItemId>,
 ) -> Result<Json<Vec<Tag>>, ApiError> {
 	debug!("Listing tags for item");
 
@@ -298,7 +298,8 @@ mod tests {
 
 		// Call the handler
 		let result =
-			add_tag_to_item_handler(State(pool.clone()), Path((item.get_id(), tag.get_id()))).await;
+			add_tag_to_item_handler(State(pool.clone()), Path((item.get_id(), tag.get_id())))
+				.await;
 
 		// Check that the operation succeeded
 		assert!(result.is_ok());
@@ -317,8 +318,8 @@ mod tests {
 		let result = add_tag_to_item_handler(
 			State(pool.clone()),
 			Path((
-				"nonexistent-item".to_string(),
-				"nonexistent-tag".to_string(),
+				ItemId("nonexistent-item".to_string()),
+				TagId("nonexistent-tag".to_string()),
 			)),
 		)
 		.await;
@@ -368,9 +369,11 @@ mod tests {
 		assert_eq!(tags_before.len(), 1);
 
 		// Call the handler to remove the tag
-		let result =
-			remove_tag_from_item_handler(State(pool.clone()), Path((item.get_id(), tag.get_id())))
-				.await;
+		let result = remove_tag_from_item_handler(
+			State(pool.clone()),
+			Path((item.get_id(), tag.get_id())),
+		)
+		.await;
 
 		// Check that the operation succeeded
 		assert!(result.is_ok());
@@ -388,8 +391,8 @@ mod tests {
 		let result = remove_tag_from_item_handler(
 			State(pool.clone()),
 			Path((
-				"nonexistent-item".to_string(),
-				"nonexistent-tag".to_string(),
+				ItemId("nonexistent-item".to_string()),
+				TagId("nonexistent-tag".to_string()),
 			)),
 		)
 		.await;
@@ -456,7 +459,7 @@ mod tests {
 
 		// Call the handler with a non-existent item ID
 		let result =
-			list_tags_for_item_handler(State(pool.clone()), Path("nonexistent".to_string())).await;
+			list_tags_for_item_handler(State(pool.clone()), Path(ItemId("nonexistent".to_string()))).await;
 
 		// Check that we got a NotFound error
 		assert!(result.is_err());
@@ -525,7 +528,7 @@ mod tests {
 
 		// Call the handler with a non-existent card ID
 		let result =
-			list_tags_for_card_handler(State(pool.clone()), Path("nonexistent".to_string())).await;
+			list_tags_for_card_handler(State(pool.clone()), Path(CardId("nonexistent".to_string()))).await;
 
 		// Check that we got a NotFound error
 		assert!(result.is_err());

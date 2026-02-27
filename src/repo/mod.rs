@@ -19,7 +19,6 @@ pub use item_relation_repo::*;
 pub use item_repo::*;
 pub use item_type_repo::*;
 pub use review_repo::*;
-pub use review_repo::*;
 pub use tag_repo::*;
 
 #[cfg(test)]

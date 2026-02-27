@@ -1,20 +1,20 @@
 use super::*;
-use crate::test_utils::{
-	arb_json, arb_messy_string, arb_optional_datetime_utc, arb_priority, arb_suspended_filter,
-};
+use crate::test_utils::*;
 use proptest::prelude::*;
 
 /// Generates an arbitrary GetQueryDto via the builder
 fn arb_get_query_dto() -> impl Strategy<Value = GetQueryDto> {
 	(
-		prop::option::of(arb_messy_string()),
-		prop::collection::vec(arb_messy_string(), 0..5),
+		prop::option::of(arb_item_type_id()),
+		prop::collection::vec(arb_tag_id(), 0..5),
 		arb_optional_datetime_utc(),
 		arb_optional_datetime_utc(),
 		arb_suspended_filter(),
 		arb_optional_datetime_utc(),
 		arb_optional_datetime_utc(),
 		prop::option::of(any::<bool>()),
+		prop::option::of(arb_item_id()),
+		prop::option::of(arb_item_id()),
 	)
 		.prop_map(
 			|(
@@ -26,6 +26,8 @@ fn arb_get_query_dto() -> impl Strategy<Value = GetQueryDto> {
 				suspended_after,
 				suspended_before,
 				split_priority,
+				parent_item_id,
+				child_item_id,
 			)| {
 				let mut builder = GetQueryDtoBuilder::new()
 					.tag_ids(tag_ids)
@@ -49,6 +51,12 @@ fn arb_get_query_dto() -> impl Strategy<Value = GetQueryDto> {
 				if let Some(sp) = split_priority {
 					builder = builder.split_priority(sp);
 				}
+				if let Some(pid) = parent_item_id {
+					builder = builder.parent_item_id(pid);
+				}
+				if let Some(cid) = child_item_id {
+					builder = builder.child_item_id(cid);
+				}
 
 				builder.build()
 			},
@@ -59,8 +67,8 @@ proptest! {
 	/// D1.1: Builder produces DTO with matching fields
 	#[test]
 	fn prop_d1_1_builder_roundtrip(
-		item_type_id in prop::option::of(arb_messy_string()),
-		tag_ids in prop::collection::vec(arb_messy_string(), 0..5),
+		item_type_id in prop::option::of(arb_item_type_id()),
+		tag_ids in prop::collection::vec(arb_tag_id(), 0..5),
 		next_review_before in arb_optional_datetime_utc(),
 		last_review_after in arb_optional_datetime_utc(),
 		suspended_filter in arb_suspended_filter(),
@@ -96,8 +104,8 @@ proptest! {
 	/// D1.2: add_tag_id appends to existing list
 	#[test]
 	fn prop_d1_2_builder_add_tag_id_appends(
-		initial_tags in prop::collection::vec(arb_messy_string(), 0..5),
-		new_tag in arb_messy_string(),
+		initial_tags in prop::collection::vec(arb_tag_id(), 0..5),
+		new_tag in arb_tag_id(),
 	) {
 		let builder = GetQueryDtoBuilder::new()
 			.tag_ids(initial_tags.clone())
@@ -122,7 +130,7 @@ proptest! {
 	/// D1.4: CreateItemDto JSON serde roundtrip
 	#[test]
 	fn prop_d1_4_create_item_dto_serde_roundtrip(
-		item_type_id in arb_messy_string(),
+		item_type_id in arb_item_type_id(),
 		title in arb_messy_string(),
 		item_data in arb_json(),
 		priority in arb_priority(),
@@ -145,7 +153,7 @@ proptest! {
 	/// D1.5: CreateReviewDto JSON serde roundtrip
 	#[test]
 	fn prop_d1_5_create_review_dto_serde_roundtrip(
-		card_id in arb_messy_string(),
+		card_id in arb_card_id(),
 		rating in any::<i32>(),
 	) {
 		let dto = CreateReviewDto {

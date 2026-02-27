@@ -17,7 +17,7 @@ use std::time::{Duration, Instant};
 use hippocampus::{
 	create_app,
 	db::init_pool,
-	models::{Card, Item, ItemType, Tag},
+	models::{Card, Item, ItemId, ItemType, ItemTypeId, Tag, TagId},
 };
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -92,7 +92,7 @@ pub async fn create_item_type(app: &mut Router, name: String) -> ItemType {
 	let item_type: Value = serde_json::from_slice(&body).unwrap();
 
 	// Extract the fields and construct an ItemType
-	let item_type_id = item_type["id"].as_str().unwrap();
+	let item_type_id = ItemTypeId(item_type["id"].as_str().unwrap().to_string());
 	let created_at = chrono::NaiveDateTime::parse_from_str(
 		item_type["created_at"].as_str().unwrap(),
 		"%Y-%m-%dT%H:%M:%S%.f",
@@ -105,7 +105,7 @@ pub async fn create_item_type(app: &mut Router, name: String) -> ItemType {
 		.unwrap_or("fsrs")
 		.to_string();
 
-	ItemType::new_with_fields(item_type_id.to_string(), name, created_at, review_function)
+	ItemType::new_with_fields(item_type_id, name, created_at, review_function)
 }
 
 /// Creates a tag via the API
@@ -164,7 +164,7 @@ pub async fn create_tag_with_visibility(app: &mut Router, name: String, visible:
 	let tag_value: Value = serde_json::from_slice(&body).unwrap();
 
 	// Extract the tag data
-	let tag_id = tag_value["id"].as_str().unwrap().to_string();
+	let tag_id = TagId(tag_value["id"].as_str().unwrap().to_string());
 	let tag_name = tag_value["name"].as_str().unwrap().to_string();
 	let tag_visible = tag_value["visible"].as_bool().unwrap();
 	let created_at = chrono::NaiveDateTime::parse_from_str(
@@ -197,7 +197,7 @@ pub async fn create_tag_with_visibility(app: &mut Router, name: String, visible:
 /// The created Item with its ID and fields
 pub async fn create_item(
 	app: &mut Router,
-	item_type_id: &str,
+	item_type_id: &ItemTypeId,
 	title: String,
 	item_data: Option<serde_json::Value>,
 ) -> Item {
@@ -242,7 +242,7 @@ pub async fn create_item(
 /// ### Returns
 ///
 /// A vector of Cards associated with the item
-pub async fn get_cards_for_item(app: &mut Router, item_id: &str) -> Vec<Card> {
+pub async fn get_cards_for_item(app: &mut Router, item_id: &ItemId) -> Vec<Card> {
 	// Create a request to get cards for the item
 	let request = Request::builder()
 		.uri(format!("/items/{}/cards", item_id))
@@ -278,7 +278,12 @@ pub async fn get_cards_for_item(app: &mut Router, item_id: &str) -> Vec<Card> {
 /// ### Returns
 ///
 /// The created Card with its ID and fields
-pub async fn create_card(app: &mut Router, item_id: &str, card_index: i32, priority: f32) -> Card {
+pub async fn create_card(
+	app: &mut Router,
+	item_id: &ItemId,
+	card_index: i32,
+	priority: f32,
+) -> Card {
 	// Create a request to create a card
 	let request = Request::builder()
 		.uri(format!("/items/{}/cards", item_id))

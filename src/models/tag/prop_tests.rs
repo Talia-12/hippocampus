@@ -1,17 +1,27 @@
 use super::*;
-use crate::test_utils::{arb_datetime_utc, arb_messy_string};
+use crate::test_utils::{arb_datetime_utc, arb_messy_string, arb_tag_id};
 use proptest::prelude::*;
 
 // ============================================================================
 // TG1: Constructor Properties
 // ============================================================================
 
+fn strip_tag_prefix(id: &str) -> &str {
+	const PREFIX: &str = "tag-";
+	id.strip_prefix(PREFIX)
+		.expect("expected id to start with \"tag-\"")
+}
+
 proptest! {
 	/// TG1.1: Tag::new produces a valid UUID
 	#[test]
 	fn prop_tg1_1_new_produces_valid_uuid(name in "\\PC+", visible in any::<bool>()) {
 		let tag = Tag::new(name, visible);
-		prop_assert!(Uuid::parse_str(&tag.get_id()).is_ok(),
+
+		let raw_id = &tag.get_id().0;
+		let uuid_part = strip_tag_prefix(raw_id);
+
+		prop_assert!(uuid::Uuid::parse_str(uuid_part).is_ok(),
 			"get_id() should be a valid UUID, got: {}", tag.get_id());
 	}
 
@@ -40,8 +50,8 @@ proptest! {
 	/// TG1.5: Tag::new_with_fields preserves all fields roundtrip
 	#[test]
 	fn prop_tg1_5_new_with_fields_roundtrip(
-		id in "\\PC+",
-		name in "\\PC+",
+		id in arb_tag_id(),
+		name in arb_messy_string(),
 		visible in any::<bool>(),
 		created_at in arb_datetime_utc(),
 	) {
@@ -72,7 +82,7 @@ proptest! {
 	/// TG1r.2: Tag::new_with_fields does not panic for arbitrary inputs
 	#[test]
 	fn prop_tg1r_2_new_with_fields_does_not_panic(
-		id in arb_messy_string(),
+		id in arb_tag_id(),
 		name in arb_messy_string(),
 		visible in any::<bool>(),
 		created_at in arb_datetime_utc(),

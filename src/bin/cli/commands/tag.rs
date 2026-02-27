@@ -1,4 +1,5 @@
 use clap::Subcommand;
+use hippocampus::models::{ItemId, TagId};
 
 use crate::client::HippocampusClient;
 use crate::output::{self, OutputConfig};
@@ -20,21 +21,21 @@ pub enum TagCommands {
 	/// Add a tag to an item
 	Add {
 		/// The item ID
-		item_id: String,
+		item_id: ItemId,
 		/// The tag ID
-		tag_id: String,
+		tag_id: TagId,
 	},
 	/// Remove a tag from an item
 	Remove {
 		/// The item ID
-		item_id: String,
+		item_id: ItemId,
 		/// The tag ID
-		tag_id: String,
+		tag_id: TagId,
 	},
 	/// List tags for a specific item
 	ListForItem {
 		/// The item ID
-		item_id: String,
+		item_id: ItemId,
 	},
 }
 

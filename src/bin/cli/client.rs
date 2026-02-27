@@ -3,7 +3,7 @@ use hippocampus::dto::{
 	CreateItemDto, CreateItemTypeDto, CreateReviewDto, CreateTagDto, GetQueryDto,
 	SortPositionAction, SuspendedFilter, UpdateItemDto,
 };
-use hippocampus::models::{Card, Item, ItemType, Review, Tag};
+use hippocampus::models::{Card, CardId, Item, ItemId, ItemType, ItemTypeId, Review, Tag, TagId};
 use reqwest::Client;
 
 /// Error type for CLI client operations
@@ -75,10 +75,10 @@ fn build_query_params(query: &GetQueryDto) -> Vec<(&'static str, String)> {
 	let mut params: Vec<(&'static str, String)> = Vec::new();
 
 	if let Some(ref id) = query.item_type_id {
-		params.push(("item_type_id", id.clone()));
+		params.push(("item_type_id", id.0.clone()));
 	}
 	for tag_id in &query.tag_ids {
-		params.push(("tag_ids", tag_id.clone()));
+		params.push(("tag_ids", tag_id.0.clone()));
 	}
 	if let Some(ref dt) = query.next_review_before {
 		params.push(("next_review_before", dt.to_rfc3339()));
@@ -99,6 +99,12 @@ fn build_query_params(query: &GetQueryDto) -> Vec<(&'static str, String)> {
 	}
 	if let Some(sp) = query.split_priority {
 		params.push(("split_priority", sp.to_string()));
+	}
+	if let Some(ref id) = query.parent_item_id {
+		params.push(("parent_item_id", id.0.clone()));
+	}
+	if let Some(ref id) = query.child_item_id {
+		params.push(("child_item_id", id.0.clone()));
 	}
 
 	params
@@ -159,7 +165,7 @@ impl HippocampusClient {
 	/// Updates an item type's review function
 	pub async fn update_item_type(
 		&self,
-		id: &str,
+		id: &ItemTypeId,
 		review_function: String,
 	) -> Result<ItemType, ClientError> {
 		let url = format!("{}/item_types/{}", self.base_url, id);
@@ -179,7 +185,7 @@ impl HippocampusClient {
 	}
 
 	/// Gets a specific item type by ID
-	pub async fn get_item_type(&self, id: &str) -> Result<ItemType, ClientError> {
+	pub async fn get_item_type(&self, id: &ItemTypeId) -> Result<ItemType, ClientError> {
 		let url = format!("{}/item_types/{}", self.base_url, id);
 		let response = self
 			.client
@@ -214,7 +220,7 @@ impl HippocampusClient {
 	/// Creates a new item
 	pub async fn create_item(
 		&self,
-		item_type_id: String,
+		item_type_id: ItemTypeId,
 		title: String,
 		item_data: serde_json::Value,
 		priority: f32,
@@ -239,7 +245,7 @@ impl HippocampusClient {
 	}
 
 	/// Gets a specific item by ID
-	pub async fn get_item(&self, id: &str) -> Result<Option<Item>, ClientError> {
+	pub async fn get_item(&self, id: &ItemId) -> Result<Option<Item>, ClientError> {
 		let url = format!("{}/items/{}", self.base_url, id);
 		let response = self
 			.client
@@ -255,7 +261,7 @@ impl HippocampusClient {
 	/// Updates an item
 	pub async fn update_item(
 		&self,
-		id: &str,
+		id: &ItemId,
 		title: Option<String>,
 		item_data: Option<serde_json::Value>,
 	) -> Result<Item, ClientError> {
@@ -274,7 +280,7 @@ impl HippocampusClient {
 	}
 
 	/// Deletes an item
-	pub async fn delete_item(&self, id: &str) -> Result<(), ClientError> {
+	pub async fn delete_item(&self, id: &ItemId) -> Result<(), ClientError> {
 		let url = format!("{}/items/{}", self.base_url, id);
 		self.client
 			.delete(&url)
@@ -306,7 +312,7 @@ impl HippocampusClient {
 	}
 
 	/// Gets a specific card by ID
-	pub async fn get_card(&self, id: &str) -> Result<Option<Card>, ClientError> {
+	pub async fn get_card(&self, id: &CardId) -> Result<Option<Card>, ClientError> {
 		let url = format!("{}/cards/{}", self.base_url, id);
 		let response = self
 			.client
@@ -320,7 +326,11 @@ impl HippocampusClient {
 	}
 
 	/// Updates a card's priority
-	pub async fn update_card_priority(&self, id: &str, priority: f32) -> Result<Card, ClientError> {
+	pub async fn update_card_priority(
+		&self,
+		id: &CardId,
+		priority: f32,
+	) -> Result<Card, ClientError> {
 		let url = format!("{}/cards/{}/priority", self.base_url, id);
 		let response = self
 			.client
@@ -335,7 +345,7 @@ impl HippocampusClient {
 	}
 
 	/// Suspends or unsuspends a card
-	pub async fn suspend_card(&self, id: &str, suspend: bool) -> Result<(), ClientError> {
+	pub async fn suspend_card(&self, id: &CardId, suspend: bool) -> Result<(), ClientError> {
 		let url = format!("{}/cards/{}/suspend", self.base_url, id);
 		self.client
 			.patch(&url)
@@ -351,7 +361,7 @@ impl HippocampusClient {
 	/// Gets all possible next review timestamps for a card
 	pub async fn get_next_reviews(
 		&self,
-		card_id: &str,
+		card_id: &CardId,
 	) -> Result<Vec<(DateTime<Utc>, serde_json::Value)>, ClientError> {
 		let url = format!("{}/cards/{}/next_reviews", self.base_url, card_id);
 		let response = self
@@ -366,7 +376,10 @@ impl HippocampusClient {
 	}
 
 	/// List the reviews of a card
-	pub async fn list_reviews_for_card(&self, card_id: &str) -> Result<Vec<Review>, ClientError> {
+	pub async fn list_reviews_for_card(
+		&self,
+		card_id: &CardId,
+	) -> Result<Vec<Review>, ClientError> {
 		let url = format!("{}/cards/{}/reviews", self.base_url, card_id);
 		let response = self
 			.client
@@ -384,7 +397,7 @@ impl HippocampusClient {
 	/// Sets a card's sort position
 	pub async fn set_sort_position(
 		&self,
-		card_id: &str,
+		card_id: &CardId,
 		action: &SortPositionAction,
 	) -> Result<serde_json::Value, ClientError> {
 		let url = format!("{}/cards/{}/sort_position", self.base_url, card_id);
@@ -419,12 +432,9 @@ impl HippocampusClient {
 	// ── Review endpoints ─────────────────────────────────────────────
 
 	/// Creates a new review
-	pub async fn create_review(&self, card_id: &str, rating: i32) -> Result<Review, ClientError> {
+	pub async fn create_review(&self, card_id: CardId, rating: i32) -> Result<Review, ClientError> {
 		let url = format!("{}/reviews", self.base_url);
-		let dto = CreateReviewDto {
-			card_id: card_id.to_string(),
-			rating,
-		};
+		let dto = CreateReviewDto { card_id, rating };
 		let response = self
 			.client
 			.post(&url)
@@ -470,7 +480,7 @@ impl HippocampusClient {
 	}
 
 	/// Lists tags for a specific item
-	pub async fn list_tags_for_item(&self, item_id: &str) -> Result<Vec<Tag>, ClientError> {
+	pub async fn list_tags_for_item(&self, item_id: &ItemId) -> Result<Vec<Tag>, ClientError> {
 		let url = format!("{}/items/{}/tags", self.base_url, item_id);
 		let response = self
 			.client
@@ -484,7 +494,11 @@ impl HippocampusClient {
 	}
 
 	/// Adds a tag to an item
-	pub async fn add_tag_to_item(&self, item_id: &str, tag_id: &str) -> Result<(), ClientError> {
+	pub async fn add_tag_to_item(
+		&self,
+		item_id: &ItemId,
+		tag_id: &TagId,
+	) -> Result<(), ClientError> {
 		let url = format!("{}/items/{}/tags/{}", self.base_url, item_id, tag_id);
 		self.client
 			.post(&url)
@@ -499,8 +513,8 @@ impl HippocampusClient {
 	/// Removes a tag from an item
 	pub async fn remove_tag_from_item(
 		&self,
-		item_id: &str,
-		tag_id: &str,
+		item_id: &ItemId,
+		tag_id: &TagId,
 	) -> Result<(), ClientError> {
 		let url = format!("{}/items/{}/tags/{}", self.base_url, item_id, tag_id);
 		self.client

@@ -72,7 +72,7 @@ async fn test_create_card() {
 	assert_eq!(card.get_item_id(), item.get_id());
 	assert_eq!(card.get_card_index(), card_index);
 	assert!((card.get_priority() - priority).abs() < 0.0001);
-	assert!(!card.get_id().is_empty());
+	assert!(!card.get_id().0.is_empty());
 }
 
 /// Tests getting a card by ID via the API

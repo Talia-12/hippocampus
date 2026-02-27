@@ -1,5 +1,5 @@
 use crate::db::{DbPool, ExecuteWithRetry};
-use crate::models::{Card, Item};
+use crate::models::{Card, CardId, Item, ItemId};
 use crate::schema::{cards, item_tags, metadata};
 use crate::{GetQueryDto, SuspendedFilter};
 use anyhow::{Result, anyhow};
@@ -114,7 +114,7 @@ pub async fn create_cards_for_item(pool: &DbPool, item: &Item) -> Result<Vec<Car
 #[instrument(skip(pool), fields(item_id = %item_id, card_index = %card_index, priority = %priority))]
 pub async fn create_card(
 	pool: &DbPool,
-	item_id: &str,
+	item_id: &ItemId,
 	card_index: i32,
 	priority: f32,
 ) -> Result<Card> {
@@ -123,7 +123,7 @@ pub async fn create_card(
 	let conn = &mut pool.get()?;
 
 	// Create a new card for the item
-	let new_card = Card::new(item_id.to_string(), card_index, Utc::now(), priority);
+	let new_card = Card::new(item_id.clone(), card_index, Utc::now(), priority);
 	let new_card_id = new_card.get_id();
 
 	debug!("Inserting card into database with id: {}", new_card_id);
@@ -157,7 +157,7 @@ pub async fn create_card(
 /// - Unable to get a connection from the pool
 /// - The database query fails for reasons other than the card not existing
 #[instrument(skip(pool), fields(card_id = %card_id))]
-pub fn get_card(pool: &DbPool, card_id: &str) -> Result<Option<Card>> {
+pub fn get_card(pool: &DbPool, card_id: &CardId) -> Result<Option<Card>> {
 	debug!("Retrieving card by id");
 
 	let conn = &mut pool.get()?;
@@ -255,12 +255,12 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
 	// Apply relation filters (parent_item_id / child_item_id)
 	if let Some(ref parent_id) = query.parent_item_id {
 		debug!("Filtering by parent_item_id: {}", parent_id);
-		let child_ids = super::item_relation_repo::get_children_of(pool, parent_id)?;
+		let child_ids = super::item_relation_repo::get_children_of(pool, &parent_id)?;
 		card_query = card_query.filter(cards::item_id.eq_any(child_ids));
 	}
 	if let Some(ref child_id) = query.child_item_id {
 		debug!("Filtering by child_item_id: {}", child_id);
-		let parent_ids = super::item_relation_repo::get_parents_of(pool, child_id)?;
+		let parent_ids = super::item_relation_repo::get_parents_of(pool, &child_id)?;
 		card_query = card_query.filter(cards::item_id.eq_any(parent_ids));
 	}
 
@@ -280,10 +280,10 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
 	if !query.tag_ids.is_empty() {
 		debug!("Filtering by tags: {:?}", query.tag_ids);
 		// Get all item_ids that have all the requested tags
-		let mut item_ids_with_tags = Vec::new();
+		let mut item_ids_with_tags: Vec<ItemId> = Vec::new();
 
 		// Get all items with any of the requested tags
-		let items_with_tags: Vec<String> = item_tags::table
+		let items_with_tags: Vec<ItemId> = item_tags::table
 			.filter(item_tags::tag_id.eq_any(&query.tag_ids))
 			.select(item_tags::item_id)
 			.load(conn)?;
@@ -327,7 +327,7 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
 /// - Unable to get a connection from the pool
 /// - The database query fails
 #[instrument(skip(pool), fields(item_id = %item_id))]
-pub fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
+pub fn get_cards_for_item(pool: &DbPool, item_id: &ItemId) -> Result<Vec<Card>> {
 	debug!("Getting cards for item: {}", item_id);
 	let conn = &mut pool.get()?;
 
@@ -379,7 +379,7 @@ pub fn get_cards_for_item(pool: &DbPool, item_id: &str) -> Result<Vec<Card>> {
 /// - The database update operation fails
 /// - The card does not exist
 #[instrument(skip(pool), fields(card_id = %card_id, suspended = %suspended))]
-pub async fn set_card_suspended(pool: &DbPool, card_id: &str, suspended: bool) -> Result<()> {
+pub async fn set_card_suspended(pool: &DbPool, card_id: &CardId, suspended: bool) -> Result<()> {
 	debug!(
 		"Setting suspension of card to state: {}, {}",
 		card_id, suspended
@@ -407,7 +407,7 @@ pub async fn set_card_suspended(pool: &DbPool, card_id: &str, suspended: bool) -
 	let conn = &mut pool.get()?;
 
 	// Execute the update
-	diesel::update(cards::table.find(card_id.to_string()))
+	diesel::update(cards::table.find(card_id.clone()))
 		.set(cards::suspended.eq(new_suspended))
 		.execute_with_retry(conn)
 		.await?;
@@ -472,7 +472,7 @@ pub async fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
 /// ### Returns
 ///
 /// A Result indicating success (Ok(())) or an error
-pub async fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -> Result<Card> {
+pub async fn update_card_priority(pool: &DbPool, card_id: &CardId, priority: f32) -> Result<Card> {
 	// Check if the priority is within the valid range
 	if priority < 0.0 || priority > 1.0 {
 		return Err(anyhow!("Priority must be between 0 and 1"));
@@ -485,7 +485,7 @@ pub async fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -
 	}
 
 	let mut conn = pool.get()?;
-	diesel::update(cards::table.find(card_id.to_string()))
+	diesel::update(cards::table.find(card_id.clone()))
 		.set((
 			cards::priority.eq(priority),
 			cards::priority_offset.eq(0.0f32),
@@ -513,7 +513,7 @@ pub async fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -
 ///
 /// A Result containing the updated Card
 #[instrument(skip(pool), fields(card_id = %card_id))]
-pub async fn move_card_to_top(pool: &DbPool, card_id: &str) -> Result<Card> {
+pub async fn move_card_to_top(pool: &DbPool, card_id: &CardId) -> Result<Card> {
 	debug!("Moving card to top of sort order");
 
 	// Verify card exists
@@ -532,7 +532,7 @@ pub async fn move_card_to_top(pool: &DbPool, card_id: &str) -> Result<Card> {
 		None => 1.0,
 	};
 
-	diesel::update(cards::table.find(card_id.to_string()))
+	diesel::update(cards::table.find(card_id.clone()))
 		.set(cards::sort_position.eq(new_position))
 		.execute_with_retry(conn)
 		.await?;
@@ -558,7 +558,7 @@ pub async fn move_card_to_top(pool: &DbPool, card_id: &str) -> Result<Card> {
 ///
 /// A Result containing the updated Card
 #[instrument(skip(pool), fields(card_id = %card_id))]
-pub async fn move_card_to_bottom(pool: &DbPool, card_id: &str) -> Result<Card> {
+pub async fn move_card_to_bottom(pool: &DbPool, card_id: &CardId) -> Result<Card> {
 	debug!("Moving card to bottom of sort order");
 
 	// Verify card exists
@@ -577,7 +577,7 @@ pub async fn move_card_to_bottom(pool: &DbPool, card_id: &str) -> Result<Card> {
 		None => -1.0,
 	};
 
-	diesel::update(cards::table.find(card_id.to_string()))
+	diesel::update(cards::table.find(card_id.clone()))
 		.set(cards::sort_position.eq(new_position))
 		.execute_with_retry(conn)
 		.await?;
@@ -607,8 +607,8 @@ pub async fn move_card_to_bottom(pool: &DbPool, card_id: &str) -> Result<Card> {
 #[instrument(skip(pool), fields(card_id = %card_id, target_card_id = %target_card_id, before = %before))]
 pub async fn move_card_relative(
 	pool: &DbPool,
-	card_id: &str,
-	target_card_id: &str,
+	card_id: &CardId,
+	target_card_id: &CardId,
 	before: bool,
 ) -> Result<Card> {
 	debug!("Moving card relative to another card");
@@ -649,7 +649,7 @@ pub async fn move_card_relative(
 		}
 	};
 
-	diesel::update(cards::table.find(card_id.to_string()))
+	diesel::update(cards::table.find(card_id.clone()))
 		.set(cards::sort_position.eq(new_position))
 		.execute_with_retry(conn)
 		.await?;
@@ -708,7 +708,7 @@ pub async fn clear_sort_positions(pool: &DbPool, query: &GetQueryDto) -> Result<
 
 		let matching_cards = list_cards_with_filters(pool, query)?;
 		let count = matching_cards.len();
-		let ids: Vec<String> = matching_cards.into_iter().map(|c| c.get_id()).collect();
+		let ids: Vec<CardId> = matching_cards.into_iter().map(|c| c.get_id()).collect();
 
 		diesel::update(cards::table.filter(cards::id.eq_any(ids)))
 			.set(cards::sort_position.eq(0.0_f32))
@@ -734,14 +734,14 @@ pub async fn clear_sort_positions(pool: &DbPool, query: &GetQueryDto) -> Result<
 ///
 /// A Result indicating success
 #[instrument(skip(pool), fields(card_id = %card_id))]
-pub async fn clear_card_sort_position(pool: &DbPool, card_id: &str) -> Result<()> {
+pub async fn clear_card_sort_position(pool: &DbPool, card_id: &CardId) -> Result<()> {
 	debug!("Clearing sort position for card");
 
 	let _card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
 
 	let conn = &mut pool.get()?;
 
-	diesel::update(cards::table.find(card_id.to_string()))
+	diesel::update(cards::table.find(card_id.clone()))
 		.set(cards::sort_position.eq(0.0_f32))
 		.execute_with_retry(conn)
 		.await?;
@@ -769,7 +769,7 @@ pub async fn regenerate_priority_offsets(pool: &DbPool) -> Result<()> {
 	let conn = &mut pool.get()?;
 
 	// Get all card IDs
-	let card_ids: Vec<String> = cards::table.select(cards::id).load::<String>(conn)?;
+	let card_ids: Vec<CardId> = cards::table.select(cards::id).load::<CardId>(conn)?;
 
 	let mut rng = rand::rng();
 

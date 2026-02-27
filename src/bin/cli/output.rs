@@ -40,7 +40,7 @@ pub fn print_item_types(item_types: &[ItemType], config: &OutputConfig) {
 			}
 			let max_id = item_types
 				.iter()
-				.map(|t| t.get_id().len())
+				.map(|t| t.get_id().0.len())
 				.max()
 				.unwrap_or(2);
 			println!("{:<width$}  NAME", "ID", width = max_id);
@@ -94,7 +94,7 @@ pub fn print_items(items: &[Item], config: &OutputConfig) {
 				}
 				return;
 			}
-			let max_id = items.iter().map(|i| i.get_id().len()).max().unwrap_or(2);
+			let max_id = items.iter().map(|i| i.get_id().0.len()).max().unwrap_or(2);
 			let max_title = items.iter().map(|i| i.get_title().len()).max().unwrap_or(5);
 			println!(
 				"{:<id_w$}  {:<title_w$}",
@@ -162,10 +162,10 @@ pub fn print_cards(cards: &[Card], config: &OutputConfig) {
 				}
 				return;
 			}
-			let max_id = cards.iter().map(|c| c.get_id().len()).max().unwrap_or(2);
+			let max_id = cards.iter().map(|c| c.get_id().0.len()).max().unwrap_or(2);
 			let max_item = cards
 				.iter()
-				.map(|c| c.get_item_id().len())
+				.map(|c| c.get_item_id().0.len())
 				.max()
 				.unwrap_or(4);
 			println!(
@@ -275,10 +275,14 @@ pub fn print_reviews(reviews: &[Review], config: &OutputConfig) {
 				}
 				return;
 			}
-			let max_id = reviews.iter().map(|r| r.get_id().len()).max().unwrap_or(2);
+			let max_id = reviews
+				.iter()
+				.map(|r| r.get_id().0.len())
+				.max()
+				.unwrap_or(2);
 			let max_card = reviews
 				.iter()
-				.map(|r| r.get_card_id().len())
+				.map(|r| r.get_card_id().0.len())
 				.max()
 				.unwrap_or(4);
 			println!(
@@ -348,7 +352,7 @@ pub fn print_tags(tags: &[Tag], config: &OutputConfig) {
 				}
 				return;
 			}
-			let max_id = tags.iter().map(|t| t.get_id().len()).max().unwrap_or(2);
+			let max_id = tags.iter().map(|t| t.get_id().0.len()).max().unwrap_or(2);
 			let max_name = tags.iter().map(|t| t.get_name().len()).max().unwrap_or(4);
 			println!(
 				"{:<id_w$}  {:<name_w$}  VISIBLE",
@@ -484,7 +488,7 @@ pub fn print_todo_cards(cards_with_items: &[(Card, Option<Item>)], config: &Outp
 				.collect();
 			let max_id = cards_with_items
 				.iter()
-				.map(|(c, _)| c.get_id().len())
+				.map(|(c, _)| c.get_id().0.len())
 				.max()
 				.unwrap_or(2);
 			let max_title = titles.iter().map(|t| t.len()).max().unwrap_or(5);

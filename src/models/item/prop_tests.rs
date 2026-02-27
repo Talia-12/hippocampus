@@ -1,28 +1,40 @@
 use super::*;
-use crate::test_utils::{arb_datetime_utc, arb_json, arb_messy_string, json_approx_eq};
+use crate::test_utils::{
+	arb_datetime_utc, arb_item_id, arb_item_type_id, arb_json, arb_messy_string, json_approx_eq,
+};
 use proptest::prelude::*;
 
 // ============================================================================
 // I1: Constructor Properties
 // ============================================================================
 
+fn strip_item_prefix(id: &str) -> &str {
+	const PREFIX: &str = "item-";
+	id.strip_prefix(PREFIX)
+		.expect("expected id to start with \"item-\"")
+}
+
 proptest! {
 	/// I1.1: Item::new produces a valid UUID
 	#[test]
 	fn prop_i1_1_new_produces_valid_uuid(
-		item_type in "\\PC+",
+		item_type in arb_item_type_id(),
 		title in "\\PC+",
 		data in arb_json(),
 	) {
 		let item = Item::new(item_type, title, JsonValue(data));
-		prop_assert!(Uuid::parse_str(&item.get_id()).is_ok(),
+
+		let raw_id = &item.get_id().0;
+		let uuid_part = strip_item_prefix(raw_id);
+
+		prop_assert!(uuid::Uuid::parse_str(uuid_part).is_ok(),
 			"get_id() should be a valid UUID, got: {}", item.get_id());
 	}
 
 	/// I1.2: Item::new preserves item_type
 	#[test]
 	fn prop_i1_2_new_preserves_item_type(
-		item_type in "\\PC+",
+		item_type in arb_item_type_id(),
 		title in "\\PC+",
 		data in arb_json(),
 	) {
@@ -33,7 +45,7 @@ proptest! {
 	/// I1.3: Item::new preserves title
 	#[test]
 	fn prop_i1_3_new_preserves_title(
-		item_type in "\\PC+",
+		item_type in arb_item_type_id(),
 		title in "\\PC+",
 		data in arb_json(),
 	) {
@@ -44,7 +56,7 @@ proptest! {
 	/// I1.4: Item::new preserves data
 	#[test]
 	fn prop_i1_4_new_preserves_data(
-		item_type in "\\PC+",
+		item_type in arb_item_type_id(),
 		title in "\\PC+",
 		data in arb_json(),
 	) {
@@ -56,7 +68,7 @@ proptest! {
 	/// I1.5: Item::new timestamps are recent
 	#[test]
 	fn prop_i1_5_new_timestamps_recent(
-		item_type in "\\PC+",
+		item_type in arb_item_type_id(),
 		title in "\\PC+",
 	) {
 		let item = Item::new(item_type, title, JsonValue(serde_json::Value::Null));
@@ -70,7 +82,7 @@ proptest! {
 	/// I1.6: Item::new timestamps are equal (both set to same `now`)
 	#[test]
 	fn prop_i1_6_new_timestamps_equal(
-		item_type in "\\PC+",
+		item_type in arb_item_type_id(),
 		title in "\\PC+",
 	) {
 		let item = Item::new(item_type, title, JsonValue(serde_json::Value::Null));
@@ -81,8 +93,8 @@ proptest! {
 	/// I1.7: Item::new_with_fields preserves all fields roundtrip
 	#[test]
 	fn prop_i1_7_new_with_fields_roundtrip(
-		id in "\\PC+",
-		item_type in "\\PC+",
+		id in arb_item_id(),
+		item_type in arb_item_type_id(),
 		title in "\\PC+",
 		data in arb_json(),
 		created_at in arb_datetime_utc(),
@@ -116,7 +128,7 @@ proptest! {
 	/// I1r.1: Item::new does not panic for any (messy_string, messy_string, arbitrary JSON)
 	#[test]
 	fn prop_i1r_1_new_does_not_panic(
-		item_type in arb_messy_string(),
+		item_type in arb_item_type_id(),
 		title in arb_messy_string(),
 		data in arb_json(),
 	) {
@@ -130,8 +142,8 @@ proptest! {
 	/// I1r.2: Item::new_with_fields does not panic for arbitrary inputs
 	#[test]
 	fn prop_i1r_2_new_with_fields_does_not_panic(
-		id in arb_messy_string(),
-		item_type in arb_messy_string(),
+		id in arb_item_id(),
+		item_type in arb_item_type_id(),
 		title in arb_messy_string(),
 		data in arb_json(),
 		created_at in arb_datetime_utc(),
@@ -154,7 +166,7 @@ proptest! {
 	/// I2.1: set_title / get_title roundtrip
 	#[test]
 	fn prop_i2_1_title_roundtrip(title in arb_messy_string()) {
-		let mut item = Item::new("type".to_string(), "initial".to_string(), JsonValue(serde_json::Value::Null));
+		let mut item = Item::new(ItemTypeId("type".to_string()), "initial".to_string(), JsonValue(serde_json::Value::Null));
 		item.set_title(title.clone());
 		prop_assert_eq!(item.get_title(), title);
 	}
@@ -163,15 +175,15 @@ proptest! {
 	#[test]
 	fn prop_i2_2_data_roundtrip(data in arb_json()) {
 		let data = JsonValue(data);
-		let mut item = Item::new("type".to_string(), "title".to_string(), JsonValue(serde_json::Value::Null));
+		let mut item = Item::new(ItemTypeId("type".to_string()), "title".to_string(), JsonValue(serde_json::Value::Null));
 		item.set_data(data.clone());
 		prop_assert_eq!(item.get_data(), data);
 	}
 
 	/// I2.3: set_item_type / get_item_type roundtrip
 	#[test]
-	fn prop_i2_3_item_type_roundtrip(item_type in arb_messy_string()) {
-		let mut item = Item::new("initial".to_string(), "title".to_string(), JsonValue(serde_json::Value::Null));
+	fn prop_i2_3_item_type_roundtrip(item_type in arb_item_type_id()) {
+		let mut item = Item::new(ItemTypeId("initial".to_string()), "title".to_string(), JsonValue(serde_json::Value::Null));
 		item.set_item_type(item_type.clone());
 		prop_assert_eq!(item.get_item_type(), item_type);
 	}
@@ -185,7 +197,7 @@ proptest! {
 	/// I2s.1: set_title advances updated_at
 	#[test]
 	fn prop_i2s_1_set_title_advances_updated_at(title in "\\PC+") {
-		let mut item = Item::new("type".to_string(), "initial".to_string(), JsonValue(serde_json::Value::Null));
+		let mut item = Item::new(ItemTypeId("type".to_string()), "initial".to_string(), JsonValue(serde_json::Value::Null));
 		let before = item.get_updated_at_raw();
 		// Small sleep to ensure timestamp difference
 		std::thread::sleep(std::time::Duration::from_millis(2));
@@ -198,7 +210,7 @@ proptest! {
 	/// I2s.2: set_data advances updated_at
 	#[test]
 	fn prop_i2s_2_set_data_advances_updated_at(data in arb_json()) {
-		let mut item = Item::new("type".to_string(), "title".to_string(), JsonValue(serde_json::Value::Null));
+		let mut item = Item::new(ItemTypeId("type".to_string()), "title".to_string(), JsonValue(serde_json::Value::Null));
 		let before = item.get_updated_at_raw();
 		std::thread::sleep(std::time::Duration::from_millis(2));
 		item.set_data(JsonValue(data));
@@ -209,8 +221,11 @@ proptest! {
 
 	/// I2s.3: set_item_type advances updated_at
 	#[test]
-	fn prop_i2s_3_set_item_type_advances_updated_at(item_type in "\\PC+") {
-		let mut item = Item::new("initial".to_string(), "title".to_string(), JsonValue(serde_json::Value::Null));
+	fn prop_i2s_3_set_item_type_advances_updated_at(
+			item_type in arb_item_type_id(),
+		)
+	{
+		let mut item = Item::new(ItemTypeId("initial".to_string()), "title".to_string(), JsonValue(serde_json::Value::Null));
 		let before = item.get_updated_at_raw();
 		std::thread::sleep(std::time::Duration::from_millis(2));
 		item.set_item_type(item_type);
@@ -223,10 +238,10 @@ proptest! {
 	#[test]
 	fn prop_i2s_4_setters_preserve_created_at(
 		title in "\\PC+",
-		item_type in "\\PC+",
+		item_type in arb_item_type_id(),
 		data in arb_json(),
 	) {
-		let mut item = Item::new("initial_type".to_string(), "initial_title".to_string(), JsonValue(serde_json::Value::Null));
+		let mut item = Item::new(ItemTypeId("initial_type".to_string()), "initial_title".to_string(), JsonValue(serde_json::Value::Null));
 		let created_at = item.get_created_at_raw();
 
 		item.set_title(title);
@@ -251,7 +266,7 @@ proptest! {
 	/// loss inherent to serde_json serialize→deserialize.
 	#[test]
 	fn prop_i3_1_serde_roundtrip(
-		item_type in "\\PC+",
+		item_type in arb_item_type_id(),
 		title in "\\PC+",
 		data in arb_json(),
 	) {

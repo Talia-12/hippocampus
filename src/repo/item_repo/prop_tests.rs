@@ -1,16 +1,19 @@
 use super::*;
 use crate::repo::create_item_type;
 use crate::repo::tests::setup_test_db;
-use crate::test_utils::{
-	arb_item_params, arb_json, arb_messy_string, create_items, json_approx_eq,
-};
+use crate::test_utils::*;
 use proptest::prelude::*;
 use std::collections::HashSet;
-use uuid::Uuid;
 
 // ============================================================================
 // IR1: CRUD Roundtrip Properties
 // ============================================================================
+
+fn strip_item_prefix(id: &str) -> &str {
+	const PREFIX: &str = "item-";
+	id.strip_prefix(PREFIX)
+		.expect("expected id to start with \"item-\"")
+}
 
 proptest! {
 	/// IR1.1: create→get preserves title for arbitrary strings
@@ -76,14 +79,18 @@ proptest! {
 			let data = serde_json::json!({"key": "value"});
 
 			let item = create_item(&pool, &item_type.get_id(), title, data).await.unwrap();
-			assert!(Uuid::parse_str(&item.get_id()).is_ok(),
+
+			let raw_id = &item.get_id().0;
+			let uuid_part = strip_item_prefix(raw_id);
+
+			assert!(uuid::Uuid::parse_str(uuid_part).is_ok(),
 				"ID should be valid UUID, got: {}", item.get_id());
 		});
 	}
 
 	/// IR1.5: get_item returns None for arbitrary nonexistent IDs
 	#[test]
-	fn prop_ir1_5_get_nonexistent_returns_none(id in arb_messy_string()) {
+	fn prop_ir1_5_get_nonexistent_returns_none(id in arb_item_id()) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let pool = setup_test_db();
@@ -227,7 +234,7 @@ proptest! {
 
 	/// IR2.6: update nonexistent ID returns Err
 	#[test]
-	fn prop_ir2_6_update_nonexistent_returns_err(id in arb_messy_string()) {
+	fn prop_ir2_6_update_nonexistent_returns_err(id in arb_item_id()) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let pool = setup_test_db();
@@ -301,7 +308,7 @@ proptest! {
 
 	/// IR3.3: get_items_by_type for nonexistent type returns empty vec
 	#[test]
-	fn prop_ir3_3_items_by_nonexistent_type_empty(id in arb_messy_string()) {
+	fn prop_ir3_3_items_by_nonexistent_type_empty(id in arb_item_type_id()) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let pool = setup_test_db();
@@ -409,7 +416,7 @@ proptest! {
 
 	/// IR4.2: delete of nonexistent item does not error
 	#[test]
-	fn prop_ir4_2_delete_nonexistent_no_error(id in arb_messy_string()) {
+	fn prop_ir4_2_delete_nonexistent_no_error(id in arb_item_id()) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let pool = setup_test_db();

@@ -1,4 +1,5 @@
 use super::*;
+use crate::models::ItemId;
 use crate::repo::tests::setup_test_db;
 use crate::repo::{create_item, create_item_type};
 use serde_json::json;
@@ -137,7 +138,7 @@ async fn test_record_review_edge_cases() {
 	);
 
 	// Try a non-existent card
-	let result = record_review(&pool, "nonexistent-id", 2).await;
+	let result = record_review(&pool, &CardId("nonexistent-id".to_string()), 2).await;
 	assert!(result.is_err());
 	assert!(result.unwrap_err().to_string().contains("Card not found"));
 
@@ -233,8 +234,8 @@ async fn test_record_review_edge_cases() {
 /// Helper: build a Card with FSRS scheduler data for pure-logic tests
 pub(super) fn card_with_fsrs_data(stability: f32, difficulty: f32) -> Card {
 	Card::new_with_fields(
-		"test-id".to_string(),
-		"item-id".to_string(),
+		CardId("test-id".to_string()),
+		ItemId("item-id".to_string()),
 		0,
 		Utc::now(),
 		Some(Utc::now()),
@@ -258,8 +259,8 @@ pub(super) fn interval_days_for(card: &Card, rating: i32) -> f64 {
 fn test_intervals_monotonic_fresh_card() {
 	// Card with no scheduler data (first review)
 	let card = Card::new_with_fields(
-		"test-id".to_string(),
-		"item-id".to_string(),
+		CardId("test-id".to_string()),
+		ItemId("item-id".to_string()),
 		0,
 		Utc::now(),
 		None,
@@ -417,8 +418,8 @@ mod proptests {
 /// Helper: build a Card with incremental queue scheduler data for pure-logic tests
 pub(super) fn card_with_iq_data(interval: f64, priority: f32) -> Card {
 	Card::new_with_fields(
-		"test-id".to_string(),
-		"item-id".to_string(),
+		CardId("test-id".to_string()),
+		ItemId("item-id".to_string()),
 		0,
 		Utc::now(),
 		Some(Utc::now()),
@@ -531,11 +532,11 @@ use diesel::connection::SimpleConnection;
 
 /// Helper: insert a card via raw SQL with FK constraints disabled,
 /// so the card references a nonexistent item_id.
-fn insert_orphaned_card(pool: &crate::db::DbPool) -> String {
+fn insert_orphaned_card(pool: &crate::db::DbPool) -> CardId {
 	let mut conn = pool.get().unwrap();
 	conn.batch_execute("PRAGMA foreign_keys = OFF").unwrap();
 
-	let card_id = uuid::Uuid::new_v4().to_string();
+	let card_id = CardId::new();
 	let now = Utc::now()
 		.naive_utc()
 		.format("%Y-%m-%d %H:%M:%S")
@@ -589,7 +590,8 @@ fn test_calculate_next_review_unknown_function() {
 #[tokio::test]
 async fn test_get_all_next_reviews_nonexistent_card() {
 	let pool = setup_test_db();
-	let result = get_all_next_reviews_for_card(&pool, "nonexistent-card-id").await;
+	let result =
+		get_all_next_reviews_for_card(&pool, &CardId("nonexistent-card-id".to_string())).await;
 	assert!(result.is_err());
 	assert!(
 		result.unwrap_err().to_string().contains("Card not found"),

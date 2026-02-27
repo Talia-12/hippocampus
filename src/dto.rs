@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::models::Item;
+use crate::models::{CardId, Item, ItemId, ItemTypeId, TagId};
 
 /// Data transfer object for creating a new item
 ///
@@ -10,7 +10,7 @@ use crate::models::Item;
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CreateItemDto {
 	/// The item type ID
-	pub item_type_id: String,
+	pub item_type_id: ItemTypeId,
 
 	/// The title or content of the item to be remembered
 	pub title: String,
@@ -46,7 +46,7 @@ fn default_priority() -> f32 {
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CreateReviewDto {
 	/// The ID of the card being reviewed
-	pub card_id: String,
+	pub card_id: CardId,
 
 	/// The rating given during the review (typically 1-3)
 	pub rating: i32,
@@ -113,10 +113,10 @@ pub struct CreateItemRelationDto {
 #[serde(default)]
 pub struct ListItemRelationsQueryDto {
 	/// Filter by parent item ID
-	pub parent_item_id: Option<String>,
+	pub parent_item_id: Option<ItemId>,
 
 	/// Filter by child item ID
-	pub child_item_id: Option<String>,
+	pub child_item_id: Option<ItemId>,
 
 	/// Filter by relation type
 	pub relation_type: Option<String>,
@@ -168,10 +168,10 @@ pub enum SortPositionAction {
 	Bottom,
 	/// Move the card before another card
 	#[serde(rename = "before")]
-	Before { card_id: String },
+	Before { card_id: CardId },
 	/// Move the card after another card
 	#[serde(rename = "after")]
-	After { card_id: String },
+	After { card_id: CardId },
 }
 
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone, Copy)]
@@ -189,10 +189,10 @@ pub enum SuspendedFilter {
 #[serde(default)]
 pub struct GetQueryDto {
 	/// The ID of the item type to filter by
-	pub item_type_id: Option<String>,
+	pub item_type_id: Option<ItemTypeId>,
 
 	/// The IDs of the tags to filter by
-	pub tag_ids: Vec<String>,
+	pub tag_ids: Vec<TagId>,
 
 	/// The maximum next review date to filter by
 	pub next_review_before: Option<DateTime<Utc>>,
@@ -214,24 +214,24 @@ pub struct GetQueryDto {
 	pub split_priority: Option<bool>,
 
 	/// Filter to children of this parent item ID
-	pub parent_item_id: Option<String>,
+	pub parent_item_id: Option<ItemId>,
 
 	/// Filter to parents of this child item ID
-	pub child_item_id: Option<String>,
+	pub child_item_id: Option<ItemId>,
 }
 
 /// Builder for GetQueryDto
 pub struct GetQueryDtoBuilder {
-	item_type_id: Option<String>,
-	tag_ids: Vec<String>,
+	item_type_id: Option<ItemTypeId>,
+	tag_ids: Vec<TagId>,
 	next_review_before: Option<DateTime<Utc>>,
 	last_review_after: Option<DateTime<Utc>>,
 	suspended_filter: SuspendedFilter,
 	suspended_after: Option<DateTime<Utc>>,
 	suspended_before: Option<DateTime<Utc>>,
 	split_priority: Option<bool>,
-	parent_item_id: Option<String>,
-	child_item_id: Option<String>,
+	parent_item_id: Option<ItemId>,
+	child_item_id: Option<ItemId>,
 }
 
 impl GetQueryDtoBuilder {
@@ -252,19 +252,19 @@ impl GetQueryDtoBuilder {
 	}
 
 	/// Sets the item type ID to filter by
-	pub fn item_type_id(mut self, item_type_id: String) -> Self {
+	pub fn item_type_id(mut self, item_type_id: ItemTypeId) -> Self {
 		self.item_type_id = Some(item_type_id);
 		self
 	}
 
 	/// Sets the tag IDs to filter by
-	pub fn tag_ids(mut self, tag_ids: Vec<String>) -> Self {
+	pub fn tag_ids(mut self, tag_ids: Vec<TagId>) -> Self {
 		self.tag_ids = tag_ids;
 		self
 	}
 
 	/// Adds a tag ID to the filter
-	pub fn add_tag_id(mut self, tag_id: String) -> Self {
+	pub fn add_tag_id(mut self, tag_id: TagId) -> Self {
 		self.tag_ids.push(tag_id);
 		self
 	}
@@ -306,13 +306,13 @@ impl GetQueryDtoBuilder {
 	}
 
 	/// Sets the parent item ID to filter children of
-	pub fn parent_item_id(mut self, parent_item_id: String) -> Self {
+	pub fn parent_item_id(mut self, parent_item_id: ItemId) -> Self {
 		self.parent_item_id = Some(parent_item_id);
 		self
 	}
 
 	/// Sets the child item ID to filter parents of
-	pub fn child_item_id(mut self, child_item_id: String) -> Self {
+	pub fn child_item_id(mut self, child_item_id: ItemId) -> Self {
 		self.child_item_id = Some(child_item_id);
 		self
 	}
