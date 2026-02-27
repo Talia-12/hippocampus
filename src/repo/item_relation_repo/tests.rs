@@ -234,3 +234,124 @@ async fn test_cascade_delete_cleanup() {
 			.is_none()
 	);
 }
+
+#[tokio::test]
+async fn test_get_all_descendants() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+	let item_b = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item B").await;
+	let item_c = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item C").await;
+	let item_d = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item D").await;
+
+	// A -> B -> C -> D
+	create_item_relation(&pool, &item_a.get_id(), &item_b.get_id(), "extract")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_b.get_id(), &item_c.get_id(), "cloze")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_c.get_id(), &item_d.get_id(), "simplify")
+		.await
+		.unwrap();
+
+	let descendants = get_all_descendants(&pool, &item_a.get_id()).unwrap();
+
+	// Should have 3 edges: A->B, B->C, C->D
+	assert_eq!(descendants.len(), 3);
+
+	// Collect all child IDs from the edges
+	let child_ids: Vec<&str> = descendants.iter().map(|e| e.child_id.as_str()).collect();
+	assert!(child_ids.contains(&item_b.get_id().as_str()));
+	assert!(child_ids.contains(&item_c.get_id().as_str()));
+	assert!(child_ids.contains(&item_d.get_id().as_str()));
+}
+
+#[tokio::test]
+async fn test_get_all_descendants_empty() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+
+	let descendants = get_all_descendants(&pool, &item_a.get_id()).unwrap();
+	assert!(descendants.is_empty());
+}
+
+#[tokio::test]
+async fn test_get_all_ancestors() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+	let item_b = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item B").await;
+	let item_c = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item C").await;
+	let item_d = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item D").await;
+
+	// A -> B -> C -> D
+	create_item_relation(&pool, &item_a.get_id(), &item_b.get_id(), "extract")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_b.get_id(), &item_c.get_id(), "cloze")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_c.get_id(), &item_d.get_id(), "simplify")
+		.await
+		.unwrap();
+
+	let ancestors = get_all_ancestors(&pool, &item_d.get_id()).unwrap();
+
+	// Should have 3 edges: C->D, B->C, A->B
+	assert_eq!(ancestors.len(), 3);
+
+	// Collect all parent IDs from the edges
+	let parent_ids: Vec<&str> = ancestors.iter().map(|e| e.parent_id.as_str()).collect();
+	assert!(parent_ids.contains(&item_a.get_id().as_str()));
+	assert!(parent_ids.contains(&item_b.get_id().as_str()));
+	assert!(parent_ids.contains(&item_c.get_id().as_str()));
+}
+
+#[tokio::test]
+async fn test_get_all_ancestors_empty() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+
+	let ancestors = get_all_ancestors(&pool, &item_a.get_id()).unwrap();
+	assert!(ancestors.is_empty());
+}
+
+#[tokio::test]
+async fn test_get_children_of() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+	let item_b = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item B").await;
+	let item_c = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item C").await;
+
+	create_item_relation(&pool, &item_a.get_id(), &item_b.get_id(), "extract")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_a.get_id(), &item_c.get_id(), "cloze")
+		.await
+		.unwrap();
+
+	let children = get_children_of(&pool, &item_a.get_id()).unwrap();
+	assert_eq!(children.len(), 2);
+	assert!(children.contains(&item_b.get_id()));
+	assert!(children.contains(&item_c.get_id()));
+}
+
+#[tokio::test]
+async fn test_get_parents_of() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+	let item_b = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item B").await;
+	let item_c = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item C").await;
+
+	// Both A and B are parents of C
+	create_item_relation(&pool, &item_a.get_id(), &item_c.get_id(), "extract")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_b.get_id(), &item_c.get_id(), "cloze")
+		.await
+		.unwrap();
+
+	let parents = get_parents_of(&pool, &item_c.get_id()).unwrap();
+	assert_eq!(parents.len(), 2);
+	assert!(parents.contains(&item_a.get_id()));
+	assert!(parents.contains(&item_b.get_id()));
+}

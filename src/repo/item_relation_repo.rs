@@ -260,5 +260,149 @@ pub fn list_item_relations(
 	Ok(results)
 }
 
+/// A directed edge in the item relation graph
+#[derive(QueryableByName, Debug, Clone, PartialEq, Eq)]
+pub struct RelationEdge {
+	/// The parent item ID
+	#[diesel(sql_type = Text)]
+	pub parent_id: String,
+
+	/// The child item ID
+	#[diesel(sql_type = Text)]
+	pub child_id: String,
+
+	/// The type of relationship
+	#[diesel(sql_type = Text)]
+	pub relation_type: String,
+}
+
+/// Gets all descendant edges reachable from the given item
+///
+/// Uses a recursive CTE to traverse the graph downward. Returns all
+/// edges in the subtree.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `item_id` - The root item ID to traverse from
+///
+/// ### Returns
+///
+/// A Result containing a vector of Edge structs
+#[instrument(skip(pool), fields(item_id = %item_id))]
+pub fn get_all_descendants(pool: &DbPool, item_id: &str) -> Result<Vec<RelationEdge>> {
+	debug!("Getting all descendants");
+
+	let conn = &mut pool.get()?;
+
+	let edges: Vec<RelationEdge> = diesel::sql_query(
+		"WITH RECURSIVE descendants(parent_id, child_id, relation_type) AS ( \
+			SELECT parent_item_id, child_item_id, relation_type \
+			FROM item_relations WHERE parent_item_id = ?1 \
+			UNION \
+			SELECT ir.parent_item_id, ir.child_item_id, ir.relation_type \
+			FROM item_relations ir \
+			INNER JOIN descendants d ON ir.parent_item_id = d.child_id \
+		) \
+		SELECT parent_id, child_id, relation_type FROM descendants",
+	)
+	.bind::<Text, _>(item_id)
+	.load(conn)?;
+
+	info!(
+		"Found {} descendant edges for item {}",
+		edges.len(),
+		item_id
+	);
+	Ok(edges)
+}
+
+/// Gets all ancestor edges reachable from the given item
+///
+/// Uses a recursive CTE to traverse the graph upward. Returns all
+/// edges in the ancestor chain.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `item_id` - The item ID to find ancestors of
+///
+/// ### Returns
+///
+/// A Result containing a vector of Edge structs
+#[instrument(skip(pool), fields(item_id = %item_id))]
+pub fn get_all_ancestors(pool: &DbPool, item_id: &str) -> Result<Vec<RelationEdge>> {
+	debug!("Getting all ancestors");
+
+	let conn = &mut pool.get()?;
+
+	let edges: Vec<RelationEdge> = diesel::sql_query(
+		"WITH RECURSIVE ancestors(parent_id, child_id, relation_type) AS ( \
+			SELECT parent_item_id, child_item_id, relation_type \
+			FROM item_relations WHERE child_item_id = ?1 \
+			UNION \
+			SELECT ir.parent_item_id, ir.child_item_id, ir.relation_type \
+			FROM item_relations ir \
+			INNER JOIN ancestors a ON ir.child_item_id = a.parent_id \
+		) \
+		SELECT parent_id, child_id, relation_type FROM ancestors",
+	)
+	.bind::<Text, _>(item_id)
+	.load(conn)?;
+
+	info!("Found {} ancestor edges for item {}", edges.len(), item_id);
+	Ok(edges)
+}
+
+/// Gets the direct child item IDs of a parent
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `parent_id` - The parent item ID
+///
+/// ### Returns
+///
+/// A Result containing a vector of child item ID strings
+#[instrument(skip(pool), fields(parent_id = %parent_id))]
+pub fn get_children_of(pool: &DbPool, parent_id: &str) -> Result<Vec<String>> {
+	debug!("Getting children of item");
+
+	let conn = &mut pool.get()?;
+
+	let results = item_relations::table
+		.filter(item_relations::parent_item_id.eq(parent_id))
+		.select(item_relations::child_item_id)
+		.load::<String>(conn)?;
+
+	info!("Found {} children of item {}", results.len(), parent_id);
+	Ok(results)
+}
+
+/// Gets the direct parent item IDs of a child
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `child_id` - The child item ID
+///
+/// ### Returns
+///
+/// A Result containing a vector of parent item ID strings
+#[instrument(skip(pool), fields(child_id = %child_id))]
+pub fn get_parents_of(pool: &DbPool, child_id: &str) -> Result<Vec<String>> {
+	debug!("Getting parents of item");
+
+	let conn = &mut pool.get()?;
+
+	let results = item_relations::table
+		.filter(item_relations::child_item_id.eq(child_id))
+		.select(item_relations::parent_item_id)
+		.load::<String>(conn)?;
+
+	info!("Found {} parents of item {}", results.len(), child_id);
+	Ok(results)
+}
+
 #[cfg(test)]
 mod tests;
