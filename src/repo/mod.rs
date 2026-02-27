@@ -1,4 +1,5 @@
 mod card_repo;
+mod item_relation_repo;
 mod item_repo;
 /// Repository module
 ///
@@ -14,8 +15,10 @@ mod tag_repo;
 
 // Re-export all repository functions
 pub use card_repo::*;
+pub use item_relation_repo::*;
 pub use item_repo::*;
 pub use item_type_repo::*;
+pub use review_repo::*;
 pub use review_repo::*;
 pub use tag_repo::*;
 
