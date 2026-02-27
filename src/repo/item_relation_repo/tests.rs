@@ -355,3 +355,159 @@ async fn test_get_parents_of() {
 	assert!(parents.contains(&item_a.get_id()));
 	assert!(parents.contains(&item_b.get_id()));
 }
+
+#[tokio::test]
+async fn test_get_children_graph_linear() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+	let item_b = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item B").await;
+	let item_c = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item C").await;
+
+	// A -> B -> C
+	create_item_relation(&pool, &item_a.get_id(), &item_b.get_id(), "extract")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_b.get_id(), &item_c.get_id(), "cloze")
+		.await
+		.unwrap();
+
+	let graph = get_children_graph(&pool, &item_a).unwrap();
+
+	assert_eq!(graph.item.get_id(), item_a.get_id());
+	assert!(graph.relation_type.is_none());
+	assert_eq!(graph.children.len(), 1);
+	assert_eq!(graph.children[0].item.get_id(), item_b.get_id());
+	assert_eq!(graph.children[0].relation_type.as_deref(), Some("extract"));
+	assert_eq!(graph.children[0].children.len(), 1);
+	assert_eq!(graph.children[0].children[0].item.get_id(), item_c.get_id());
+	assert_eq!(
+		graph.children[0].children[0].relation_type.as_deref(),
+		Some("cloze")
+	);
+}
+
+#[tokio::test]
+async fn test_get_children_graph_empty() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+
+	let graph = get_children_graph(&pool, &item_a).unwrap();
+
+	assert_eq!(graph.item.get_id(), item_a.get_id());
+	assert!(graph.children.is_empty());
+}
+
+#[tokio::test]
+async fn test_get_children_graph_diamond() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+	let item_b = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item B").await;
+	let item_c = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item C").await;
+	let item_d = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item D").await;
+
+	// Diamond: A -> B, A -> C, B -> D, C -> D
+	create_item_relation(&pool, &item_a.get_id(), &item_b.get_id(), "extract")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_a.get_id(), &item_c.get_id(), "simplify")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_b.get_id(), &item_d.get_id(), "cloze")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_c.get_id(), &item_d.get_id(), "extract")
+		.await
+		.unwrap();
+
+	let graph = get_children_graph(&pool, &item_a).unwrap();
+
+	assert_eq!(graph.children.len(), 2);
+	// D should appear in both subtrees
+	let mut d_count = 0;
+	for child in &graph.children {
+		for grandchild in &child.children {
+			if grandchild.item.get_id() == item_d.get_id() {
+				d_count += 1;
+			}
+		}
+	}
+	assert_eq!(d_count, 2, "D should appear under both B and C");
+}
+
+#[tokio::test]
+async fn test_get_parent_graph_linear() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+	let item_b = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item B").await;
+	let item_c = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item C").await;
+
+	// A -> B -> C
+	create_item_relation(&pool, &item_a.get_id(), &item_b.get_id(), "extract")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_b.get_id(), &item_c.get_id(), "cloze")
+		.await
+		.unwrap();
+
+	let graph = get_parent_graph(&pool, &item_c).unwrap();
+
+	assert_eq!(graph.item.get_id(), item_c.get_id());
+	assert!(graph.relation_type.is_none());
+	assert_eq!(graph.parents.len(), 1);
+	assert_eq!(graph.parents[0].item.get_id(), item_b.get_id());
+	assert_eq!(graph.parents[0].relation_type.as_deref(), Some("cloze"));
+	assert_eq!(graph.parents[0].parents.len(), 1);
+	assert_eq!(graph.parents[0].parents[0].item.get_id(), item_a.get_id());
+	assert_eq!(
+		graph.parents[0].parents[0].relation_type.as_deref(),
+		Some("extract")
+	);
+}
+
+#[tokio::test]
+async fn test_get_parent_graph_empty() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+
+	let graph = get_parent_graph(&pool, &item_a).unwrap();
+
+	assert_eq!(graph.item.get_id(), item_a.get_id());
+	assert!(graph.parents.is_empty());
+}
+
+#[tokio::test]
+async fn test_get_parent_graph_diamond() {
+	let pool = setup_test_db();
+	let item_a = create_test_item(&pool, "Item A").await;
+	let item_b = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item B").await;
+	let item_c = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item C").await;
+	let item_d = create_test_item_with_type(&pool, &item_a.get_item_type(), "Item D").await;
+
+	// Diamond: A -> B, A -> C, B -> D, C -> D
+	create_item_relation(&pool, &item_a.get_id(), &item_b.get_id(), "extract")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_a.get_id(), &item_c.get_id(), "simplify")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_b.get_id(), &item_d.get_id(), "cloze")
+		.await
+		.unwrap();
+	create_item_relation(&pool, &item_c.get_id(), &item_d.get_id(), "extract")
+		.await
+		.unwrap();
+
+	let graph = get_parent_graph(&pool, &item_d).unwrap();
+
+	assert_eq!(graph.parents.len(), 2);
+	// A should appear as grandparent via both paths
+	let mut a_count = 0;
+	for parent in &graph.parents {
+		for grandparent in &parent.parents {
+			if grandparent.item.get_id() == item_a.get_id() {
+				a_count += 1;
+			}
+		}
+	}
+	assert_eq!(a_count, 2, "A should appear as grandparent via both B and C");
+}

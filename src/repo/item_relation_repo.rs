@@ -1,9 +1,11 @@
 use crate::db::{DbPool, ExecuteWithRetry, transaction_with_retry};
-use crate::models::ItemRelation;
-use crate::schema::item_relations;
+use crate::dto::{ItemChildGraphNode, ItemParentGraphNode};
+use crate::models::{Item, ItemRelation};
+use crate::schema::{item_relations, items};
 use anyhow::{Result, anyhow};
 use diesel::prelude::*;
 use diesel::sql_types::{Integer, Text};
+use std::collections::HashMap;
 use tracing::{debug, info, instrument};
 
 /// Helper struct for the cycle detection query result
@@ -402,6 +404,185 @@ pub fn get_parents_of(pool: &DbPool, child_id: &str) -> Result<Vec<String>> {
 
 	info!("Found {} parents of item {}", results.len(), child_id);
 	Ok(results)
+}
+
+/// Loads items by IDs into a HashMap for efficient lookup
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `item_ids` - A slice of item ID strings to load
+///
+/// ### Returns
+///
+/// A Result containing a HashMap mapping item IDs to Items
+fn load_items_map(pool: &DbPool, item_ids: &[String]) -> Result<HashMap<String, Item>> {
+	let conn = &mut pool.get()?;
+
+	let loaded_items: Vec<Item> = items::table
+		.filter(items::id.eq_any(item_ids))
+		.load::<Item>(conn)?;
+
+	let map = loaded_items
+		.into_iter()
+		.map(|item| (item.get_id(), item))
+		.collect();
+
+	Ok(map)
+}
+
+/// Recursively builds a children graph node
+fn build_children_graph(
+	item: &Item,
+	relation_type: Option<String>,
+	items_map: &HashMap<String, Item>,
+	children_map: &HashMap<String, Vec<(String, String)>>,
+) -> ItemChildGraphNode {
+	let children = children_map
+		.get(&item.get_id())
+		.map(|child_entries| {
+			child_entries
+				.iter()
+				.filter_map(|(child_id, rel_type)| {
+					items_map.get(child_id).map(|child_item| {
+						build_children_graph(
+							child_item,
+							Some(rel_type.clone()),
+							items_map,
+							children_map,
+						)
+					})
+				})
+				.collect()
+		})
+		.unwrap_or_default();
+
+	ItemChildGraphNode {
+		item: item.clone(),
+		relation_type,
+		children,
+	}
+}
+
+/// Recursively builds a parent graph node
+fn build_parent_graph(
+	item: &Item,
+	relation_type: Option<String>,
+	items_map: &HashMap<String, Item>,
+	parents_map: &HashMap<String, Vec<(String, String)>>,
+) -> ItemParentGraphNode {
+	let parents = parents_map
+		.get(&item.get_id())
+		.map(|parent_entries| {
+			parent_entries
+				.iter()
+				.filter_map(|(parent_id, rel_type)| {
+					items_map.get(parent_id).map(|parent_item| {
+						build_parent_graph(
+							parent_item,
+							Some(rel_type.clone()),
+							items_map,
+							parents_map,
+						)
+					})
+				})
+				.collect()
+		})
+		.unwrap_or_default();
+
+	ItemParentGraphNode {
+		item: item.clone(),
+		relation_type,
+		parents,
+	}
+}
+
+/// Builds the full children graph for an item
+///
+/// Fetches all descendant edges, batch-loads all referenced items,
+/// and assembles a nested tree structure.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `root_item` - The root item to build the graph from
+///
+/// ### Returns
+///
+/// A Result containing the root ItemChildGraphNode with nested children
+#[instrument(skip(pool, root_item), fields(item_id = %root_item.get_id()))]
+pub fn get_children_graph(pool: &DbPool, root_item: &Item) -> Result<ItemChildGraphNode> {
+	debug!("Building children graph");
+
+	let item_id = root_item.get_id();
+	let edges = get_all_descendants(pool, &item_id)?;
+
+	// Collect all item IDs (root + all children from edges)
+	let mut item_ids: Vec<String> = edges.iter().map(|e| e.child_id.clone()).collect();
+	item_ids.push(item_id.clone());
+	item_ids.sort();
+	item_ids.dedup();
+
+	// Batch load all items
+	let items_map = load_items_map(pool, &item_ids)?;
+
+	// Build adjacency list: parent_id -> [(child_id, relation_type)]
+	let mut children_map: HashMap<String, Vec<(String, String)>> = HashMap::new();
+	for edge in &edges {
+		children_map
+			.entry(edge.parent_id.clone())
+			.or_default()
+			.push((edge.child_id.clone(), edge.relation_type.clone()));
+	}
+
+	let graph = build_children_graph(root_item, None, &items_map, &children_map);
+
+	info!("Built children graph for item {}", item_id);
+	Ok(graph)
+}
+
+/// Builds the full parent graph for an item
+///
+/// Fetches all ancestor edges, batch-loads all referenced items,
+/// and assembles a nested tree structure.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `root_item` - The root item to build the graph from
+///
+/// ### Returns
+///
+/// A Result containing the root ItemParentGraphNode with nested parents
+#[instrument(skip(pool, root_item), fields(item_id = %root_item.get_id()))]
+pub fn get_parent_graph(pool: &DbPool, root_item: &Item) -> Result<ItemParentGraphNode> {
+	debug!("Building parent graph");
+
+	let item_id = root_item.get_id();
+	let edges = get_all_ancestors(pool, &item_id)?;
+
+	// Collect all item IDs (root + all parents from edges)
+	let mut item_ids: Vec<String> = edges.iter().map(|e| e.parent_id.clone()).collect();
+	item_ids.push(item_id.clone());
+	item_ids.sort();
+	item_ids.dedup();
+
+	// Batch load all items
+	let items_map = load_items_map(pool, &item_ids)?;
+
+	// Build adjacency list: child_id -> [(parent_id, relation_type)]
+	let mut parents_map: HashMap<String, Vec<(String, String)>> = HashMap::new();
+	for edge in &edges {
+		parents_map
+			.entry(edge.child_id.clone())
+			.or_default()
+			.push((edge.parent_id.clone(), edge.relation_type.clone()));
+	}
+
+	let graph = build_parent_graph(root_item, None, &items_map, &parents_map);
+
+	info!("Built parent graph for item {}", item_id);
+	Ok(graph)
 }
 
 #[cfg(test)]
