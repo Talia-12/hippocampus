@@ -84,9 +84,11 @@ async fn test_setup_test_db() {
 	// test interacting with each of the found tables
 	let expected_tables = vec![
 		"cards",
+		"item_relations",
 		"item_tags",
 		"item_types",
 		"items",
+		"metadata",
 		"reviews",
 		"tags",
 		"__diesel_schema_migrations", // Diesel's migration tracking table
