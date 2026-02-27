@@ -104,6 +104,8 @@ pub async fn execute(
 				suspended_after,
 				suspended_before,
 				split_priority: None,
+				parent_item_id: None,
+				child_item_id: None,
 			};
 			let items = client.list_items(&query).await?;
 			output::print_items(&items, config);

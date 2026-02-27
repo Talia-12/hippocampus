@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
+use crate::models::Item;
+
 /// Data transfer object for creating a new item
 ///
 /// This struct is used to deserialize JSON requests for creating items.
@@ -95,6 +97,63 @@ pub struct CreateTagDto {
 	pub visible: bool,
 }
 
+/// Data transfer object for creating a new item relation
+///
+/// This struct is used to deserialize JSON requests for creating item relations.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CreateItemRelationDto {
+	/// The type of relationship (e.g. "extract", "cloze", "simplify")
+	pub relation_type: String,
+}
+
+/// Data transfer object for listing item relations with optional filters
+///
+/// This struct is used to deserialize query parameters for listing item relations.
+#[derive(Serialize, Deserialize, Debug, Default)]
+#[serde(default)]
+pub struct ListItemRelationsQueryDto {
+	/// Filter by parent item ID
+	pub parent_item_id: Option<String>,
+
+	/// Filter by child item ID
+	pub child_item_id: Option<String>,
+
+	/// Filter by relation type
+	pub relation_type: Option<String>,
+}
+
+/// A node in the children graph response
+///
+/// Represents an item and its children in a tree structure for
+/// downward graph traversal.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ItemChildGraphNode {
+	/// The item at this node
+	pub item: Item,
+
+	/// The relation type from the parent to this item (None for the root)
+	pub relation_type: Option<String>,
+
+	/// The children of this item
+	pub children: Vec<ItemChildGraphNode>,
+}
+
+/// A node in the parent graph response
+///
+/// Represents an item and its parents in a tree structure for
+/// upward graph traversal.
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ItemParentGraphNode {
+	/// The item at this node
+	pub item: Item,
+
+	/// The relation type from this item to the child (None for the root)
+	pub relation_type: Option<String>,
+
+	/// The parents of this item
+	pub parents: Vec<ItemParentGraphNode>,
+}
+
 /// Action for setting a card's sort position
 ///
 /// This enum represents the different ways to set a card's sort position.
@@ -153,6 +212,12 @@ pub struct GetQueryDto {
 	/// When true, return base priority and priority_offset as separate fields
 	/// When false (default), return effective priority and hide priority_offset
 	pub split_priority: Option<bool>,
+
+	/// Filter to children of this parent item ID
+	pub parent_item_id: Option<String>,
+
+	/// Filter to parents of this child item ID
+	pub child_item_id: Option<String>,
 }
 
 /// Builder for GetQueryDto
@@ -165,6 +230,8 @@ pub struct GetQueryDtoBuilder {
 	suspended_after: Option<DateTime<Utc>>,
 	suspended_before: Option<DateTime<Utc>>,
 	split_priority: Option<bool>,
+	parent_item_id: Option<String>,
+	child_item_id: Option<String>,
 }
 
 impl GetQueryDtoBuilder {
@@ -179,6 +246,8 @@ impl GetQueryDtoBuilder {
 			suspended_after: None,
 			suspended_before: None,
 			split_priority: None,
+			parent_item_id: None,
+			child_item_id: None,
 		}
 	}
 
@@ -236,6 +305,18 @@ impl GetQueryDtoBuilder {
 		self
 	}
 
+	/// Sets the parent item ID to filter children of
+	pub fn parent_item_id(mut self, parent_item_id: String) -> Self {
+		self.parent_item_id = Some(parent_item_id);
+		self
+	}
+
+	/// Sets the child item ID to filter parents of
+	pub fn child_item_id(mut self, child_item_id: String) -> Self {
+		self.child_item_id = Some(child_item_id);
+		self
+	}
+
 	/// Builds the GetQueryDto
 	pub fn build(self) -> GetQueryDto {
 		GetQueryDto {
@@ -247,6 +328,8 @@ impl GetQueryDtoBuilder {
 			suspended_after: self.suspended_after,
 			suspended_before: self.suspended_before,
 			split_priority: self.split_priority,
+			parent_item_id: self.parent_item_id,
+			child_item_id: self.child_item_id,
 		}
 	}
 }
@@ -280,6 +363,14 @@ impl fmt::Display for GetQueryDto {
 			write!(f, "last_review_after: {} ", review_date)?;
 		} else {
 			write!(f, "last_review_after: None ")?;
+		}
+
+		if let Some(ref parent_id) = self.parent_item_id {
+			write!(f, "parent_item_id: {}, ", parent_id)?;
+		}
+
+		if let Some(ref child_id) = self.child_item_id {
+			write!(f, "child_item_id: {}, ", child_id)?;
 		}
 
 		write!(f, "}}")
