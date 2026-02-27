@@ -264,18 +264,33 @@ pub fn list_items_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
 		|| !query.tag_ids.is_empty()
 		|| query.suspended_filter != crate::dto::SuspendedFilter::default();
 
+	// Resolve relation filters into a set of allowed item IDs
+	let relation_item_ids: Option<HashSet<String>> = resolve_relation_filter(pool, query)?;
+
 	if !has_card_filters {
 		// Only item_type_id filter — query items directly
-		if let Some(ref item_type_id) = query.item_type_id {
-			return get_items_by_type(pool, item_type_id);
+		let mut result = if let Some(ref item_type_id) = query.item_type_id {
+			get_items_by_type(pool, item_type_id)?
 		} else {
-			return list_items(pool);
+			list_items(pool)?
+		};
+
+		// Apply relation filter if present
+		if let Some(ref allowed_ids) = relation_item_ids {
+			result.retain(|item| allowed_ids.contains(&item.get_id()));
 		}
+
+		return Ok(result);
 	}
 
 	// Use card-level filtering, then collect unique item IDs
 	let cards = list_cards_with_filters(pool, query)?;
-	let item_ids: HashSet<String> = cards.into_iter().map(|c| c.get_item_id()).collect();
+	let mut item_ids: HashSet<String> = cards.into_iter().map(|c| c.get_item_id()).collect();
+
+	// Intersect with relation filter if present
+	if let Some(ref allowed_ids) = relation_item_ids {
+		item_ids = item_ids.intersection(allowed_ids).cloned().collect();
+	}
 
 	if item_ids.is_empty() {
 		return Ok(Vec::new());
@@ -324,7 +339,38 @@ pub fn get_items_by_type(pool: &DbPool, item_type_id: &str) -> Result<Vec<Item>>
 	Ok(result)
 }
 
-#[cfg(test)]
-mod prop_tests;
+/// Resolves parent_item_id / child_item_id relation filters into an optional
+/// set of allowed item IDs.
+///
+/// Returns `None` if no relation filters are set, meaning no restriction.
+/// Returns `Some(set)` with the item IDs that match the relation filter.
+fn resolve_relation_filter(pool: &DbPool, query: &GetQueryDto) -> Result<Option<HashSet<String>>> {
+	match (&query.parent_item_id, &query.child_item_id) {
+		(Some(parent_id), None) => {
+			let children = super::item_relation_repo::get_children_of(pool, parent_id)?;
+			Ok(Some(children.into_iter().collect()))
+		}
+		(None, Some(child_id)) => {
+			let parents = super::item_relation_repo::get_parents_of(pool, child_id)?;
+			Ok(Some(parents.into_iter().collect()))
+		}
+		(Some(parent_id), Some(child_id)) => {
+			let children: HashSet<String> =
+				super::item_relation_repo::get_children_of(pool, parent_id)?
+					.into_iter()
+					.collect();
+			let parents: HashSet<String> =
+				super::item_relation_repo::get_parents_of(pool, child_id)?
+					.into_iter()
+					.collect();
+			Ok(Some(children.intersection(&parents).cloned().collect()))
+		}
+		(None, None) => Ok(None),
+	}
+}
+
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod prop_tests;
