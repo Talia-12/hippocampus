@@ -24,3 +24,6 @@ pub use item_tag::ItemTag;
 
 mod review;
 pub use review::Review;
+
+mod item_relation;
+pub use item_relation::ItemRelation;
