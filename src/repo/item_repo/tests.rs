@@ -770,3 +770,50 @@ async fn test_create_item_unknown_item_type_name_fails() {
 		err
 	);
 }
+
+#[tokio::test]
+async fn test_list_items_with_parent_item_id_filter() {
+    let pool = setup_test_db();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
+
+    let parent = create_item(&pool, &item_type.get_id(), "Parent".to_string(), json!({"front": "F", "back": "B"})).await.unwrap();
+    let child1 = create_item(&pool, &item_type.get_id(), "Child 1".to_string(), json!({"front": "F", "back": "B"})).await.unwrap();
+    let child2 = create_item(&pool, &item_type.get_id(), "Child 2".to_string(), json!({"front": "F", "back": "B"})).await.unwrap();
+    let _unrelated = create_item(&pool, &item_type.get_id(), "Unrelated".to_string(), json!({"front": "F", "back": "B"})).await.unwrap();
+
+    crate::repo::create_item_relation(&pool, &parent.get_id(), &child1.get_id(), "extract").await.unwrap();
+    crate::repo::create_item_relation(&pool, &parent.get_id(), &child2.get_id(), "extract").await.unwrap();
+
+    let query = crate::dto::GetQueryDtoBuilder::new()
+        .parent_item_id(parent.get_id())
+        .build();
+
+    let result = list_items_with_filters(&pool, &query).unwrap();
+    assert_eq!(result.len(), 2);
+    let ids: Vec<String> = result.iter().map(|i| i.get_id()).collect();
+    assert!(ids.contains(&child1.get_id()));
+    assert!(ids.contains(&child2.get_id()));
+}
+
+#[tokio::test]
+async fn test_list_items_with_child_item_id_filter() {
+    let pool = setup_test_db();
+    let item_type = create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string()).await.unwrap();
+
+    let parent1 = create_item(&pool, &item_type.get_id(), "Parent 1".to_string(), json!({"front": "F", "back": "B"})).await.unwrap();
+    let parent2 = create_item(&pool, &item_type.get_id(), "Parent 2".to_string(), json!({"front": "F", "back": "B"})).await.unwrap();
+    let child = create_item(&pool, &item_type.get_id(), "Child".to_string(), json!({"front": "F", "back": "B"})).await.unwrap();
+
+    crate::repo::create_item_relation(&pool, &parent1.get_id(), &child.get_id(), "extract").await.unwrap();
+    crate::repo::create_item_relation(&pool, &parent2.get_id(), &child.get_id(), "extract").await.unwrap();
+
+    let query = crate::dto::GetQueryDtoBuilder::new()
+        .child_item_id(child.get_id())
+        .build();
+
+    let result = list_items_with_filters(&pool, &query).unwrap();
+    assert_eq!(result.len(), 2);
+    let ids: Vec<String> = result.iter().map(|i| i.get_id()).collect();
+    assert!(ids.contains(&parent1.get_id()));
+    assert!(ids.contains(&parent2.get_id()));
+}
