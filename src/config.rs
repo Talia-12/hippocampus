@@ -73,9 +73,9 @@ impl Config {
 }
 
 /// Returns the base (default) configuration
-pub fn base_config(config_dir_path: Option<PathBuf>) -> Config {
+pub fn base_config(data_dir_path: Option<PathBuf>) -> Config {
 
-    let database_url = config_dir_path.map_or("srs_server.db".to_string(), |path| path.join("srs_server.db").to_string_lossy().to_string());
+    let database_url = data_dir_path.map_or("srs_server.db".to_string(), |path| path.join("srs_server.db").to_string_lossy().to_string());
 
     Config {
         database_url,
@@ -133,7 +133,8 @@ pub fn config_from_args(args: CliArgs) -> ConfigUpdate {
 /// This function returns the path to the config directory for the application
 /// based on the XDG base directory specification.
 /// 
-/// If the debug flag is set, the function will return None, so that we don't mess with any actual program data during development.
+/// If the debug flag is set, the function will return None, so that we don't
+/// mess with any actual program data during development.
 pub fn get_config_dir_path() -> Option<PathBuf> {
     if cfg!(debug_assertions) {
         info!("Debug build detected, skipping config file");
@@ -165,13 +166,90 @@ pub fn get_config_dir_path() -> Option<PathBuf> {
 }
 
 
+/// Gets the data directory path
+///
+/// This function returns the path to the data directory for the application
+/// based on the XDG base directory specification.
+/// 
+/// If the debug flag is set, the function will return None, so that we don't
+/// mess with any actual program data during development.
+pub fn get_data_dir_path() -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        info!("Debug build detected, skipping state files");
+        return None;
+    }
+
+    let data_path = match ProjectDirs::from("com", "hippocampus", "hippocampus") {
+        Some(proj_dirs) => {
+            let data_dir = proj_dirs.data_dir();
+            let path = PathBuf::from(data_dir);
+            if !path.exists() {
+                if let Err(e) = fs::create_dir_all(&path) {
+                    warn!("Failed to create XDG data directory {:?}: {}", path, e);
+                    return None;
+                }
+            }
+            Some(path)
+        }
+        None => {
+            warn!("Could not determine XDG data directory, skipping data files");
+            None
+        }
+    };
+
+    data_path
+}
+
+
+/// Gets the state directory path
+///
+/// This function returns the path to the state directory for the application
+/// based on the XDG base directory specification.
+/// 
+/// If the debug flag is set, the function will return None, so that we don't
+/// mess with any actual program data during development.
+pub fn get_state_dir_path() -> Option<PathBuf> {
+    if cfg!(debug_assertions) {
+        info!("Debug build detected, skipping state files");
+        return None;
+    }
+
+    let state_path = match ProjectDirs::from("com", "hippocampus", "hippocampus") {
+        Some(proj_dirs) => {
+            let state_dir = proj_dirs
+                .state_dir()
+                .map(PathBuf::from)
+                .or_else(get_data_dir_path);
+            let Some(state_dir) = state_dir else {
+                warn!("Could not determine XDG state directory or data directory, skipping state files");
+                return None;
+            };
+            
+            if !state_dir.exists() {
+                if let Err(e) = fs::create_dir_all(&state_dir) {
+                    warn!("Failed to create XDG state directory {:?}: {}", state_dir, e);
+                    return None;
+                }
+            }
+            Some(state_dir)
+        }
+        None => {
+            warn!("Could not determine XDG state directory, skipping state files");
+            None
+        }
+    };
+
+    state_path
+}
+
 /// Gets the complete configuration by combining defaults with
 /// values from config file, environment variables, and command line arguments
 /// in order of increasing precedence
 pub fn get_config(args: CliArgs) -> Result<Config, String> {
     let config_dir_path = get_config_dir_path();
+    let data_dir_path = get_data_dir_path();
 
-    let base = base_config(config_dir_path.clone());
+    let base = base_config(data_dir_path.clone());
     
     // Apply updates in order of increasing precedence
     let config = base

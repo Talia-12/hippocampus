@@ -118,10 +118,10 @@ async fn main() {
 /// A special debug layer can be enabled by setting the HIPPOCAMPUS_DEBUG
 /// environment variable, which will output DEBUG-level logs to the console.
 fn init_tracing(debug: bool) -> impl Drop {
-	// If the config dir path is not None, we should do our logging in there
-	let config_dir_path = config::get_config_dir_path();
+	// If the state dir path is not None, we should do our logging in there
+	let state_dir_path = config::get_state_dir_path();
 
-	let log_dir_path = config_dir_path.map(|path| path.join("logs")).unwrap_or_else(|| PathBuf::from("logs"));
+	let log_dir_path = state_dir_path.map(|path| path.join("logs")).unwrap_or_else(|| PathBuf::from("logs"));
 
     // Create a directory for logs if it doesn't exist
     if !log_dir_path.exists() {
