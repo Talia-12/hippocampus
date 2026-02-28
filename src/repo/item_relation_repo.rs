@@ -383,3 +383,6 @@ pub fn get_parents_of(pool: &DbPool, child_id: &str) -> Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod prop_tests;
