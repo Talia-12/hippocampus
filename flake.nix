@@ -23,7 +23,7 @@
         let
           rustToolchain = pkgs.rust-bin.selectLatestNightlyWith (toolchain:
             toolchain.default.override {
-              extensions = [ "llvm-tools-preview" ];
+              extensions = [ "llvm-tools-preview" "rust-analyzer" ];
             }
           );
 
