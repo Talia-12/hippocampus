@@ -340,6 +340,54 @@ pub fn arb_json() -> impl Strategy<Value = Value> {
 	)
 }
 
+/// Generates an arbitrary relation type for item relations
+pub fn arb_relation_type() -> impl Strategy<Value = String> {
+	prop_oneof![
+		Just("extract".to_string()),
+		Just("cloze".to_string()),
+		Just("simplify".to_string()),
+		arb_messy_string(),
+	]
+}
+
+/// Generates a `Vec<(String, Value)>` of (title, data) pairs for bulk item creation
+///
+/// Titles are deduplicated via `dedup_names` so each item gets a unique title.
+pub fn arb_item_params(max: usize) -> impl Strategy<Value = Vec<(String, Value)>> {
+	prop::collection::vec(("\\PC+".prop_map(String::from), arb_json()), 0..=max).prop_map(|pairs| {
+		let (names, datas): (Vec<_>, Vec<_>) = pairs.into_iter().unzip();
+		let deduped = dedup_names(names);
+		deduped.into_iter().zip(datas).collect()
+	})
+}
+
+/// Creates multiple items under one item type
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `item_type_id` - The ID of the item type to create items under
+/// * `items` - A vec of (title, data) pairs
+///
+/// ### Returns
+///
+/// A vec of the created Item models
+pub async fn create_items(
+	pool: &db::DbPool,
+	item_type_id: &str,
+	items: Vec<(String, serde_json::Value)>,
+) -> Vec<models::Item> {
+	let mut result = Vec::with_capacity(items.len());
+	for (title, data) in items {
+		result.push(
+			repo::create_item(pool, item_type_id, title, data)
+				.await
+				.unwrap(),
+		);
+	}
+	result
+}
+
 /// Generates a valid review function name
 pub fn arb_review_function() -> impl Strategy<Value = String> {
 	prop_oneof![

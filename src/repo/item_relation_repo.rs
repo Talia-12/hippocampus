@@ -587,3 +587,6 @@ pub fn get_parent_graph(pool: &DbPool, root_item: &Item) -> Result<ItemParentGra
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod prop_tests;
