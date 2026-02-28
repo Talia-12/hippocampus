@@ -1,11 +1,11 @@
 use crate::*;
-use proptest::prelude::*;
 use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use chrono::{DateTime, Utc};
 use diesel::connection::SimpleConnection;
 use diesel::prelude::*;
-use serde_json::{Value, Number};
+use proptest::prelude::*;
+use serde_json::{Number, Value};
 use std::sync::Arc;
 use tower::ServiceExt;
 
@@ -20,36 +20,35 @@ use tower::ServiceExt;
 ///
 /// An Arc-wrapped database connection pool connected to the in-memory database
 pub fn setup_test_db() -> Arc<db::DbPool> {
-    // Use a unique shared in-memory database for each test.
-    // Plain ":memory:" gives each connection its own separate database,
-    // so migrations run on one connection wouldn't be visible on others.
-    // By using a unique URI with cache=shared, all connections in this pool
-    // share the same in-memory database while remaining isolated from other tests.
-    let unique_id = uuid::Uuid::new_v4();
-    let database_url = format!("file:test_{}?mode=memory&cache=shared", unique_id);
-    let pool = db::init_pool(&database_url);
-    
-    // Get a connection from the pool
-    let mut conn = pool.get().expect("Failed to get connection");
-    
-    // Enable foreign key constraints for SQLite
-    conn.batch_execute("PRAGMA foreign_keys = ON").unwrap();
-    
-    // Run all migrations to set up the schema
-    run_migrations(&mut conn);
-    
-    // Wrap the pool in an Arc for thread-safe sharing
-    Arc::new(pool)
+	// Use a unique shared in-memory database for each test.
+	// Plain ":memory:" gives each connection its own separate database,
+	// so migrations run on one connection wouldn't be visible on others.
+	// By using a unique URI with cache=shared, all connections in this pool
+	// share the same in-memory database while remaining isolated from other tests.
+	let unique_id = uuid::Uuid::new_v4();
+	let database_url = format!("file:test_{}?mode=memory&cache=shared", unique_id);
+	let pool = db::init_pool(&database_url);
+
+	// Get a connection from the pool
+	let mut conn = pool.get().expect("Failed to get connection");
+
+	// Enable foreign key constraints for SQLite
+	conn.batch_execute("PRAGMA foreign_keys = ON").unwrap();
+
+	// Run all migrations to set up the schema
+	run_migrations(&mut conn);
+
+	// Wrap the pool in an Arc for thread-safe sharing
+	Arc::new(pool)
 }
 
-
-use diesel::sql_types::Text;
 use diesel::QueryableByName;
+use diesel::sql_types::Text;
 
 #[derive(QueryableByName, Debug)]
 struct TableName {
-    #[diesel(sql_type = Text)]
-    name: String,
+	#[diesel(sql_type = Text)]
+	name: String,
 }
 
 /// Tests the setup_test_db function
@@ -60,76 +59,88 @@ struct TableName {
 /// 3. The database can be queried successfully
 #[tokio::test]
 async fn test_setup_test_db() {
-    let pool = setup_test_db();
-    assert!(pool.get().is_ok());
+	let pool = setup_test_db();
+	assert!(pool.get().is_ok());
 
-    // Check that all migrations were run, i.e. the tables were created
-    let mut conn = pool.get().unwrap();
-    let result = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table'")
-        .execute(&mut conn);
-    assert!(result.is_ok());
-    
-    println!("Result: {:?}", result);
+	// Check that all migrations were run, i.e. the tables were created
+	let mut conn = pool.get().unwrap();
+	let result =
+		diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table'").execute(&mut conn);
+	assert!(result.is_ok());
 
-    // Get the names of the tables
-    let table_names: Vec<TableName> = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table'")
-        .load(&mut conn)
-        .expect("Failed to load table names");
-    
-    println!("Tables: {:?}", table_names);
-    
-    // Verify that we have the expected tables
-    assert!(table_names.len() > 0, "No tables found in the database");
+	println!("Result: {:?}", result);
 
-    // test interacting with each of the found tables
-    let expected_tables = vec![
-        "cards", "item_tags", "item_types", "items", "reviews", "tags", 
-        "__diesel_schema_migrations" // Diesel's migration tracking table
-    ];
-    
-    for table in expected_tables {
-        let exists = table_names.iter().any(|t| t.name == table);
-        assert!(exists, "Table '{}' not found in database", table);
-        
-        // Test a simple query on each table
-        let query = format!("SELECT COUNT(*) FROM {}", table);
-        let result = diesel::sql_query(&query).execute(&mut conn);
-        assert!(result.is_ok(), "Failed to query table '{}': {:?}", table, result.err());
-        
-        println!("Table '{}' exists and is queryable", table);
-    }
+	// Get the names of the tables
+	let table_names: Vec<TableName> =
+		diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table'")
+			.load(&mut conn)
+			.expect("Failed to load table names");
 
-    drop(conn);
+	println!("Tables: {:?}", table_names);
 
-    // test interacting with the app
-    let app = create_app(pool.clone());
+	// Verify that we have the expected tables
+	assert!(table_names.len() > 0, "No tables found in the database");
 
-    // test interacting with the item_types table
-    let request = Request::builder()
-        .uri("/item_types")
-        .method("GET")
-        .body(Body::empty())
-        .unwrap();
+	// test interacting with each of the found tables
+	let expected_tables = vec![
+		"cards",
+		"item_tags",
+		"item_types",
+		"items",
+		"reviews",
+		"tags",
+		"__diesel_schema_migrations", // Diesel's migration tracking table
+	];
 
-    // send the request to the app
-    let response = app.oneshot(request).await.unwrap();
-    assert_eq!(response.status(), StatusCode::OK, "Response status is not OK (err: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
+	for table in expected_tables {
+		let exists = table_names.iter().any(|t| t.name == table);
+		assert!(exists, "Table '{}' not found in database", table);
+
+		// Test a simple query on each table
+		let query = format!("SELECT COUNT(*) FROM {}", table);
+		let result = diesel::sql_query(&query).execute(&mut conn);
+		assert!(
+			result.is_ok(),
+			"Failed to query table '{}': {:?}",
+			table,
+			result.err()
+		);
+
+		println!("Table '{}' exists and is queryable", table);
+	}
+
+	drop(conn);
+
+	// test interacting with the app
+	let app = create_app(pool.clone());
+
+	// test interacting with the item_types table
+	let request = Request::builder()
+		.uri("/item_types")
+		.method("GET")
+		.body(Body::empty())
+		.unwrap();
+
+	// send the request to the app
+	let response = app.oneshot(request).await.unwrap();
+	assert_eq!(
+		response.status(),
+		StatusCode::OK,
+		"Response status is not OK (err: {:?})",
+		axum::body::to_bytes(response.into_body(), usize::MAX)
+			.await
+			.unwrap()
+	);
 }
-
-
 
 /// Generates an arbitrary DateTime<Utc> within 2020-01-01 to 2030-01-01
 pub fn arb_datetime_utc() -> impl Strategy<Value = DateTime<Utc>> {
-    (1_577_836_800i64..1_893_456_000i64)
-        .prop_map(|ts| DateTime::from_timestamp(ts, 0).unwrap())
+	(1_577_836_800i64..1_893_456_000i64).prop_map(|ts| DateTime::from_timestamp(ts, 0).unwrap())
 }
 
 /// Generates an optional arbitrary DateTime<Utc>
 pub fn arb_optional_datetime_utc() -> impl Strategy<Value = Option<DateTime<Utc>>> {
-    prop_oneof![
-        Just(None),
-        arb_datetime_utc().prop_map(Some),
-    ]
+	prop_oneof![Just(None), arb_datetime_utc().prop_map(Some),]
 }
 
 /// Generates a valid priority value in [0.0, 1.0]
@@ -137,91 +148,88 @@ pub fn arb_optional_datetime_utc() -> impl Strategy<Value = Option<DateTime<Utc>
 /// Uses integer-then-divide to ensure exact 0.0 and 1.0 are reachable
 /// without floating point boundary issues.
 pub fn arb_priority() -> impl Strategy<Value = f32> {
-    (0u32..=1000u32).prop_map(|v| v as f32 / 1000.0)
+	(0u32..=1000u32).prop_map(|v| v as f32 / 1000.0)
 }
 
 /// Generates an invalid priority value outside [0.0, 1.0]
 pub fn arb_invalid_priority() -> impl Strategy<Value = f32> {
-    prop_oneof![
-        (-1000.0f32..-0.001f32),
-        (1.001f32..1000.0f32),
-    ]
+	prop_oneof![(-1000.0f32..-0.001f32), (1.001f32..1000.0f32),]
 }
 
 /// Generates an arbitrary SuspendedFilter variant
 pub fn arb_suspended_filter() -> impl Strategy<Value = SuspendedFilter> {
-    prop_oneof![
-        Just(SuspendedFilter::Include),
-        Just(SuspendedFilter::Exclude),
-        Just(SuspendedFilter::Only),
-    ]
+	prop_oneof![
+		Just(SuspendedFilter::Include),
+		Just(SuspendedFilter::Exclude),
+		Just(SuspendedFilter::Only),
+	]
 }
 
 /// Mutable card state fields for property testing
 #[derive(Debug, Clone)]
 pub struct CardMutations {
-    pub next_review: DateTime<Utc>,
-    pub last_review: Option<DateTime<Utc>>,
-    pub priority: f32,
-    pub suspended: Option<DateTime<Utc>>,
+	pub next_review: DateTime<Utc>,
+	pub last_review: Option<DateTime<Utc>>,
+	pub priority: f32,
+	pub suspended: Option<DateTime<Utc>>,
 }
 
 /// Generates arbitrary card mutation state
 pub fn arb_card_mutations() -> impl Strategy<Value = CardMutations> {
-    (
-        arb_datetime_utc(),
-        arb_optional_datetime_utc(),
-        arb_priority(),
-        arb_optional_datetime_utc(),
-    ).prop_map(|(next_review, last_review, priority, suspended)| {
-        CardMutations { next_review, last_review, priority, suspended }
-    })
+	(
+		arb_datetime_utc(),
+		arb_optional_datetime_utc(),
+		arb_priority(),
+		arb_optional_datetime_utc(),
+	)
+		.prop_map(
+			|(next_review, last_review, priority, suspended)| CardMutations {
+				next_review,
+				last_review,
+				priority,
+				suspended,
+			},
+		)
 }
 
 /// Generates an arbitrary sort position: 50% None, 50% Some(f32) in (-1000..1000)
 pub fn arb_sort_position() -> impl Strategy<Value = Option<f32>> {
-    prop_oneof![
-        Just(None),
-        (-1000.0f32..1000.0f32).prop_map(Some),
-    ]
+	prop_oneof![Just(None), (-1000.0f32..1000.0f32).prop_map(Some),]
 }
 
 /// Generates a valid priority offset in [-0.05, +0.05] via integer division
 pub fn arb_priority_offset() -> impl Strategy<Value = f32> {
-    (-50i32..=50i32).prop_map(|v| v as f32 / 1000.0)
+	(-50i32..=50i32).prop_map(|v| v as f32 / 1000.0)
 }
 
 /// Generates a wide offset in [-2.0, 2.0] for clamping tests
 pub fn arb_wide_offset() -> impl Strategy<Value = f32> {
-    (-2000i32..=2000i32).prop_map(|v| v as f32 / 1000.0)
+	(-2000i32..=2000i32).prop_map(|v| v as f32 / 1000.0)
 }
 
 /// Generates any f32 value including NaN, ±Infinity, subnormals, etc.
 pub fn arb_any_f32() -> impl Strategy<Value = f32> {
-    proptest::num::f32::ANY
+	proptest::num::f32::ANY
 }
 
 /// Generates a valid review rating in [1, 4]
 pub fn arb_rating() -> impl Strategy<Value = i32> {
-    1i32..=4i32
+	1i32..=4i32
 }
 
 /// Generates an invalid review rating outside [1, 4]
 pub fn arb_invalid_rating() -> impl Strategy<Value = i32> {
-    prop_oneof![
-        i32::MIN..=0i32,
-        5i32..=i32::MAX,
-    ]
+	prop_oneof![i32::MIN..=0i32, 5i32..=i32::MAX,]
 }
 
 /// Generates a valid FSRS stability value
 pub fn arb_stability() -> impl Strategy<Value = f32> {
-    (1u32..=36500u32).prop_map(|v| v as f32 / 100.0)
+	(1u32..=36500u32).prop_map(|v| v as f32 / 100.0)
 }
 
 /// Generates a valid FSRS difficulty value in [1.0, 10.0]
 pub fn arb_difficulty() -> impl Strategy<Value = f32> {
-    (100u32..=1000u32).prop_map(|v| v as f32 / 100.0)
+	(100u32..=1000u32).prop_map(|v| v as f32 / 100.0)
 }
 
 /// Deduplicates a vec of strings by appending increasing indices to duplicates.
@@ -229,36 +237,36 @@ pub fn arb_difficulty() -> impl Strategy<Value = f32> {
 /// For example: `["cat", "cat", "cat1"]` → `["cat", "cat1", "cat2"]`
 /// Handles cascading collisions (e.g. appending "1" creates a new collision).
 pub fn dedup_names(names: Vec<String>) -> Vec<String> {
-    let mut seen = std::collections::HashSet::new();
-    let mut result = Vec::with_capacity(names.len());
+	let mut seen = std::collections::HashSet::new();
+	let mut result = Vec::with_capacity(names.len());
 
-    for name in names {
-        if seen.insert(name.clone()) {
-            result.push(name);
-        } else {
-            let mut idx = 1u64;
-            loop {
-                let candidate = format!("{}{}", name, idx);
-                if seen.insert(candidate.clone()) {
-                    result.push(candidate);
-                    break;
-                }
-                idx += 1;
-            }
-        }
-    }
+	for name in names {
+		if seen.insert(name.clone()) {
+			result.push(name);
+		} else {
+			let mut idx = 1u64;
+			loop {
+				let candidate = format!("{}{}", name, idx);
+				if seen.insert(candidate.clone()) {
+					result.push(candidate);
+					break;
+				}
+				idx += 1;
+			}
+		}
+	}
 
-    result
+	result
 }
 
 /// Generates an arbitrary string including unicode, control chars, empty, null bytes
 pub fn arb_messy_string() -> impl Strategy<Value = String> {
-    prop_oneof![
-        Just(String::new()),
-        "\\PC*",                              // printable + control characters
-        prop::collection::vec(0u8..=255, 0..100)
-            .prop_map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
-    ]
+	prop_oneof![
+		Just(String::new()),
+		"\\PC*", // printable + control characters
+		prop::collection::vec(0u8..=255, 0..100)
+			.prop_map(|bytes| String::from_utf8_lossy(&bytes).into_owned()),
+	]
 }
 
 /// Recursively compares two JSON values with numeric tolerance.
@@ -271,69 +279,71 @@ pub fn arb_messy_string() -> impl Strategy<Value = String> {
 /// returns None for them), so they can never appear in JSON values.
 /// The `arb_json()` strategy filters them out accordingly.
 pub fn json_approx_eq(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Null, Value::Null) => true,
-        (Value::Bool(a), Value::Bool(b)) => a == b,
-        (Value::String(a), Value::String(b)) => a == b,
-        (Value::Number(a), Value::Number(b)) => {
-            match (a.as_f64(), b.as_f64()) {
-                (Some(fa), Some(fb)) => {
-                    if fa == fb { return true; }
-                    let abs_diff = (fa - fb).abs();
-                    let max_abs = fa.abs().max(fb.abs());
+	match (a, b) {
+		(Value::Null, Value::Null) => true,
+		(Value::Bool(a), Value::Bool(b)) => a == b,
+		(Value::String(a), Value::String(b)) => a == b,
+		(Value::Number(a), Value::Number(b)) => match (a.as_f64(), b.as_f64()) {
+			(Some(fa), Some(fb)) => {
+				if fa == fb {
+					return true;
+				}
+				let abs_diff = (fa - fb).abs();
+				let max_abs = fa.abs().max(fb.abs());
 
-                    const ABS_TOLERANCE: f64 = 1e-323;
-                    const REL_TOLERANCE: f64 = 1e-14;
+				const ABS_TOLERANCE: f64 = 1e-323;
+				const REL_TOLERANCE: f64 = 1e-14;
 
-                    abs_diff <= ABS_TOLERANCE || abs_diff <= REL_TOLERANCE * max_abs
-                }
-                _ => a == b,
-            }
-        }
-        (Value::Array(a), Value::Array(b)) => {
-            a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| json_approx_eq(x, y))
-        }
-        (Value::Object(a), Value::Object(b)) => {
-            a.len() == b.len()
-                && a.iter().all(|(k, v)| b.get(k).is_some_and(|bv| json_approx_eq(v, bv)))
-        }
-        _ => false,
-    }
+				abs_diff <= ABS_TOLERANCE || abs_diff <= REL_TOLERANCE * max_abs
+			}
+			_ => a == b,
+		},
+		(Value::Array(a), Value::Array(b)) => {
+			a.len() == b.len() && a.iter().zip(b.iter()).all(|(x, y)| json_approx_eq(x, y))
+		}
+		(Value::Object(a), Value::Object(b)) => {
+			a.len() == b.len()
+				&& a.iter()
+					.all(|(k, v)| b.get(k).is_some_and(|bv| json_approx_eq(v, bv)))
+		}
+		_ => false,
+	}
 }
 
 pub fn arb_json() -> impl Strategy<Value = Value> {
-    let leaf = prop_oneof![
-        Just(Value::Null),
-        any::<bool>().prop_map(Value::Bool),
-        any::<f64>()
-            .prop_map(Number::from_f64)
-            .prop_filter("f64s must be parseable as numbers", |v| v.is_some())
-            .prop_map(|s| Value::Number(s.unwrap())),
-        ".*".prop_map(Value::String)
-    ];
+	let leaf = prop_oneof![
+		Just(Value::Null),
+		any::<bool>().prop_map(Value::Bool),
+		any::<f64>()
+			.prop_map(Number::from_f64)
+			.prop_filter("f64s must be parseable as numbers", |v| v.is_some())
+			.prop_map(|s| Value::Number(s.unwrap())),
+		".*".prop_map(Value::String)
+	];
 
-    leaf.prop_recursive(
-        8, // 8 levels deep
-        256, // maximum size of 256 nodes
-        10, // We put up to 10 items per collection
-        |inner| prop_oneof![
-            // Take the inner strategy and make the two recursive cases.
-            prop::collection::vec(inner.clone(), 0..10)
-                .prop_map(Value::Array),
-            prop::collection::hash_map(".*", inner, 0..10)
-                .prop_map(serde_json::to_value)
-                .prop_filter("hashmap to map must succeed", |v| v.is_ok())
-                .prop_map(|s| s.unwrap()),
-        ])
+	leaf.prop_recursive(
+		8,   // 8 levels deep
+		256, // maximum size of 256 nodes
+		10,  // We put up to 10 items per collection
+		|inner| {
+			prop_oneof![
+				// Take the inner strategy and make the two recursive cases.
+				prop::collection::vec(inner.clone(), 0..10).prop_map(Value::Array),
+				prop::collection::hash_map(".*", inner, 0..10)
+					.prop_map(serde_json::to_value)
+					.prop_filter("hashmap to map must succeed", |v| v.is_ok())
+					.prop_map(|s| s.unwrap()),
+			]
+		},
+	)
 }
-
 
 /// Generates a valid review function name
 pub fn arb_review_function() -> impl Strategy<Value = String> {
-    prop_oneof![
-        Just("fsrs".to_string()),
-        Just("incremental_queue".to_string()),
-    ]
+	prop_oneof![
+		Just("fsrs".to_string()),
+		Just("incremental_queue".to_string()),
+	]
 }
 
 /// Generates an item type name accepted by card construction logic
@@ -341,46 +351,46 @@ pub fn arb_review_function() -> impl Strategy<Value = String> {
 /// Names must contain "Test" for the card_repo matching logic
 /// to know how many cards to create.
 pub fn arb_item_type_name() -> impl Strategy<Value = String> {
-    "\\PC{0,20}".prop_map(|suffix| format!("Test {}", suffix))
+	"\\PC{0,20}".prop_map(|suffix| format!("Test {}", suffix))
 }
 
 /// Parameters for creating a test card in the database
 #[derive(Debug, Clone)]
 pub struct SetupCardParams {
-    /// Item type name (must contain "Test" for card creation)
-    pub item_type_name: String,
-    /// Review function: "fsrs" or "incremental_queue"
-    pub review_function: String,
-    /// Title for the item
-    pub item_title: String,
-    /// JSON data for the item
-    pub item_data: Value,
+	/// Item type name (must contain "Test" for card creation)
+	pub item_type_name: String,
+	/// Review function: "fsrs" or "incremental_queue"
+	pub review_function: String,
+	/// Title for the item
+	pub item_title: String,
+	/// JSON data for the item
+	pub item_data: Value,
 }
 
 /// Generates arbitrary SetupCardParams
 pub fn arb_setup_card_params() -> impl Strategy<Value = SetupCardParams> {
-    (
-        arb_item_type_name(),
-        arb_review_function(),
-        "\\PC+",
-        arb_json(),
-    )
-        .prop_map(|(item_type_name, review_function, item_title, item_data)| {
-            SetupCardParams {
-                item_type_name,
-                review_function,
-                item_title,
-                item_data,
-            }
-        })
+	(
+		arb_item_type_name(),
+		arb_review_function(),
+		"\\PC+",
+		arb_json(),
+	)
+		.prop_map(
+			|(item_type_name, review_function, item_title, item_data)| SetupCardParams {
+				item_type_name,
+				review_function,
+				item_title,
+				item_data,
+			},
+		)
 }
 
 /// Result of creating a test card in the database
 #[derive(Debug)]
 pub struct TestCard {
-    pub item_type: models::ItemType,
-    pub item: models::Item,
-    pub card: models::Card,
+	pub item_type: models::ItemType,
+	pub item: models::Item,
+	pub card: models::Card,
 }
 
 /// Creates an item type, item, and returns the first card for property testing
@@ -388,31 +398,27 @@ pub struct TestCard {
 /// This is the standard way to get a card into the database for prop tests.
 /// Use `arb_setup_card_params()` to generate the parameters.
 pub async fn setup_card(pool: &db::DbPool, params: SetupCardParams) -> TestCard {
-    let item_type = repo::create_item_type(
-        pool,
-        params.item_type_name,
-        params.review_function,
-    )
-    .await
-    .unwrap();
+	let item_type = repo::create_item_type(pool, params.item_type_name, params.review_function)
+		.await
+		.unwrap();
 
-    let item = repo::create_item(
-        pool,
-        &item_type.get_id(),
-        params.item_title,
-        params.item_data,
-    )
-    .await
-    .unwrap();
+	let item = repo::create_item(
+		pool,
+		&item_type.get_id(),
+		params.item_title,
+		params.item_data,
+	)
+	.await
+	.unwrap();
 
-    let card = schema::cards::table
-        .filter(schema::cards::item_id.eq(item.get_id()))
-        .first::<models::Card>(&mut pool.get().unwrap())
-        .unwrap();
+	let card = schema::cards::table
+		.filter(schema::cards::item_id.eq(item.get_id()))
+		.first::<models::Card>(&mut pool.get().unwrap())
+		.unwrap();
 
-    TestCard {
-        item_type,
-        item,
-        card,
-    }
+	TestCard {
+		item_type,
+		item,
+		card,
+	}
 }

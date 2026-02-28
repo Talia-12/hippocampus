@@ -1,8 +1,8 @@
 use crate::db::{DbPool, ExecuteWithRetry};
 use crate::models::ItemType;
-use diesel::prelude::*;
 use anyhow::Result;
-use tracing::{instrument, debug, info};
+use diesel::prelude::*;
+use tracing::{debug, info, instrument};
 
 /// Creates a new item type in the database
 ///
@@ -22,26 +22,33 @@ use tracing::{instrument, debug, info};
 /// - Unable to get a connection from the pool
 /// - The database insert operation fails
 #[instrument(skip(pool), fields(name = %name, review_function = %review_function))]
-pub async fn create_item_type(pool: &DbPool, name: String, review_function: String) -> Result<ItemType> {
-    debug!("Creating new item type");
+pub async fn create_item_type(
+	pool: &DbPool,
+	name: String,
+	review_function: String,
+) -> Result<ItemType> {
+	debug!("Creating new item type");
 
-    // Get a connection from the pool
-    let conn = &mut pool.get()?;
+	// Get a connection from the pool
+	let conn = &mut pool.get()?;
 
-    // Create a new item type with the provided name and review function
-    let new_item_type = ItemType::new(name, review_function);
+	// Create a new item type with the provided name and review function
+	let new_item_type = ItemType::new(name, review_function);
 
-    // Insert the new item type into the database
-    diesel::insert_into(crate::schema::item_types::table)
-        .values(new_item_type.clone())
-        .execute_with_retry(conn).await?;
+	// Insert the new item type into the database
+	diesel::insert_into(crate::schema::item_types::table)
+		.values(new_item_type.clone())
+		.execute_with_retry(conn)
+		.await?;
 
-    info!("Successfully created item type with id: {}", new_item_type.get_id());
+	info!(
+		"Successfully created item type with id: {}",
+		new_item_type.get_id()
+	);
 
-    // Return the newly created item type
-    Ok(new_item_type)
+	// Return the newly created item type
+	Ok(new_item_type)
 }
-
 
 /// Retrieves an item type from the database by its ID
 ///
@@ -61,27 +68,26 @@ pub async fn create_item_type(pool: &DbPool, name: String, review_function: Stri
 /// - The database query fails for reasons other than the item type not existing
 #[instrument(skip(pool), fields(item_type_id = %id))]
 pub fn get_item_type(pool: &DbPool, id: &str) -> Result<Option<ItemType>> {
-    debug!("Retrieving item type");
-    
-    // Get a connection from the pool
-    let conn = &mut pool.get()?;
-    
-    // Query the database for the item type with the specified ID
-    let result = crate::schema::item_types::table
-        .find(id)
-        .first::<ItemType>(conn)
-        .optional()?;
-    
-    if result.is_some() {
-        debug!("Item type found");
-    } else {
-        debug!("Item type not found");
-    }
-    
-    // Return the item type if found, or None if not found
-    Ok(result)
-}
+	debug!("Retrieving item type");
 
+	// Get a connection from the pool
+	let conn = &mut pool.get()?;
+
+	// Query the database for the item type with the specified ID
+	let result = crate::schema::item_types::table
+		.find(id)
+		.first::<ItemType>(conn)
+		.optional()?;
+
+	if result.is_some() {
+		debug!("Item type found");
+	} else {
+		debug!("Item type not found");
+	}
+
+	// Return the item type if found, or None if not found
+	Ok(result)
+}
 
 /// Retrieves all item types from the database
 ///
@@ -100,21 +106,19 @@ pub fn get_item_type(pool: &DbPool, id: &str) -> Result<Option<ItemType>> {
 /// - The database query fails
 #[instrument(skip(pool))]
 pub fn list_item_types(pool: &DbPool) -> Result<Vec<ItemType>> {
-    debug!("Listing all item types");
-    
-    // Get a connection from the pool
-    let conn = &mut pool.get()?;
-    
-    // Query the database for all item types
-    let result = crate::schema::item_types::table
-        .load::<ItemType>(conn)?;
-    
-    info!("Retrieved {} item types", result.len());
-    
-    // Return the list of item types
-    Ok(result)
-}
+	debug!("Listing all item types");
 
+	// Get a connection from the pool
+	let conn = &mut pool.get()?;
+
+	// Query the database for all item types
+	let result = crate::schema::item_types::table.load::<ItemType>(conn)?;
+
+	info!("Retrieved {} item types", result.len());
+
+	// Return the list of item types
+	Ok(result)
+}
 
 /// Updates the review function of an item type
 ///
@@ -135,33 +139,40 @@ pub fn list_item_types(pool: &DbPool) -> Result<Vec<ItemType>> {
 /// - The item type is not found
 /// - The database update operation fails
 #[instrument(skip(pool), fields(item_type_id = %id, review_function = %review_function))]
-pub async fn update_item_type_review_function(pool: &DbPool, id: &str, review_function: String) -> Result<ItemType> {
-    debug!("Updating item type review function");
+pub async fn update_item_type_review_function(
+	pool: &DbPool,
+	id: &str,
+	review_function: String,
+) -> Result<ItemType> {
+	debug!("Updating item type review function");
 
-    let conn = &mut pool.get()?;
+	let conn = &mut pool.get()?;
 
-    // Update the review_function field
-    let id_owned = id.to_string();
-    let updated = diesel::update(crate::schema::item_types::table.find(id_owned))
-        .set(crate::schema::item_types::review_function.eq(review_function.clone()))
-        .execute_with_retry(conn).await?;
+	// Update the review_function field
+	let id_owned = id.to_string();
+	let updated = diesel::update(crate::schema::item_types::table.find(id_owned))
+		.set(crate::schema::item_types::review_function.eq(review_function.clone()))
+		.execute_with_retry(conn)
+		.await?;
 
-    if updated == 0 {
-        return Err(anyhow::anyhow!("Item type not found: {}", id));
-    }
+	if updated == 0 {
+		return Err(anyhow::anyhow!("Item type not found: {}", id));
+	}
 
-    // Retrieve and return the updated item type
-    let item_type = crate::schema::item_types::table
-        .find(id)
-        .first::<ItemType>(conn)?;
+	// Retrieve and return the updated item type
+	let item_type = crate::schema::item_types::table
+		.find(id)
+		.first::<ItemType>(conn)?;
 
-    info!("Successfully updated item type {} review function to {}", id, review_function);
+	info!(
+		"Successfully updated item type {} review function to {}",
+		id, review_function
+	);
 
-    Ok(item_type)
+	Ok(item_type)
 }
 
-
-#[cfg(test)]
-mod tests;
 #[cfg(test)]
 mod prop_tests;
+#[cfg(test)]
+mod tests;

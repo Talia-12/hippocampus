@@ -11,7 +11,7 @@
 /// - `db`: Database connection management
 /// - `models`: Data structures representing items and reviews
 /// - `repo`: Repository layer for database operations
-/// - `schema`: Database schema 
+/// - `schema`: Database schema
 /// - `handlers`: API handlers for the web API
 /// - `errors`: API error types
 /// - `dto`: Data transfer objects
@@ -80,7 +80,8 @@ pub mod dto;
 pub mod config;
 
 use axum::{
-    routing::{delete, get, patch, post}, Router
+	Router,
+	routing::{delete, get, patch, post},
 };
 use std::{sync::Arc, time::Duration};
 use tower_http::cors::{AllowOrigin, Any, CorsLayer};
@@ -100,57 +101,102 @@ pub use errors::ApiError;
 ///
 /// An Axum Router configured with all routes and the database pool as state
 pub fn create_app(pool: Arc<db::DbPool>) -> Router {
-    // Configure CORS to allow requests from any localhost origin
-    let cors = CorsLayer::new()
-        // Allow all methods
-        .allow_methods(Any)
-        // Allow any localhost origin with any port
-        .allow_origin(AllowOrigin::predicate(|origin, _request_parts| {
-            let origin = origin.as_bytes();
-            // Allow if origin starts with http://localhost: or http://127.0.0.1:
-            origin.starts_with(b"http://localhost:") || origin.starts_with(b"http://127.0.0.1:")
-        }))
-        // Allow all headers
-        .allow_headers(Any)
-        // Disallow credentials for now
-        // TODO: authentication
-        .allow_credentials(false);
+	// Configure CORS to allow requests from any localhost origin
+	let cors = CorsLayer::new()
+		// Allow all methods
+		.allow_methods(Any)
+		// Allow any localhost origin with any port
+		.allow_origin(AllowOrigin::predicate(|origin, _request_parts| {
+			let origin = origin.as_bytes();
+			// Allow if origin starts with http://localhost: or http://127.0.0.1:
+			origin.starts_with(b"http://localhost:") || origin.starts_with(b"http://127.0.0.1:")
+		}))
+		// Allow all headers
+		.allow_headers(Any)
+		// Disallow credentials for now
+		// TODO: authentication
+		.allow_credentials(false);
 
-    Router::new()
-        // Routes for item types
-        .route("/item_types", post(handlers::create_item_type_handler).get(handlers::list_item_types_handler))
-        .route("/item_types/{item_type_id}", get(handlers::get_item_type_handler).patch(handlers::update_item_type_handler))
-        .route("/item_types/{item_type_id}/items", get(handlers::list_items_by_item_type_handler))
-        
-        // Routes for items
-        .route("/items", post(handlers::create_item_handler).get(handlers::list_items_handler))
-        .route("/items/{item_id}", get(handlers::get_item_handler).delete(handlers::delete_item_handler).patch(handlers::update_item_handler))
-        .route("/items/{item_id}/cards", post(handlers::create_card_handler).get(handlers::list_cards_by_item_handler))
-        .route("/items/{item_id}/tags", get(handlers::list_tags_for_item_handler))
-        .route("/items/{item_id}/tags/{tag_id}", post(handlers::add_tag_to_item_handler).delete(handlers::remove_tag_from_item_handler))
-        
-        // Routes for cards
-        .route("/cards", get(handlers::list_cards_handler))
-        .route("/cards/sort_positions", delete(handlers::clear_sort_positions_handler))
-        .route("/cards/{card_id}", get(handlers::get_card_handler))
-        .route("/cards/{card_id}/reviews", get(handlers::list_reviews_by_card_handler))
-        .route("/cards/{card_id}/priority", patch(handlers::update_card_priority_handler))
-        .route("/cards/{card_id}/sort_position", patch(handlers::set_sort_position_handler).delete(handlers::clear_card_sort_position_handler))
-        .route("/cards/{card_id}/tags", get(handlers::list_tags_for_card_handler))
-        .route("/cards/{card_id}/suspend", patch(handlers::suspend_card_handler))
-        .route("/cards/{card_id}/next_reviews", get(handlers::get_all_next_reviews_for_card_handler))
-        
-        // Routes for reviews
-        .route("/reviews", post(handlers::create_review_handler))
-        
-        // Routes for tags
-        .route("/tags", post(handlers::create_tag_handler).get(handlers::list_tags_handler))
-        
-        // Apply CORS middleware to all routes
-        .layer(cors)
-        
-        // Add the database pool to the application state
-        .with_state(pool)
+	Router::new()
+		// Routes for item types
+		.route(
+			"/item_types",
+			post(handlers::create_item_type_handler).get(handlers::list_item_types_handler),
+		)
+		.route(
+			"/item_types/{item_type_id}",
+			get(handlers::get_item_type_handler).patch(handlers::update_item_type_handler),
+		)
+		.route(
+			"/item_types/{item_type_id}/items",
+			get(handlers::list_items_by_item_type_handler),
+		)
+		// Routes for items
+		.route(
+			"/items",
+			post(handlers::create_item_handler).get(handlers::list_items_handler),
+		)
+		.route(
+			"/items/{item_id}",
+			get(handlers::get_item_handler)
+				.delete(handlers::delete_item_handler)
+				.patch(handlers::update_item_handler),
+		)
+		.route(
+			"/items/{item_id}/cards",
+			post(handlers::create_card_handler).get(handlers::list_cards_by_item_handler),
+		)
+		.route(
+			"/items/{item_id}/tags",
+			get(handlers::list_tags_for_item_handler),
+		)
+		.route(
+			"/items/{item_id}/tags/{tag_id}",
+			post(handlers::add_tag_to_item_handler).delete(handlers::remove_tag_from_item_handler),
+		)
+		// Routes for cards
+		.route("/cards", get(handlers::list_cards_handler))
+		.route(
+			"/cards/sort_positions",
+			delete(handlers::clear_sort_positions_handler),
+		)
+		.route("/cards/{card_id}", get(handlers::get_card_handler))
+		.route(
+			"/cards/{card_id}/reviews",
+			get(handlers::list_reviews_by_card_handler),
+		)
+		.route(
+			"/cards/{card_id}/priority",
+			patch(handlers::update_card_priority_handler),
+		)
+		.route(
+			"/cards/{card_id}/sort_position",
+			patch(handlers::set_sort_position_handler)
+				.delete(handlers::clear_card_sort_position_handler),
+		)
+		.route(
+			"/cards/{card_id}/tags",
+			get(handlers::list_tags_for_card_handler),
+		)
+		.route(
+			"/cards/{card_id}/suspend",
+			patch(handlers::suspend_card_handler),
+		)
+		.route(
+			"/cards/{card_id}/next_reviews",
+			get(handlers::get_all_next_reviews_for_card_handler),
+		)
+		// Routes for reviews
+		.route("/reviews", post(handlers::create_review_handler))
+		// Routes for tags
+		.route(
+			"/tags",
+			post(handlers::create_tag_handler).get(handlers::list_tags_handler),
+		)
+		// Apply CORS middleware to all routes
+		.layer(cors)
+		// Add the database pool to the application state
+		.with_state(pool)
 }
 
 /// Runs the embedded migrations
@@ -165,22 +211,21 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
 ///
 /// This function will panic if the migrations fail to run
 pub fn run_migrations(conn: &mut diesel::SqliteConnection) {
-    use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
-    
-    // Define the embedded migrations
-    const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
-    
-    // Run all pending migrations
-    conn.run_pending_migrations(MIGRATIONS)
-        .expect("Failed to run migrations");
-}
+	use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 
+	// Define the embedded migrations
+	const MIGRATIONS: EmbeddedMigrations = embed_migrations!("migrations");
+
+	// Run all pending migrations
+	conn.run_pending_migrations(MIGRATIONS)
+		.expect("Failed to run migrations");
+}
 
 /// Enum representing the type of backup
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum BackupType {
-    Startup,
-    Periodic,
+	Startup,
+	Periodic,
 }
 
 /// Backs up the SQLite database file
@@ -201,75 +246,92 @@ pub enum BackupType {
 /// ### Notes
 ///
 /// Startup backups are all kept, but there will be at most five periodic backups at any time.
-pub fn backup_database(database_path: &str, backup_type: BackupType, backup_count: u32) -> Result<bool, String> {
-    // Skip if using in-memory database
-    if database_path == ":memory:" {
-        return Ok(false);
-    }
+pub fn backup_database(
+	database_path: &str,
+	backup_type: BackupType,
+	backup_count: u32,
+) -> Result<bool, String> {
+	// Skip if using in-memory database
+	if database_path == ":memory:" {
+		return Ok(false);
+	}
 
-    use std::fs::{self, File};
-    use std::io::{Read, Write};
-    use std::path::{Path, PathBuf};
-    use std::time::{SystemTime, UNIX_EPOCH};
-    use tracing::{debug, info};
+	use std::fs::{self, File};
+	use std::io::{Read, Write};
+	use std::path::{Path, PathBuf};
+	use std::time::{SystemTime, UNIX_EPOCH};
+	use tracing::{debug, info};
 
-    // Get the directory containing the database
-    let db_path = Path::new(database_path);
-    if !db_path.exists() {
-        // Database doesn't exist yet, nothing to back up
-        debug!("Database file doesn't exist yet, skipping backup");
-        return Ok(false);
-    }
+	// Get the directory containing the database
+	let db_path = Path::new(database_path);
+	if !db_path.exists() {
+		// Database doesn't exist yet, nothing to back up
+		debug!("Database file doesn't exist yet, skipping backup");
+		return Ok(false);
+	}
 
-    // Create backup directory if it doesn't exist
-    let backup_dir = if let Some(parent) = db_path.parent() {
-        parent.join("backups")
-    } else {
-        PathBuf::from("backups")
-    };
+	// Create backup directory if it doesn't exist
+	let backup_dir = if let Some(parent) = db_path.parent() {
+		parent.join("backups")
+	} else {
+		PathBuf::from("backups")
+	};
 
-    if !backup_dir.exists() {
-        debug!("Creating backup directory: {:?}", backup_dir);
-        fs::create_dir_all(&backup_dir).map_err(|e| format!("Failed to create backup directory: {}", e))?;
-    }
+	if !backup_dir.exists() {
+		debug!("Creating backup directory: {:?}", backup_dir);
+		fs::create_dir_all(&backup_dir)
+			.map_err(|e| format!("Failed to create backup directory: {}", e))?;
+	}
 
-    // Generate timestamp for backup file
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_else(|_| std::time::Duration::from_secs(0))
-        .as_secs();
+	// Generate timestamp for backup file
+	let timestamp = SystemTime::now()
+		.duration_since(UNIX_EPOCH)
+		.unwrap_or_else(|_| std::time::Duration::from_secs(0))
+		.as_secs();
 
-    // Generate backup file name with db name and timestamp
-    let db_filename = db_path.file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("database.db");
+	// Generate backup file name with db name and timestamp
+	let db_filename = db_path
+		.file_name()
+		.and_then(|n| n.to_str())
+		.unwrap_or("database.db");
 
-    let backup_path = backup_dir.join(format!("{}.{}.{}.backup", db_filename, match backup_type { BackupType::Startup => "startup", BackupType::Periodic => "periodic" }, timestamp));
-    
-    debug!("Creating backup at {:?}", backup_path);
+	let backup_path = backup_dir.join(format!(
+		"{}.{}.{}.backup",
+		db_filename,
+		match backup_type {
+			BackupType::Startup => "startup",
+			BackupType::Periodic => "periodic",
+		},
+		timestamp
+	));
 
-    // TODO: this really should be thread locked so no other operations are happening on the database during backup
-    // but I'm not sure how to do that
-    // so instead we're accepting that some of the 20-minute backups will be corrupted and this is better than nothing
+	debug!("Creating backup at {:?}", backup_path);
 
-    // Copy the database file to the backup location
-    let mut src = File::open(database_path).map_err(|e| format!("Failed to open database: {}", e))?;
-    let mut dst = File::create(&backup_path).map_err(|e| format!("Failed to create backup file: {}", e))?;
-    
-    let mut buffer = Vec::new();
-    src.read_to_end(&mut buffer).map_err(|e| format!("Failed to read database: {}", e))?;
-    dst.write_all(&buffer).map_err(|e| format!("Failed to write backup: {}", e))?;
-    
-    info!("Database backup created at {:?}", backup_path);
+	// TODO: this really should be thread locked so no other operations are happening on the database during backup
+	// but I'm not sure how to do that
+	// so instead we're accepting that some of the 20-minute backups will be corrupted and this is better than nothing
 
-    // If this is a periodic backup, check if we need to clean up old backups
-    if backup_type == BackupType::Periodic {
-        cleanup_periodic_backups(&backup_dir, db_filename, backup_count)?;
-    }
+	// Copy the database file to the backup location
+	let mut src =
+		File::open(database_path).map_err(|e| format!("Failed to open database: {}", e))?;
+	let mut dst =
+		File::create(&backup_path).map_err(|e| format!("Failed to create backup file: {}", e))?;
 
-    Ok(true)
+	let mut buffer = Vec::new();
+	src.read_to_end(&mut buffer)
+		.map_err(|e| format!("Failed to read database: {}", e))?;
+	dst.write_all(&buffer)
+		.map_err(|e| format!("Failed to write backup: {}", e))?;
+
+	info!("Database backup created at {:?}", backup_path);
+
+	// If this is a periodic backup, check if we need to clean up old backups
+	if backup_type == BackupType::Periodic {
+		cleanup_periodic_backups(&backup_dir, db_filename, backup_count)?;
+	}
+
+	Ok(true)
 }
-
 
 /// Cleans up old periodic backups, keeping only the 5 most recent
 ///
@@ -282,54 +344,61 @@ pub fn backup_database(database_path: &str, backup_type: BackupType, backup_coun
 /// ### Returns
 ///
 /// A `Result` indicating success or failure, with an error message on failure
-fn cleanup_periodic_backups(backup_dir: &std::path::Path, db_filename: &str, backup_count: u32) -> Result<(), String> {
-    use std::fs;
-    use std::time::SystemTime;
-    use tracing::{debug, error};
+fn cleanup_periodic_backups(
+	backup_dir: &std::path::Path,
+	db_filename: &str,
+	backup_count: u32,
+) -> Result<(), String> {
+	use std::fs;
+	use std::time::SystemTime;
+	use tracing::{debug, error};
 
-    // Find all periodic backups for this database
-    let pattern = format!("{}.periodic.", db_filename);
-    
-    let mut backups = match fs::read_dir(backup_dir) {
-        Ok(entries) => {
-            entries
-                .filter_map(Result::ok)
-                .filter(|entry| {
-                    if let Some(name) = entry.file_name().to_str() {
-                        name.contains(&pattern)
-                    } else {
-                        false
-                    }
-                })
-                .collect::<Vec<_>>()
-        }
-        Err(e) => {
-            error!("Failed to read backup directory: {}", e);
-            return Err(format!("Failed to read backup directory: {}", e));
-        }
-    };
+	// Find all periodic backups for this database
+	let pattern = format!("{}.periodic.", db_filename);
 
-    // Sort backups by modification time (newest first)
-    backups.sort_by(|a, b| {
-        let time_a = a.metadata().and_then(|m| m.modified()).unwrap_or_else(|_| SystemTime::UNIX_EPOCH);
-        let time_b = b.metadata().and_then(|m| m.modified()).unwrap_or_else(|_| SystemTime::UNIX_EPOCH);
-        time_b.cmp(&time_a)
-    });
+	let mut backups = match fs::read_dir(backup_dir) {
+		Ok(entries) => entries
+			.filter_map(Result::ok)
+			.filter(|entry| {
+				if let Some(name) = entry.file_name().to_str() {
+					name.contains(&pattern)
+				} else {
+					false
+				}
+			})
+			.collect::<Vec<_>>(),
+		Err(e) => {
+			error!("Failed to read backup directory: {}", e);
+			return Err(format!("Failed to read backup directory: {}", e));
+		}
+	};
 
-    // Keep only the backup_count most recent backups
-    if backups.len() > backup_count as usize {
-        for old_backup in backups.iter().skip(backup_count as usize) {
-            debug!("Removing old backup: {:?}", old_backup.path());
-            if let Err(e) = fs::remove_file(old_backup.path()) {
-                error!("Failed to remove old backup {:?}: {}", old_backup.path(), e);
-                // Continue with other deletions even if one fails
-            }
-        }
-    }
+	// Sort backups by modification time (newest first)
+	backups.sort_by(|a, b| {
+		let time_a = a
+			.metadata()
+			.and_then(|m| m.modified())
+			.unwrap_or_else(|_| SystemTime::UNIX_EPOCH);
+		let time_b = b
+			.metadata()
+			.and_then(|m| m.modified())
+			.unwrap_or_else(|_| SystemTime::UNIX_EPOCH);
+		time_b.cmp(&time_a)
+	});
 
-    Ok(())
+	// Keep only the backup_count most recent backups
+	if backups.len() > backup_count as usize {
+		for old_backup in backups.iter().skip(backup_count as usize) {
+			debug!("Removing old backup: {:?}", old_backup.path());
+			if let Err(e) = fs::remove_file(old_backup.path()) {
+				error!("Failed to remove old backup {:?}: {}", old_backup.path(), e);
+				// Continue with other deletions even if one fails
+			}
+		}
+	}
+
+	Ok(())
 }
-
 
 /// Starts a background task to periodically back up the database
 ///
@@ -345,596 +414,691 @@ fn cleanup_periodic_backups(backup_dir: &std::path::Path, db_filename: &str, bac
 ///
 /// This should only be called once at application startup.
 pub fn start_periodic_backup(database_path: String, backup_duration: Duration, backup_count: u32) {
-    // Skip for in-memory databases
-    if database_path == ":memory:" {
-        return;
-    }
+	// Skip for in-memory databases
+	if database_path == ":memory:" {
+		return;
+	}
 
-    use tokio::time;
-    use tracing::{info, error};
+	use tokio::time;
+	use tracing::{error, info};
 
-    // Clone the database path for the async task
-    let db_path = database_path.clone();
+	// Clone the database path for the async task
+	let db_path = database_path.clone();
 
-    // Spawn a background task for periodic backups
-    tokio::spawn(async move {
-        let mut interval = time::interval(backup_duration);
+	// Spawn a background task for periodic backups
+	tokio::spawn(async move {
+		let mut interval = time::interval(backup_duration);
 
-        info!("Starting periodic database backup task (every {} seconds)", backup_duration.as_secs());
-        
-        loop {
-            // Wait for the next interval tick
-            interval.tick().await;
+		info!(
+			"Starting periodic database backup task (every {} seconds)",
+			backup_duration.as_secs()
+		);
 
-            // Perform the backup
-            info!("Performing periodic database backup");
+		loop {
+			// Wait for the next interval tick
+			interval.tick().await;
 
-            match backup_database(&db_path, BackupType::Periodic, backup_count) {
-                Ok(true) => {
-                    info!("Periodic backup completed successfully");
-                }
-                Ok(false) => {
-                    info!("Periodic backup not needed.");
-                }
-                Err(e) => {
-                    error!("Periodic backup failed: {}", e);
-                }
-            }
-        }
-    });
+			// Perform the backup
+			info!("Performing periodic database backup");
+
+			match backup_database(&db_path, BackupType::Periodic, backup_count) {
+				Ok(true) => {
+					info!("Periodic backup completed successfully");
+				}
+				Ok(false) => {
+					info!("Periodic backup not needed.");
+				}
+				Err(e) => {
+					error!("Periodic backup failed: {}", e);
+				}
+			}
+		}
+	});
 }
-
 
 #[cfg(test)]
 pub(crate) mod test_utils;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::test_utils::*;
-    use axum::body::Body;
-    use axum::http::{Request, StatusCode};
-    use chrono::Utc;
-    use diesel::{SqliteConnection, RunQueryDsl, Connection};
-    use serde_json::Value;
-    use tower::ServiceExt;
-    
-    /// Tests the create item handler
-    ///
-    /// This test verifies that:
-    /// 1. A POST request to /items creates a new item
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains the created item with the correct title
-    #[tokio::test]
-    async fn test_create_item_handler() {
-        // Set up a test database and application
-        let pool = setup_test_db();
-        let app = create_app(pool.clone());
-        
-        // Create an item type first
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
-        
-        // Create a request with a JSON body
-        let request = Request::builder()
-            .uri("/items")
-            .method("POST")
-            .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{{"item_type_id":"{}","title":"Test Item","item_data":null}}"#, item_type.get_id())))
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK, "Response status is not OK (err: {:?})", axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap());
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let item: Value = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the correct item
-        assert_eq!(item["title"], "Test Item");
-        assert!(item["id"].is_string());
-    }
-    
+	use super::test_utils::*;
+	use super::*;
+	use axum::body::Body;
+	use axum::http::{Request, StatusCode};
+	use chrono::Utc;
+	use diesel::{Connection, RunQueryDsl, SqliteConnection};
+	use serde_json::Value;
+	use tower::ServiceExt;
 
-    /// Tests the update card priority handler - successful update
-    ///
-    /// This test verifies that:
-    /// 1. A PUT request to /cards/{card_id}/priority updates the priority of a card
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains the updated card with the correct priority
-    #[tokio::test]
-    async fn test_update_card_priority_handler_success() {
-        // Set up a test database
-        let pool = setup_test_db();
-        let app = create_app(pool.clone());
-        
-        // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
-        let item = repo::create_item(
-            &pool, 
-            &item_type.get_id(), 
-            "Test Item".to_string(), 
-            serde_json::json!({"front": "Hello", "back": "World"})
-        ).await.unwrap();
-        
-        // Create a card with initial priority
-        let initial_priority = 0.5;
-        let card = repo::create_card(&pool, &item.get_id(), 2, initial_priority).await.unwrap();
-        
-        // Create a request to update the card's priority
-        let new_priority = 0.8;
-        let request = Request::builder()
-            .uri(format!("/cards/{}/priority", card.get_id()))
-            .method("PATCH")
-            .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{}"#, new_priority)))
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let updated_card: Value = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the card with updated priority
-        assert_eq!(updated_card["id"], card.get_id());
-        assert!((updated_card["priority"].as_f64().unwrap() - new_priority).abs() < 0.0001);
-    }
-    
+	/// Tests the create item handler
+	///
+	/// This test verifies that:
+	/// 1. A POST request to /items creates a new item
+	/// 2. The response has a 200 OK status
+	/// 3. The response body contains the created item with the correct title
+	#[tokio::test]
+	async fn test_create_item_handler() {
+		// Set up a test database and application
+		let pool = setup_test_db();
+		let app = create_app(pool.clone());
 
-    /// Tests the update card priority handler - boundary values
-    ///
-    /// This test verifies that:
-    /// 1. The handler correctly processes minimum (0.0) and maximum (1.0) priority values
-    #[tokio::test]
-    async fn test_update_card_priority_handler_boundary_values() {
-        // Set up a test database
-        let pool = setup_test_db();
-        let app = create_app(pool.clone());
-        
-        // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
-        let item = repo::create_item(
-            &pool, 
-            &item_type.get_id(), 
-            "Test Item".to_string(), 
-            serde_json::json!({"front": "Hello", "back": "World"})
-        ).await.unwrap();
-        
-        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).await.unwrap();
-        
-        // Test minimum valid priority (0.0)
-        let min_priority = 0.0;
-        let request = Request::builder()
-            .uri(format!("/cards/{}/priority", card.get_id()))
-            .method("PATCH")
-            .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{}"#, min_priority)))
-            .unwrap();
-        
-        let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let updated_card: Value = serde_json::from_slice(&body).unwrap();
-        assert!((updated_card["priority"].as_f64().unwrap() - min_priority).abs() < 0.0001);
-        
-        // Test maximum valid priority (1.0)
-        let max_priority = 1.0;
-        let request = Request::builder()
-            .uri(format!("/cards/{}/priority", card.get_id()))
-            .method("PATCH")
-            .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{}"#, max_priority)))
-            .unwrap();
-        
-        let response = app.oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let updated_card: Value = serde_json::from_slice(&body).unwrap();
-        assert!((updated_card["priority"].as_f64().unwrap() - max_priority).abs() < 0.0001);
-    }
-    
+		// Create an item type first
+		let item_type =
+			repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
 
-    /// Tests the update card priority handler - card not found
-    ///
-    /// This test verifies that:
-    /// 1. The handler returns a 404 Not Found status when the card ID doesn't exist
-    #[tokio::test]
-    async fn test_update_card_priority_handler_not_found() {
-        // Set up a test database
-        let pool = setup_test_db();
-        let app = create_app(pool.clone());
-        
-        // Create a request with a non-existent card ID
-        let request = Request::builder()
-            .uri("/cards/nonexistent-id/priority")
-            .method("PATCH")
-            .header("Content-Type", "application/json")
-            .body(Body::from(r#"0.7"#))
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check that we get a 404 Not Found status
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-    }
-    
+		// Create a request with a JSON body
+		let request = Request::builder()
+			.uri("/items")
+			.method("POST")
+			.header("Content-Type", "application/json")
+			.body(Body::from(format!(
+				r#"{{"item_type_id":"{}","title":"Test Item","item_data":null}}"#,
+				item_type.get_id()
+			)))
+			.unwrap();
 
-    /// Tests the update card priority handler - invalid priority value
-    ///
-    /// This test verifies that:
-    /// 1. The handler returns a 400 Bad Request status when the priority is outside the valid range
-    #[tokio::test]
-    async fn test_update_card_priority_handler_invalid_priority() {
-        // Set up a test database
-        let pool = setup_test_db();
-        let app = create_app(pool.clone());
-        
-        // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
-        let item = repo::create_item(
-            &pool, 
-            &item_type.get_id(), 
-            "Test Item".to_string(), 
-            serde_json::json!({"front": "Hello", "back": "World"})
-        ).await.unwrap();
-        
-        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).await.unwrap();
-        
-        // Test with priority > 1.0 (invalid)
-        let invalid_priority = 1.5;
-        let request = Request::builder()
-            .uri(format!("/cards/{}/priority", card.get_id()))
-            .method("PATCH")
-            .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{}"#, invalid_priority)))
-            .unwrap();
-        
-        let response = app.clone().oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        
-        // Test with priority < 0.0 (invalid)
-        let invalid_priority = -0.5;
-        let request = Request::builder()
-            .uri(format!("/cards/{}/priority", card.get_id()))
-            .method("PATCH")
-            .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{}"#, invalid_priority)))
-            .unwrap();
-        
-        let response = app.oneshot(request).await.unwrap();
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-    }
+		// Send the request to the app
+		let response = app.oneshot(request).await.unwrap();
 
+		// Check the response status
+		assert_eq!(
+			response.status(),
+			StatusCode::OK,
+			"Response status is not OK (err: {:?})",
+			axum::body::to_bytes(response.into_body(), usize::MAX)
+				.await
+				.unwrap()
+		);
 
-    /// Tests the list items handler
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /items returns all items
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains all the expected items
-    #[tokio::test]
-    async fn test_list_items_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
+		// Parse the response body
+		let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+			.await
+			.unwrap();
+		let item: Value = serde_json::from_slice(&body).unwrap();
 
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
-        
-        // Create a few items first
-        let titles = vec!["Item 1", "Item 2", "Item 3"];
-        for title in &titles {
-            repo::create_item(&pool, &item_type.get_id(), title.to_string(), serde_json::Value::Null).await.unwrap();
-        }
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request
-        let request = Request::builder()
-            .uri("/items")
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let items: Vec<Value> = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the correct number of items
-        assert_eq!(items.len(), titles.len());
-        
-        // Check that all titles are present in the response
-        let item_titles: Vec<String> = items.iter()
-            .map(|item| item["title"].as_str().unwrap().to_string())
-            .collect();
-        
-        for title in titles {
-            assert!(item_titles.contains(&title.to_string()));
-        }
-    }
+		// Verify the response contains the correct item
+		assert_eq!(item["title"], "Test Item");
+		assert!(item["id"].is_string());
+	}
 
-    
-    /// Tests the get item handler
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /items/{id} returns the specific item
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains the expected item
-    #[tokio::test]
-    async fn test_get_item_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item first
-        let title = "Item to Get".to_string();
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), title.clone(), serde_json::Value::Null).await.unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request with the item ID in the path
-        let request = Request::builder()
-            .uri(format!("/items/{}", item.get_id()))
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_item: Value = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the correct item
-        assert_eq!(response_item["id"], item.get_id());
-        assert_eq!(response_item["title"], title);
-    }
-    
+	/// Tests the update card priority handler - successful update
+	///
+	/// This test verifies that:
+	/// 1. A PUT request to /cards/{card_id}/priority updates the priority of a card
+	/// 2. The response has a 200 OK status
+	/// 3. The response body contains the updated card with the correct priority
+	#[tokio::test]
+	async fn test_update_card_priority_handler_success() {
+		// Set up a test database
+		let pool = setup_test_db();
+		let app = create_app(pool.clone());
 
-    /// Tests the create review handler
-    ///
-    /// This test verifies that:
-    /// 1. A POST request to /reviews creates a new review
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains the created review
-    /// 4. The item is updated with review information
-    #[tokio::test]
-    async fn test_create_review_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item first
-        let title = "Item to Review".to_string();
-        let item_type = repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string()).await.unwrap();
-        let item = repo::create_item(&pool, &item_type.get_id(), title.clone(), serde_json::Value::Null).await.unwrap();
-        let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
-        let card = cards.first().unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a request with a JSON body containing the item ID and rating
-        let request = Request::builder()
-            .uri("/reviews")
-            .method("POST")
-            .header("Content-Type", "application/json")
-            .body(Body::from(format!(r#"{{"card_id":"{}","rating":3}}"#, card.get_id())))
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let review: Value = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the correct review
-        assert_eq!(review["card_id"], card.get_id());
-        assert_eq!(review["rating"], 3);
-        assert!(review["id"].is_string());
-        
-        // Check that the item was updated with review information
-        let updated_card = repo::get_card(&pool, &card.get_id()).unwrap().unwrap();
-        assert!(updated_card.get_last_review().is_some());
-        assert!(updated_card.get_next_review() > Utc::now());
-    }
-    
+		// Create test data
+		let item_type =
+			repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Test Item".to_string(),
+			serde_json::json!({"front": "Hello", "back": "World"}),
+		)
+		.await
+		.unwrap();
 
-    /// Tests the run_migrations function
-    ///
-    /// This test verifies that:
-    /// 1. Migrations can be run successfully
-    /// 2. The expected tables are created in the database
-    #[test]
-    fn test_run_migrations() {
-        // Create a connection to an in-memory database
-        let mut conn = SqliteConnection::establish(":memory:").unwrap();
-        
-        // Run migrations
-        run_migrations(&mut conn);
-        
-        // Verify that the tables were created by querying the schema
-        let result = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table' AND name='items'")
-            .execute(&mut conn);
-        assert!(result.is_ok());
-        
-        let result = diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'")
-            .execute(&mut conn);
-        assert!(result.is_ok());
-    }
+		// Create a card with initial priority
+		let initial_priority = 0.5;
+		let card = repo::create_card(&pool, &item.get_id(), 2, initial_priority)
+			.await
+			.unwrap();
 
-    
-    /// Tests the create item type handler
-    ///
-    /// This test verifies that:
-    /// 1. A POST request to /item_types creates a new item type
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains the created item type with the correct name
-    #[tokio::test]
-    async fn test_create_item_type_handler() {
-        // Set up a test database and application
-        let pool = setup_test_db();
-        let app = create_app(pool.clone());
-        
-        // Create a request with a JSON body
-        let request = Request::builder()
-            .uri("/item_types")
-            .method("POST")
-            .header("Content-Type", "application/json")
-            .body(Body::from(r#"{"name":"Test Item Type"}"#))
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let item_type: Value = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the correct item type
-        assert_eq!(item_type["name"], "Test Item Type");
-        assert!(item_type["id"].is_string());
-    }
-    
+		// Create a request to update the card's priority
+		let new_priority = 0.8;
+		let request = Request::builder()
+			.uri(format!("/cards/{}/priority", card.get_id()))
+			.method("PATCH")
+			.header("Content-Type", "application/json")
+			.body(Body::from(format!(r#"{}"#, new_priority)))
+			.unwrap();
 
-    /// Tests the get item type handler
-    ///
-    /// This test verifies that:
-    /// 1. A GET request to /item_types/{id} returns the specific item type
-    /// 2. The response has a 200 OK status
-    /// 3. The response body contains the expected item type
-    #[tokio::test]
-    async fn test_get_item_type_handler() {
-        // Set up a test database
-        let pool = setup_test_db();
-        
-        // Create an item type first
-        let name = "Item Type to Get".to_string();
-        let item_type = repo::create_item_type(&pool, name.clone(), "fsrs".to_string()).await.unwrap();
-        
-        // Create the application
-        let app = create_app(pool.clone());
-        
-        // Create a GET request with the item type ID in the path
-        let request = Request::builder()
-            .uri(format!("/item_types/{}", item_type.get_id()))
-            .method("GET")
-            .body(Body::empty())
-            .unwrap();
-        
-        // Send the request to the app
-        let response = app.oneshot(request).await.unwrap();
-        
-        // Check the response status
-        assert_eq!(response.status(), StatusCode::OK);
-        
-        // Parse the response body
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let response_item_type: Value = serde_json::from_slice(&body).unwrap();
-        
-        // Verify the response contains the correct item type
-        assert_eq!(response_item_type["id"], item_type.get_id());
-        assert_eq!(response_item_type["name"], name);
-    }
+		// Send the request to the app
+		let response = app.oneshot(request).await.unwrap();
 
+		// Check the response status
+		assert_eq!(response.status(), StatusCode::OK);
 
-    /// Tests the database backup functionality 
-    ///
-    /// This test verifies that:
-    /// 1. Backups can be created successfully for an existing database
-    /// 2. In-memory databases are skipped appropriately
-    /// 3. The backup directory is created if it doesn't exist
-    #[test]
-    fn test_database_backup() {
-        use std::fs::{self, File};
-        use std::io::Write;
-        use std::thread::sleep;
-        use std::time::Duration;
-        
-        // Create a temporary test database file
-        let test_db_dir = tempfile::tempdir().expect("Failed to create temp directory");
-        let test_db_path = test_db_dir.path().join("test_backup.db");
-        
-        // Create a dummy database file with some content
-        {
-            let mut file = File::create(&test_db_path).expect("Failed to create test database file");
-            file.write_all(b"Test database content").expect("Failed to write to test database");
-        }
-        
-        // Test backup creation
-        let db_path_str = test_db_path.to_str().unwrap();
-        let result = super::backup_database(db_path_str, BackupType::Startup, 10);
-        assert!(result.is_ok(), "Backup should succeed");
-        
-        // Check that the backup directory was created
-        let backup_dir = test_db_dir.path().join("backups");
-        assert!(backup_dir.exists(), "Backup directory should exist");
-        
-        // Check that a backup file was created
-        let entries = fs::read_dir(&backup_dir).expect("Failed to read backup directory");
-        let backup_count = entries.count();
-        assert!(backup_count > 0, "At least one backup file should exist");
-        
-        // Test in-memory database
-        let result = super::backup_database(":memory:", BackupType::Startup, 10);
-        assert!(result.is_ok(), "In-memory database backup should be skipped successfully");
-        
-        // Test cleanup of periodic backups
-        const MAX_PERIODIC_BACKUPS: u32 = 5;
-        
-        // Create multiple periodic backups
-        let test_backups = 7; // More than MAX_PERIODIC_BACKUPS
-        for _ in 0..test_backups {
-            // Add a longer delay to ensure file modification times are distinct
-            // (because file timestamps are only accurate to the second, having a delay of less than a second will cause the backup to be overwritten)
-            // (and we double that to two seconds to be guaranteed that the backups will have different timestamps)
-            sleep(Duration::from_millis(2000));
-            let _ = super::backup_database(db_path_str, BackupType::Periodic, MAX_PERIODIC_BACKUPS);
-        }
-        
-        // Check for periodic backups
-        let periodic_backups: Vec<_> = fs::read_dir(&backup_dir)
-            .expect("Failed to read backup directory")
-            .filter_map(Result::ok)
-            .filter(|entry| {
-                entry.file_name().to_str()
-                    .map(|name| name.contains("periodic"))
-                    .unwrap_or(false)
-            })
-            .collect();
-        
-        println!("Periodic backups: {:?}", 
-            periodic_backups.iter()
-                .map(|entry| entry.file_name())
-                .collect::<Vec<_>>()
-        );
-        
-        assert_eq!(periodic_backups.len(), 5, "Should keep exactly 5 periodic backups");
-    }
+		// Parse the response body
+		let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+			.await
+			.unwrap();
+		let updated_card: Value = serde_json::from_slice(&body).unwrap();
+
+		// Verify the response contains the card with updated priority
+		assert_eq!(updated_card["id"], card.get_id());
+		assert!((updated_card["priority"].as_f64().unwrap() - new_priority).abs() < 0.0001);
+	}
+
+	/// Tests the update card priority handler - boundary values
+	///
+	/// This test verifies that:
+	/// 1. The handler correctly processes minimum (0.0) and maximum (1.0) priority values
+	#[tokio::test]
+	async fn test_update_card_priority_handler_boundary_values() {
+		// Set up a test database
+		let pool = setup_test_db();
+		let app = create_app(pool.clone());
+
+		// Create test data
+		let item_type =
+			repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Test Item".to_string(),
+			serde_json::json!({"front": "Hello", "back": "World"}),
+		)
+		.await
+		.unwrap();
+
+		let card = repo::create_card(&pool, &item.get_id(), 2, 0.5)
+			.await
+			.unwrap();
+
+		// Test minimum valid priority (0.0)
+		let min_priority = 0.0;
+		let request = Request::builder()
+			.uri(format!("/cards/{}/priority", card.get_id()))
+			.method("PATCH")
+			.header("Content-Type", "application/json")
+			.body(Body::from(format!(r#"{}"#, min_priority)))
+			.unwrap();
+
+		let response = app.clone().oneshot(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+			.await
+			.unwrap();
+		let updated_card: Value = serde_json::from_slice(&body).unwrap();
+		assert!((updated_card["priority"].as_f64().unwrap() - min_priority).abs() < 0.0001);
+
+		// Test maximum valid priority (1.0)
+		let max_priority = 1.0;
+		let request = Request::builder()
+			.uri(format!("/cards/{}/priority", card.get_id()))
+			.method("PATCH")
+			.header("Content-Type", "application/json")
+			.body(Body::from(format!(r#"{}"#, max_priority)))
+			.unwrap();
+
+		let response = app.oneshot(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::OK);
+
+		let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+			.await
+			.unwrap();
+		let updated_card: Value = serde_json::from_slice(&body).unwrap();
+		assert!((updated_card["priority"].as_f64().unwrap() - max_priority).abs() < 0.0001);
+	}
+
+	/// Tests the update card priority handler - card not found
+	///
+	/// This test verifies that:
+	/// 1. The handler returns a 404 Not Found status when the card ID doesn't exist
+	#[tokio::test]
+	async fn test_update_card_priority_handler_not_found() {
+		// Set up a test database
+		let pool = setup_test_db();
+		let app = create_app(pool.clone());
+
+		// Create a request with a non-existent card ID
+		let request = Request::builder()
+			.uri("/cards/nonexistent-id/priority")
+			.method("PATCH")
+			.header("Content-Type", "application/json")
+			.body(Body::from(r#"0.7"#))
+			.unwrap();
+
+		// Send the request to the app
+		let response = app.oneshot(request).await.unwrap();
+
+		// Check that we get a 404 Not Found status
+		assert_eq!(response.status(), StatusCode::NOT_FOUND);
+	}
+
+	/// Tests the update card priority handler - invalid priority value
+	///
+	/// This test verifies that:
+	/// 1. The handler returns a 400 Bad Request status when the priority is outside the valid range
+	#[tokio::test]
+	async fn test_update_card_priority_handler_invalid_priority() {
+		// Set up a test database
+		let pool = setup_test_db();
+		let app = create_app(pool.clone());
+
+		// Create test data
+		let item_type =
+			repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Test Item".to_string(),
+			serde_json::json!({"front": "Hello", "back": "World"}),
+		)
+		.await
+		.unwrap();
+
+		let card = repo::create_card(&pool, &item.get_id(), 2, 0.5)
+			.await
+			.unwrap();
+
+		// Test with priority > 1.0 (invalid)
+		let invalid_priority = 1.5;
+		let request = Request::builder()
+			.uri(format!("/cards/{}/priority", card.get_id()))
+			.method("PATCH")
+			.header("Content-Type", "application/json")
+			.body(Body::from(format!(r#"{}"#, invalid_priority)))
+			.unwrap();
+
+		let response = app.clone().oneshot(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+
+		// Test with priority < 0.0 (invalid)
+		let invalid_priority = -0.5;
+		let request = Request::builder()
+			.uri(format!("/cards/{}/priority", card.get_id()))
+			.method("PATCH")
+			.header("Content-Type", "application/json")
+			.body(Body::from(format!(r#"{}"#, invalid_priority)))
+			.unwrap();
+
+		let response = app.oneshot(request).await.unwrap();
+		assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+	}
+
+	/// Tests the list items handler
+	///
+	/// This test verifies that:
+	/// 1. A GET request to /items returns all items
+	/// 2. The response has a 200 OK status
+	/// 3. The response body contains all the expected items
+	#[tokio::test]
+	async fn test_list_items_handler() {
+		// Set up a test database
+		let pool = setup_test_db();
+
+		let item_type =
+			repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+
+		// Create a few items first
+		let titles = vec!["Item 1", "Item 2", "Item 3"];
+		for title in &titles {
+			repo::create_item(
+				&pool,
+				&item_type.get_id(),
+				title.to_string(),
+				serde_json::Value::Null,
+			)
+			.await
+			.unwrap();
+		}
+
+		// Create the application
+		let app = create_app(pool.clone());
+
+		// Create a GET request
+		let request = Request::builder()
+			.uri("/items")
+			.method("GET")
+			.body(Body::empty())
+			.unwrap();
+
+		// Send the request to the app
+		let response = app.oneshot(request).await.unwrap();
+
+		// Check the response status
+		assert_eq!(response.status(), StatusCode::OK);
+
+		// Parse the response body
+		let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+			.await
+			.unwrap();
+		let items: Vec<Value> = serde_json::from_slice(&body).unwrap();
+
+		// Verify the response contains the correct number of items
+		assert_eq!(items.len(), titles.len());
+
+		// Check that all titles are present in the response
+		let item_titles: Vec<String> = items
+			.iter()
+			.map(|item| item["title"].as_str().unwrap().to_string())
+			.collect();
+
+		for title in titles {
+			assert!(item_titles.contains(&title.to_string()));
+		}
+	}
+
+	/// Tests the get item handler
+	///
+	/// This test verifies that:
+	/// 1. A GET request to /items/{id} returns the specific item
+	/// 2. The response has a 200 OK status
+	/// 3. The response body contains the expected item
+	#[tokio::test]
+	async fn test_get_item_handler() {
+		// Set up a test database
+		let pool = setup_test_db();
+
+		// Create an item first
+		let title = "Item to Get".to_string();
+		let item_type =
+			repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			title.clone(),
+			serde_json::Value::Null,
+		)
+		.await
+		.unwrap();
+
+		// Create the application
+		let app = create_app(pool.clone());
+
+		// Create a GET request with the item ID in the path
+		let request = Request::builder()
+			.uri(format!("/items/{}", item.get_id()))
+			.method("GET")
+			.body(Body::empty())
+			.unwrap();
+
+		// Send the request to the app
+		let response = app.oneshot(request).await.unwrap();
+
+		// Check the response status
+		assert_eq!(response.status(), StatusCode::OK);
+
+		// Parse the response body
+		let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+			.await
+			.unwrap();
+		let response_item: Value = serde_json::from_slice(&body).unwrap();
+
+		// Verify the response contains the correct item
+		assert_eq!(response_item["id"], item.get_id());
+		assert_eq!(response_item["title"], title);
+	}
+
+	/// Tests the create review handler
+	///
+	/// This test verifies that:
+	/// 1. A POST request to /reviews creates a new review
+	/// 2. The response has a 200 OK status
+	/// 3. The response body contains the created review
+	/// 4. The item is updated with review information
+	#[tokio::test]
+	async fn test_create_review_handler() {
+		// Set up a test database
+		let pool = setup_test_db();
+
+		// Create an item first
+		let title = "Item to Review".to_string();
+		let item_type =
+			repo::create_item_type(&pool, "Test Item Type".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			title.clone(),
+			serde_json::Value::Null,
+		)
+		.await
+		.unwrap();
+		let cards = repo::get_cards_for_item(&pool, &item.get_id()).unwrap();
+		let card = cards.first().unwrap();
+
+		// Create the application
+		let app = create_app(pool.clone());
+
+		// Create a request with a JSON body containing the item ID and rating
+		let request = Request::builder()
+			.uri("/reviews")
+			.method("POST")
+			.header("Content-Type", "application/json")
+			.body(Body::from(format!(
+				r#"{{"card_id":"{}","rating":3}}"#,
+				card.get_id()
+			)))
+			.unwrap();
+
+		// Send the request to the app
+		let response = app.oneshot(request).await.unwrap();
+
+		// Check the response status
+		assert_eq!(response.status(), StatusCode::OK);
+
+		// Parse the response body
+		let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+			.await
+			.unwrap();
+		let review: Value = serde_json::from_slice(&body).unwrap();
+
+		// Verify the response contains the correct review
+		assert_eq!(review["card_id"], card.get_id());
+		assert_eq!(review["rating"], 3);
+		assert!(review["id"].is_string());
+
+		// Check that the item was updated with review information
+		let updated_card = repo::get_card(&pool, &card.get_id()).unwrap().unwrap();
+		assert!(updated_card.get_last_review().is_some());
+		assert!(updated_card.get_next_review() > Utc::now());
+	}
+
+	/// Tests the run_migrations function
+	///
+	/// This test verifies that:
+	/// 1. Migrations can be run successfully
+	/// 2. The expected tables are created in the database
+	#[test]
+	fn test_run_migrations() {
+		// Create a connection to an in-memory database
+		let mut conn = SqliteConnection::establish(":memory:").unwrap();
+
+		// Run migrations
+		run_migrations(&mut conn);
+
+		// Verify that the tables were created by querying the schema
+		let result =
+			diesel::sql_query("SELECT name FROM sqlite_master WHERE type='table' AND name='items'")
+				.execute(&mut conn);
+		assert!(result.is_ok());
+
+		let result = diesel::sql_query(
+			"SELECT name FROM sqlite_master WHERE type='table' AND name='reviews'",
+		)
+		.execute(&mut conn);
+		assert!(result.is_ok());
+	}
+
+	/// Tests the create item type handler
+	///
+	/// This test verifies that:
+	/// 1. A POST request to /item_types creates a new item type
+	/// 2. The response has a 200 OK status
+	/// 3. The response body contains the created item type with the correct name
+	#[tokio::test]
+	async fn test_create_item_type_handler() {
+		// Set up a test database and application
+		let pool = setup_test_db();
+		let app = create_app(pool.clone());
+
+		// Create a request with a JSON body
+		let request = Request::builder()
+			.uri("/item_types")
+			.method("POST")
+			.header("Content-Type", "application/json")
+			.body(Body::from(r#"{"name":"Test Item Type"}"#))
+			.unwrap();
+
+		// Send the request to the app
+		let response = app.oneshot(request).await.unwrap();
+
+		// Check the response status
+		assert_eq!(response.status(), StatusCode::OK);
+
+		// Parse the response body
+		let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+			.await
+			.unwrap();
+		let item_type: Value = serde_json::from_slice(&body).unwrap();
+
+		// Verify the response contains the correct item type
+		assert_eq!(item_type["name"], "Test Item Type");
+		assert!(item_type["id"].is_string());
+	}
+
+	/// Tests the get item type handler
+	///
+	/// This test verifies that:
+	/// 1. A GET request to /item_types/{id} returns the specific item type
+	/// 2. The response has a 200 OK status
+	/// 3. The response body contains the expected item type
+	#[tokio::test]
+	async fn test_get_item_type_handler() {
+		// Set up a test database
+		let pool = setup_test_db();
+
+		// Create an item type first
+		let name = "Item Type to Get".to_string();
+		let item_type = repo::create_item_type(&pool, name.clone(), "fsrs".to_string())
+			.await
+			.unwrap();
+
+		// Create the application
+		let app = create_app(pool.clone());
+
+		// Create a GET request with the item type ID in the path
+		let request = Request::builder()
+			.uri(format!("/item_types/{}", item_type.get_id()))
+			.method("GET")
+			.body(Body::empty())
+			.unwrap();
+
+		// Send the request to the app
+		let response = app.oneshot(request).await.unwrap();
+
+		// Check the response status
+		assert_eq!(response.status(), StatusCode::OK);
+
+		// Parse the response body
+		let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+			.await
+			.unwrap();
+		let response_item_type: Value = serde_json::from_slice(&body).unwrap();
+
+		// Verify the response contains the correct item type
+		assert_eq!(response_item_type["id"], item_type.get_id());
+		assert_eq!(response_item_type["name"], name);
+	}
+
+	/// Tests the database backup functionality
+	///
+	/// This test verifies that:
+	/// 1. Backups can be created successfully for an existing database
+	/// 2. In-memory databases are skipped appropriately
+	/// 3. The backup directory is created if it doesn't exist
+	#[test]
+	fn test_database_backup() {
+		use std::fs::{self, File};
+		use std::io::Write;
+		use std::thread::sleep;
+		use std::time::Duration;
+
+		// Create a temporary test database file
+		let test_db_dir = tempfile::tempdir().expect("Failed to create temp directory");
+		let test_db_path = test_db_dir.path().join("test_backup.db");
+
+		// Create a dummy database file with some content
+		{
+			let mut file =
+				File::create(&test_db_path).expect("Failed to create test database file");
+			file.write_all(b"Test database content")
+				.expect("Failed to write to test database");
+		}
+
+		// Test backup creation
+		let db_path_str = test_db_path.to_str().unwrap();
+		let result = super::backup_database(db_path_str, BackupType::Startup, 10);
+		assert!(result.is_ok(), "Backup should succeed");
+
+		// Check that the backup directory was created
+		let backup_dir = test_db_dir.path().join("backups");
+		assert!(backup_dir.exists(), "Backup directory should exist");
+
+		// Check that a backup file was created
+		let entries = fs::read_dir(&backup_dir).expect("Failed to read backup directory");
+		let backup_count = entries.count();
+		assert!(backup_count > 0, "At least one backup file should exist");
+
+		// Test in-memory database
+		let result = super::backup_database(":memory:", BackupType::Startup, 10);
+		assert!(
+			result.is_ok(),
+			"In-memory database backup should be skipped successfully"
+		);
+
+		// Test cleanup of periodic backups
+		const MAX_PERIODIC_BACKUPS: u32 = 5;
+
+		// Create multiple periodic backups
+		let test_backups = 7; // More than MAX_PERIODIC_BACKUPS
+		for _ in 0..test_backups {
+			// Add a longer delay to ensure file modification times are distinct
+			// (because file timestamps are only accurate to the second, having a delay of less than a second will cause the backup to be overwritten)
+			// (and we double that to two seconds to be guaranteed that the backups will have different timestamps)
+			sleep(Duration::from_millis(2000));
+			let _ = super::backup_database(db_path_str, BackupType::Periodic, MAX_PERIODIC_BACKUPS);
+		}
+
+		// Check for periodic backups
+		let periodic_backups: Vec<_> = fs::read_dir(&backup_dir)
+			.expect("Failed to read backup directory")
+			.filter_map(Result::ok)
+			.filter(|entry| {
+				entry
+					.file_name()
+					.to_str()
+					.map(|name| name.contains("periodic"))
+					.unwrap_or(false)
+			})
+			.collect();
+
+		println!(
+			"Periodic backups: {:?}",
+			periodic_backups
+				.iter()
+				.map(|entry| entry.file_name())
+				.collect::<Vec<_>>()
+		);
+
+		assert_eq!(
+			periodic_backups.len(),
+			5,
+			"Should keep exactly 5 periodic backups"
+		);
+	}
 }

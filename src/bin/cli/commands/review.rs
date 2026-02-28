@@ -6,39 +6,39 @@ use crate::output::{self, OutputConfig};
 /// Review management commands
 #[derive(Subcommand, Debug)]
 pub enum ReviewCommands {
-    /// Create a new review for a card
-    Create {
-        /// The card ID to review
-        #[clap(long)]
-        card_id: String,
-        /// The rating (1-4)
-        #[clap(long)]
-        rating: i32,
-    },
+	/// Create a new review for a card
+	Create {
+		/// The card ID to review
+		#[clap(long)]
+		card_id: String,
+		/// The rating (1-4)
+		#[clap(long)]
+		rating: i32,
+	},
 
-    /// List the reviews for a card
-    List {
-        /// The card ID to review
-        #[clap(long)]
-        card_id: String,
-    },
+	/// List the reviews for a card
+	List {
+		/// The card ID to review
+		#[clap(long)]
+		card_id: String,
+	},
 }
 
 /// Executes a review command
 pub async fn execute(
-    client: &HippocampusClient,
-    cmd: ReviewCommands,
-    config: &OutputConfig,
+	client: &HippocampusClient,
+	cmd: ReviewCommands,
+	config: &OutputConfig,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    match cmd {
-        ReviewCommands::Create { card_id, rating } => {
-            let review = client.create_review(&card_id, rating).await?;
-            output::print_review(&review, config);
-        },
-        ReviewCommands::List { card_id } => {
-            let reviews = client.list_reviews_for_card(&card_id).await?;
-            output::print_reviews(&reviews, config);
-        }
-    }
-    Ok(())
+	match cmd {
+		ReviewCommands::Create { card_id, rating } => {
+			let review = client.create_review(&card_id, rating).await?;
+			output::print_review(&review, config);
+		}
+		ReviewCommands::List { card_id } => {
+			let reviews = client.list_reviews_for_card(&card_id).await?;
+			output::print_reviews(&reviews, config);
+		}
+	}
+	Ok(())
 }

@@ -1,9 +1,9 @@
 use axum::{
-    extract::{Path, Query, State},
-    Json,
+	Json,
+	extract::{Path, Query, State},
 };
 use std::sync::Arc;
-use tracing::{instrument, debug, info};
+use tracing::{debug, info, instrument};
 
 use crate::db::DbPool;
 use crate::dto::{CreateCardDto, GetQueryDto, SortPositionAction};
@@ -26,30 +26,30 @@ use crate::repo;
 /// The newly created card as JSON
 #[instrument(skip(pool), fields(item_id = %item_id, card_index = %payload.card_index, priority = %payload.priority))]
 pub async fn create_card_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<DbPool>>,
-    // Extract the item ID from the URL path
-    Path(item_id): Path<String>,
-    // Extract and deserialize the JSON request body
-    Json(payload): Json<CreateCardDto>,
+	// Extract the database pool from the application state
+	State(pool): State<Arc<DbPool>>,
+	// Extract the item ID from the URL path
+	Path(item_id): Path<String>,
+	// Extract and deserialize the JSON request body
+	Json(payload): Json<CreateCardDto>,
 ) -> Result<Json<Card>, ApiError> {
-    info!("Creating new card for item");
-    
-    // First check if the item exists
-    let item = repo::get_item(&pool, &item_id)
-        .map_err(ApiError::Database)?
-        .ok_or(ApiError::NotFound)?;
-    
-    // Call the repository function to create the card
-    let card = repo::create_card(&pool, &item.get_id(), payload.card_index, payload.priority).await
-        .map_err(ApiError::Database)?;
+	info!("Creating new card for item");
 
-    info!("Successfully created card with id: {}", card.get_id());
-    
-    // Return the created card as JSON
-    Ok(Json(card))
+	// First check if the item exists
+	let item = repo::get_item(&pool, &item_id)
+		.map_err(ApiError::Database)?
+		.ok_or(ApiError::NotFound)?;
+
+	// Call the repository function to create the card
+	let card = repo::create_card(&pool, &item.get_id(), payload.card_index, payload.priority)
+		.await
+		.map_err(ApiError::Database)?;
+
+	info!("Successfully created card with id: {}", card.get_id());
+
+	// Return the created card as JSON
+	Ok(Json(card))
 }
-
 
 /// Handler for retrieving a specific card
 ///
@@ -65,40 +65,39 @@ pub async fn create_card_handler(
 /// The requested card as JSON, or null if not found
 #[instrument(skip(pool), fields(card_id = %card_id))]
 pub async fn get_card_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<DbPool>>,
-    // Extract the card ID from the URL path
-    Path(card_id): Path<String>,
-    // Extract query parameters
-    Query(query): Query<GetQueryDto>,
+	// Extract the database pool from the application state
+	State(pool): State<Arc<DbPool>>,
+	// Extract the card ID from the URL path
+	Path(card_id): Path<String>,
+	// Extract query parameters
+	Query(query): Query<GetQueryDto>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    debug!("Getting card");
+	debug!("Getting card");
 
-    // Ensure priority offsets are current
-    repo::ensure_offsets_current(&pool).await
-        .map_err(ApiError::Database)?;
+	// Ensure priority offsets are current
+	repo::ensure_offsets_current(&pool)
+		.await
+		.map_err(ApiError::Database)?;
 
-    // Call the repository function to get the card
-    let card = repo::get_card(&pool, &card_id)
-        .map_err(ApiError::Database)?;
+	// Call the repository function to get the card
+	let card = repo::get_card(&pool, &card_id).map_err(ApiError::Database)?;
 
-    match card {
-        Some(ref card) => {
-            debug!("Card found with id: {}", card.get_id());
-            let json = if query.split_priority.unwrap_or(false) {
-                serde_json::to_value(card).expect("Card serialization should never fail")
-            } else {
-                card.to_json_hide_priority_offset()
-            };
-            Ok(Json(json))
-        }
-        None => {
-            debug!("Card not found");
-            Ok(Json(serde_json::Value::Null))
-        }
-    }
+	match card {
+		Some(ref card) => {
+			debug!("Card found with id: {}", card.get_id());
+			let json = if query.split_priority.unwrap_or(false) {
+				serde_json::to_value(card).expect("Card serialization should never fail")
+			} else {
+				card.to_json_hide_priority_offset()
+			};
+			Ok(Json(json))
+		}
+		None => {
+			debug!("Card not found");
+			Ok(Json(serde_json::Value::Null))
+		}
+	}
 }
-
 
 /// Handler for listing all cards with optional filtering
 ///
@@ -114,36 +113,38 @@ pub async fn get_card_handler(
 /// A list of cards matching the filter criteria as JSON
 #[instrument(skip(pool, query))]
 pub async fn list_cards_handler(
-    // Extract the database connection pool from the application state
-    State(pool): State<Arc<DbPool>>,
-    // Extract and parse query parameters
-    Query(query): Query<GetQueryDto>,
+	// Extract the database connection pool from the application state
+	State(pool): State<Arc<DbPool>>,
+	// Extract and parse query parameters
+	Query(query): Query<GetQueryDto>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    debug!("Listing cards with filters: {:?}", query);
+	debug!("Listing cards with filters: {:?}", query);
 
-    // Ensure priority offsets are current
-    repo::ensure_offsets_current(&pool).await
-        .map_err(ApiError::Database)?;
+	// Ensure priority offsets are current
+	repo::ensure_offsets_current(&pool)
+		.await
+		.map_err(ApiError::Database)?;
 
-    // Call the repository function to list cards with the specified filters
-    let cards = repo::list_cards_with_filters(&pool, &query)
-        .map_err(ApiError::Database)?;
+	// Call the repository function to list cards with the specified filters
+	let cards = repo::list_cards_with_filters(&pool, &query).map_err(ApiError::Database)?;
 
-    info!("Retrieved {} cards", cards.len());
+	info!("Retrieved {} cards", cards.len());
 
-    let split = query.split_priority.unwrap_or(false);
-    let json_cards: Vec<serde_json::Value> = cards.iter().map(|card| {
-        if split {
-            serde_json::to_value(card).expect("Card serialization should never fail")
-        } else {
-            card.to_json_hide_priority_offset()
-        }
-    }).collect();
+	let split = query.split_priority.unwrap_or(false);
+	let json_cards: Vec<serde_json::Value> = cards
+		.iter()
+		.map(|card| {
+			if split {
+				serde_json::to_value(card).expect("Card serialization should never fail")
+			} else {
+				card.to_json_hide_priority_offset()
+			}
+		})
+		.collect();
 
-    // Return the list of cards as JSON
-    Ok(Json(json_cards))
+	// Return the list of cards as JSON
+	Ok(Json(json_cards))
 }
-
 
 /// Handler for listing cards for a specific item
 ///
@@ -159,43 +160,45 @@ pub async fn list_cards_handler(
 /// A list of cards for the specified item as JSON
 #[instrument(skip(pool), fields(item_id = %item_id))]
 pub async fn list_cards_by_item_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<DbPool>>,
-    // Extract the item ID from the URL path
-    Path(item_id): Path<String>,
-    // Extract query parameters
-    Query(query): Query<GetQueryDto>,
+	// Extract the database pool from the application state
+	State(pool): State<Arc<DbPool>>,
+	// Extract the item ID from the URL path
+	Path(item_id): Path<String>,
+	// Extract query parameters
+	Query(query): Query<GetQueryDto>,
 ) -> Result<Json<Vec<serde_json::Value>>, ApiError> {
-    debug!("Listing cards for item");
+	debug!("Listing cards for item");
 
-    // Ensure priority offsets are current
-    repo::ensure_offsets_current(&pool).await
-        .map_err(ApiError::Database)?;
+	// Ensure priority offsets are current
+	repo::ensure_offsets_current(&pool)
+		.await
+		.map_err(ApiError::Database)?;
 
-    // First check if the item exists
-    repo::get_item(&pool, &item_id)
-        .map_err(ApiError::Database)?
-        .ok_or(ApiError::NotFound)?;
+	// First check if the item exists
+	repo::get_item(&pool, &item_id)
+		.map_err(ApiError::Database)?
+		.ok_or(ApiError::NotFound)?;
 
-    // Call the repository function to get all cards for the item
-    let cards = repo::get_cards_for_item(&pool, &item_id)
-        .map_err(ApiError::Database)?;
+	// Call the repository function to get all cards for the item
+	let cards = repo::get_cards_for_item(&pool, &item_id).map_err(ApiError::Database)?;
 
-    info!("Retrieved {} cards for item {}", cards.len(), item_id);
+	info!("Retrieved {} cards for item {}", cards.len(), item_id);
 
-    let split = query.split_priority.unwrap_or(false);
-    let json_cards: Vec<serde_json::Value> = cards.iter().map(|card| {
-        if split {
-            serde_json::to_value(card).expect("Card serialization should never fail")
-        } else {
-            card.to_json_hide_priority_offset()
-        }
-    }).collect();
+	let split = query.split_priority.unwrap_or(false);
+	let json_cards: Vec<serde_json::Value> = cards
+		.iter()
+		.map(|card| {
+			if split {
+				serde_json::to_value(card).expect("Card serialization should never fail")
+			} else {
+				card.to_json_hide_priority_offset()
+			}
+		})
+		.collect();
 
-    // Return the list of cards as JSON
-    Ok(Json(json_cards))
+	// Return the list of cards as JSON
+	Ok(Json(json_cards))
 }
-
 
 /// Handler for updating a card's suspension state
 ///
@@ -212,31 +215,31 @@ pub async fn list_cards_by_item_handler(
 /// The updated card as JSON
 #[instrument(skip(pool), fields(card_id = %id))]
 pub async fn suspend_card_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<DbPool>>,
-    // Extract the card ID from the URL path
-    Path(id): Path<String>,
-    // Extract and deserialize the JSON request body
-    Json(payload): Json<bool>,
+	// Extract the database pool from the application state
+	State(pool): State<Arc<DbPool>>,
+	// Extract the card ID from the URL path
+	Path(id): Path<String>,
+	// Extract and deserialize the JSON request body
+	Json(payload): Json<bool>,
 ) -> Result<(), ApiError> {
-    if payload {
-        debug!("Suspending card");
-    } else {
-        debug!("Resuming card");
-    }
+	if payload {
+		debug!("Suspending card");
+	} else {
+		debug!("Resuming card");
+	}
 
-    repo::set_card_suspended(&pool, &id, payload).await
-        .map_err(ApiError::Database)?;
+	repo::set_card_suspended(&pool, &id, payload)
+		.await
+		.map_err(ApiError::Database)?;
 
-    if payload {
-        info!("Successfully suspended card");
-    } else {
-        info!("Successfully resumed card");
-    }
+	if payload {
+		info!("Successfully suspended card");
+	} else {
+		info!("Successfully resumed card");
+	}
 
-    Ok(())
+	Ok(())
 }
-
 
 /// Handler for updating a card's priority
 ///
@@ -253,35 +256,38 @@ pub async fn suspend_card_handler(
 /// The updated card as JSON
 #[instrument(skip(pool), fields(card_id = %id, priority = %priority))]
 pub async fn update_card_priority_handler(
-    // Extract the database pool from the application state
-    State(pool): State<Arc<DbPool>>,
-    // Extract the card ID from the URL path
-    Path(id): Path<String>,
-    // Extract and deserialize the JSON request body
-    Json(priority): Json<f32>,
+	// Extract the database pool from the application state
+	State(pool): State<Arc<DbPool>>,
+	// Extract the card ID from the URL path
+	Path(id): Path<String>,
+	// Extract and deserialize the JSON request body
+	Json(priority): Json<f32>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    info!("Updating card priority");
+	info!("Updating card priority");
 
-    // Check if the priority is valid
-    if priority < 0.0 || priority > 1.0 {
-        return Err(ApiError::InvalidPriority(format!("Priority must be between 0 and 1, got {}", priority)));
-    }
+	// Check if the priority is valid
+	if priority < 0.0 || priority > 1.0 {
+		return Err(ApiError::InvalidPriority(format!(
+			"Priority must be between 0 and 1, got {}",
+			priority
+		)));
+	}
 
-    // Check if the card exists
-    let _card = repo::get_card(&pool, &id)
-        .map_err(ApiError::Database)?
-        .ok_or(ApiError::NotFound)?;
+	// Check if the card exists
+	let _card = repo::get_card(&pool, &id)
+		.map_err(ApiError::Database)?
+		.ok_or(ApiError::NotFound)?;
 
-    // Call the repository function to update the card's priority (also resets priority_offset to 0)
-    let card = repo::update_card_priority(&pool, &id, priority).await
-        .map_err(ApiError::Database)?;
+	// Call the repository function to update the card's priority (also resets priority_offset to 0)
+	let card = repo::update_card_priority(&pool, &id, priority)
+		.await
+		.map_err(ApiError::Database)?;
 
-    info!("Successfully updated card priority to {}", priority);
+	info!("Successfully updated card priority to {}", priority);
 
-    // Return the updated card as JSON with hidden priority offset
-    Ok(Json(card.to_json_hide_priority_offset()))
+	// Return the updated card as JSON with hidden priority offset
+	Ok(Json(card.to_json_hide_priority_offset()))
 }
-
 
 /// Handler for setting a card's sort position
 ///
@@ -298,31 +304,31 @@ pub async fn update_card_priority_handler(
 /// The updated card as JSON
 #[instrument(skip(pool), fields(card_id = %card_id))]
 pub async fn set_sort_position_handler(
-    State(pool): State<Arc<DbPool>>,
-    Path(card_id): Path<String>,
-    Json(payload): Json<SortPositionAction>,
+	State(pool): State<Arc<DbPool>>,
+	Path(card_id): Path<String>,
+	Json(payload): Json<SortPositionAction>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    info!("Setting card sort position");
+	info!("Setting card sort position");
 
-    let card = match payload {
-        SortPositionAction::Top => {
-            repo::move_card_to_top(&pool, &card_id).await
-                .map_err(ApiError::Database)?
-        }
-        SortPositionAction::Before { card_id: target_id } => {
-            repo::move_card_relative(&pool, &card_id, &target_id, true).await
-                .map_err(ApiError::Database)?
-        }
-        SortPositionAction::After { card_id: target_id } => {
-            repo::move_card_relative(&pool, &card_id, &target_id, false).await
-                .map_err(ApiError::Database)?
-        }
-    };
+	let card = match payload {
+		SortPositionAction::Top => repo::move_card_to_top(&pool, &card_id)
+			.await
+			.map_err(ApiError::Database)?,
+		SortPositionAction::Before { card_id: target_id } => {
+			repo::move_card_relative(&pool, &card_id, &target_id, true)
+				.await
+				.map_err(ApiError::Database)?
+		}
+		SortPositionAction::After { card_id: target_id } => {
+			repo::move_card_relative(&pool, &card_id, &target_id, false)
+				.await
+				.map_err(ApiError::Database)?
+		}
+	};
 
-    info!("Successfully set sort position for card {}", card_id);
-    Ok(Json(card.to_json_hide_priority_offset()))
+	info!("Successfully set sort position for card {}", card_id);
+	Ok(Json(card.to_json_hide_priority_offset()))
 }
-
 
 /// Handler for clearing a single card's sort position
 ///
@@ -338,18 +344,18 @@ pub async fn set_sort_position_handler(
 /// An empty successful response
 #[instrument(skip(pool), fields(card_id = %card_id))]
 pub async fn clear_card_sort_position_handler(
-    State(pool): State<Arc<DbPool>>,
-    Path(card_id): Path<String>,
+	State(pool): State<Arc<DbPool>>,
+	Path(card_id): Path<String>,
 ) -> Result<(), ApiError> {
-    info!("Clearing card sort position");
+	info!("Clearing card sort position");
 
-    repo::clear_card_sort_position(&pool, &card_id).await
-        .map_err(ApiError::Database)?;
+	repo::clear_card_sort_position(&pool, &card_id)
+		.await
+		.map_err(ApiError::Database)?;
 
-    info!("Successfully cleared sort position for card {}", card_id);
-    Ok(())
+	info!("Successfully cleared sort position for card {}", card_id);
+	Ok(())
 }
-
 
 /// Handler for clearing all sort positions
 ///
@@ -365,370 +371,433 @@ pub async fn clear_card_sort_position_handler(
 /// An empty successful response
 #[instrument(skip(pool))]
 pub async fn clear_sort_positions_handler(
-    State(pool): State<Arc<DbPool>>,
-    Query(query): Query<GetQueryDto>,
+	State(pool): State<Arc<DbPool>>,
+	Query(query): Query<GetQueryDto>,
 ) -> Result<(), ApiError> {
-    info!("Clearing sort positions with filters: {:?}", query);
+	info!("Clearing sort positions with filters: {:?}", query);
 
-    repo::clear_sort_positions(&pool, &query).await
-        .map_err(ApiError::Database)?;
+	repo::clear_sort_positions(&pool, &query)
+		.await
+		.map_err(ApiError::Database)?;
 
-    info!("Successfully cleared sort positions");
-    Ok(())
+	info!("Successfully cleared sort positions");
+	Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_utils::*;
-    use crate::repo;
-    use serde_json::json;
-    
-    #[tokio::test]
-    async fn test_create_card_handler() {
-        let pool = setup_test_db();
-        
-        // First create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
-        
-        // Then create an item of that type
-        let item = repo::create_item(
-            &pool,
-            &item_type.get_id(),
-            "Test Item".to_string(),
-            json!({"front": "Hello", "back": "World"}),
-        ).await.unwrap();
-        
-        // Create a payload for the card
-        let payload = CreateCardDto {
-            card_index: 3,
-            priority: 0.5,
-        };
-        
-        // Call the handler
-        let result = create_card_handler(
-            State(pool.clone()),
-            Path(item.get_id()),
-            Json(payload),
-        ).await.unwrap();
-        
-        // Check the result
-        let card = result.0;
-        assert_eq!(card.get_item_id(), item.get_id());
-        assert_eq!(card.get_card_index(), 3);
-    }
-    
+	use super::*;
+	use crate::repo;
+	use crate::test_utils::*;
+	use serde_json::json;
 
-    #[tokio::test]
-    async fn test_create_card_handler_not_found() {
-        let pool = setup_test_db();
-        
-        // Create a payload for the card
-        let payload = CreateCardDto {
-            card_index: 1,
-            priority: 0.5,
-        };
-        
-        // Call the handler with a non-existent item ID
-        let result = create_card_handler(
-            State(pool.clone()),
-            Path("nonexistent".to_string()),
-            Json(payload),
-        ).await;
-        
-        // Check that we got a NotFound error
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ApiError::NotFound));
-    }
-    
-    #[tokio::test]
-    async fn test_get_card_handler() {
-        let pool = setup_test_db();
-        
-        // First create an item type
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
-        
-        // Then create an item of that type
-        let item = repo::create_item(
-            &pool,
-            &item_type.get_id(),
-            "Test Item".to_string(),
-            json!({"front": "Hello", "back": "World"}),
-        ).await.unwrap();
-        
-        // Create a card for the item
-        let card = repo::create_card(&pool, &item.get_id(), 3, 0.5).await.unwrap();
-        
-        // Call the handler
-        let result = get_card_handler(
-            State(pool.clone()),
-            Path(card.get_id()),
-            Query(GetQueryDto::default()),
-        ).await.unwrap();
+	#[tokio::test]
+	async fn test_create_card_handler() {
+		let pool = setup_test_db();
 
-        // Check the result
-        let retrieved_card = &result.0;
-        assert!(!retrieved_card.is_null());
-        assert_eq!(retrieved_card["id"], card.get_id());
-        assert_eq!(retrieved_card["item_id"], item.get_id());
-    }
+		// First create an item type
+		let item_type =
+			repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
 
-    #[tokio::test]
-    async fn test_get_card_handler_not_found() {
-        let pool = setup_test_db();
+		// Then create an item of that type
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Test Item".to_string(),
+			json!({"front": "Hello", "back": "World"}),
+		)
+		.await
+		.unwrap();
 
-        // Call the handler with a non-existent card ID
-        let result = get_card_handler(
-            State(pool.clone()),
-            Path("nonexistent".to_string()),
-            Query(GetQueryDto::default()),
-        ).await.unwrap();
+		// Create a payload for the card
+		let payload = CreateCardDto {
+			card_index: 3,
+			priority: 0.5,
+		};
 
-        // Check that we got None
-        assert!(result.0.is_null());
-    }
-    
-    #[tokio::test]
-    async fn test_list_cards_handler() {
-        let pool = setup_test_db();
-        
-        // Set up some test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
-        let item = repo::create_item(
-            &pool,
-            &item_type.get_id(),
-            "Test Item".to_string(),
-            json!({"front": "Hello", "back": "World"}),
-        ).await.unwrap();
-        
-        // Create some cards
-        let card1 = repo::create_card(&pool, &item.get_id(), 3, 0.5).await.unwrap();
-        let card2 = repo::create_card(&pool, &item.get_id(), 4, 0.5).await.unwrap();
-        
-        // Call the handler with no filters
-        let result = list_cards_handler(
-            State(pool.clone()),
-            Query(GetQueryDto::default()),
-        ).await.unwrap();
-        
-        // Check the result
-        let cards = result.0;
-        assert_eq!(cards.len(), 4);
-        assert!(cards.iter().any(|c| c["id"] == card1.get_id()));
-        assert!(cards.iter().any(|c| c["id"] == card2.get_id()));
-    }
-    
-    #[tokio::test]
-    async fn test_list_cards_by_item_handler() {
-        let pool = setup_test_db();
-        
-        // Set up some test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
-        let item1 = repo::create_item(
-            &pool,
-            &item_type.get_id(),
-            "Item 1".to_string(),
-            json!({"front": "Hello", "back": "World"}),
-        ).await.unwrap();
-        
-        let item2 = repo::create_item(
-            &pool,
-            &item_type.get_id(),
-            "Item 2".to_string(),
-            json!({"front": "Goodbye", "back": "World"}),
-        ).await.unwrap();
-        
-        // Create cards for the items
-        let card1 = repo::create_card(&pool, &item1.get_id(), 3, 0.5).await.unwrap();
-        let card2 = repo::create_card(&pool, &item2.get_id(), 3, 0.5).await.unwrap();
-        
-        // Call the handler
-        let result = list_cards_by_item_handler(
-            State(pool.clone()),
-            Path(item1.get_id()),
-            Query(GetQueryDto::default()),
-        ).await.unwrap();
+		// Call the handler
+		let result = create_card_handler(State(pool.clone()), Path(item.get_id()), Json(payload))
+			.await
+			.unwrap();
 
-        // Check the result
-        let cards = result.0;
-        assert_eq!(cards.len(), 3);
-        assert!(cards.iter().any(|c| c["id"] == card1.get_id()), "item 1's cards not found in list");
-        assert!(!cards.iter().any(|c| c["id"] == card2.get_id()), "item 2's cards found in list");
-    }
+		// Check the result
+		let card = result.0;
+		assert_eq!(card.get_item_id(), item.get_id());
+		assert_eq!(card.get_card_index(), 3);
+	}
 
+	#[tokio::test]
+	async fn test_create_card_handler_not_found() {
+		let pool = setup_test_db();
 
-    #[tokio::test]
-    async fn test_list_cards_by_item_handler_not_found() {
-        let pool = setup_test_db();
+		// Create a payload for the card
+		let payload = CreateCardDto {
+			card_index: 1,
+			priority: 0.5,
+		};
 
-        // Call the handler with a non-existent item ID
-        let result = list_cards_by_item_handler(
-            State(pool.clone()),
-            Path("nonexistent".to_string()),
-            Query(GetQueryDto::default()),
-        ).await;
-        
-        // Check that we got a NotFound error
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ApiError::NotFound));
-    }
+		// Call the handler with a non-existent item ID
+		let result = create_card_handler(
+			State(pool.clone()),
+			Path("nonexistent".to_string()),
+			Json(payload),
+		)
+		.await;
 
+		// Check that we got a NotFound error
+		assert!(result.is_err());
+		assert!(matches!(result.unwrap_err(), ApiError::NotFound));
+	}
 
-    #[tokio::test]
-    async fn test_update_card_priority_handler_success() {
-        let pool = setup_test_db();
-        
-        // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
-        let item = repo::create_item(
-            &pool,
-            &item_type.get_id(),
-            "Test Item".to_string(),
-            json!({"front": "Hello", "back": "World"}),
-        ).await.unwrap();
-        
-        // Create a card with initial priority
-        let initial_priority = 0.5;
-        let card = repo::create_card(&pool, &item.get_id(), 2, initial_priority).await.unwrap();
-        
-        // Update the card's priority
-        let new_priority = 0.8;
-        let payload = new_priority;
-        
-        let result = update_card_priority_handler(
-            State(pool.clone()),
-            Path(card.get_id()),
-            Json(payload),
-        ).await.unwrap();
-        
-        // Check the result
-        let updated_card = &result.0;
-        assert!((updated_card["priority"].as_f64().unwrap() as f32 - new_priority).abs() < 0.0001, "Priority not updated correctly, should be {}, but is {}", new_priority, updated_card["priority"]);
-    }
-    
+	#[tokio::test]
+	async fn test_get_card_handler() {
+		let pool = setup_test_db();
 
-    #[tokio::test]
-    async fn test_update_card_priority_handler_boundary_values() {
-        let pool = setup_test_db();
-        
-        // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
-        let item = repo::create_item(
-            &pool,
-            &item_type.get_id(),
-            "Test Item".to_string(),
-            json!({"front": "Hello", "back": "World"}),
-        ).await.unwrap();
-        
-        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).await.unwrap();
-        
-        // Test minimum valid priority (0.0)
-        let min_priority = 0.0;
-        let payload = min_priority;
-        
-        let result = update_card_priority_handler(
-            State(pool.clone()),
-            Path(card.get_id()),
-            Json(payload),
-        ).await.unwrap();
-        
-        let updated_card = &result.0;
-        assert!((updated_card["priority"].as_f64().unwrap() as f32 - min_priority).abs() < 0.0001);
+		// First create an item type
+		let item_type =
+			repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
 
-        // Test maximum valid priority (1.0)
-        let max_priority = 1.0;
-        let payload = max_priority;
+		// Then create an item of that type
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Test Item".to_string(),
+			json!({"front": "Hello", "back": "World"}),
+		)
+		.await
+		.unwrap();
 
-        let result = update_card_priority_handler(
-            State(pool.clone()),
-            Path(card.get_id()),
-            Json(payload),
-        ).await.unwrap();
+		// Create a card for the item
+		let card = repo::create_card(&pool, &item.get_id(), 3, 0.5)
+			.await
+			.unwrap();
 
-        let updated_card = &result.0;
-        assert!((updated_card["priority"].as_f64().unwrap() as f32 - max_priority).abs() < 0.0001);
-    }
-    
+		// Call the handler
+		let result = get_card_handler(
+			State(pool.clone()),
+			Path(card.get_id()),
+			Query(GetQueryDto::default()),
+		)
+		.await
+		.unwrap();
 
-    #[tokio::test]
-    async fn test_update_card_priority_handler_invalid_priority_too_low() {
-        let pool = setup_test_db();
-        
-        // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
-        let item = repo::create_item(
-            &pool,
-            &item_type.get_id(),
-            "Test Item".to_string(),
-            json!({"front": "Hello", "back": "World"}),
-        ).await.unwrap();
-        
-        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).await.unwrap();
-        
-        // Test priority below valid range
-        let below_min_priority = -0.1;
-        let payload = below_min_priority;
-        
-        let result = update_card_priority_handler(
-            State(pool.clone()),
-            Path(card.get_id()),
-            Json(payload),
-        ).await;
-        
-        // Should return an error
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ApiError::InvalidPriority(_)));
-    }
-    
+		// Check the result
+		let retrieved_card = &result.0;
+		assert!(!retrieved_card.is_null());
+		assert_eq!(retrieved_card["id"], card.get_id());
+		assert_eq!(retrieved_card["item_id"], item.get_id());
+	}
 
-    #[tokio::test]
-    async fn test_update_card_priority_handler_invalid_priority_too_high() {
-        let pool = setup_test_db();
-        
-        // Create test data
-        let item_type = repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string()).await.unwrap();
-        let item = repo::create_item(
-            &pool,
-            &item_type.get_id(),
-            "Test Item".to_string(),
-            json!({"front": "Hello", "back": "World"}),
-        ).await.unwrap();
-        
-        let card = repo::create_card(&pool, &item.get_id(), 2, 0.5).await.unwrap();
-        
-        // Test priority above valid range
-        let above_max_priority = 1.1;
-        let payload = above_max_priority;
-        
-        let result = update_card_priority_handler(
-            State(pool.clone()),
-            Path(card.get_id()),
-            Json(payload),
-        ).await;
-        
-        // Should return an error
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ApiError::InvalidPriority(_)));
-    }
-    
-    
-    #[tokio::test]
-    async fn test_update_card_priority_handler_nonexistent_card() {
-        let pool = setup_test_db();
-        
-        // Try to update a card that doesn't exist
-        let nonexistent_card_id = "00000000-0000-0000-0000-000000000000";
-        let payload = 0.5;
-        
-        let result = update_card_priority_handler(
-            State(pool.clone()),
-            Path(nonexistent_card_id.to_string()),
-            Json(payload),
-        ).await;
-        
-        // Should return an error
-        assert!(result.is_err());
-        assert!(matches!(result.unwrap_err(), ApiError::NotFound));
-    }
+	#[tokio::test]
+	async fn test_get_card_handler_not_found() {
+		let pool = setup_test_db();
+
+		// Call the handler with a non-existent card ID
+		let result = get_card_handler(
+			State(pool.clone()),
+			Path("nonexistent".to_string()),
+			Query(GetQueryDto::default()),
+		)
+		.await
+		.unwrap();
+
+		// Check that we got None
+		assert!(result.0.is_null());
+	}
+
+	#[tokio::test]
+	async fn test_list_cards_handler() {
+		let pool = setup_test_db();
+
+		// Set up some test data
+		let item_type =
+			repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Test Item".to_string(),
+			json!({"front": "Hello", "back": "World"}),
+		)
+		.await
+		.unwrap();
+
+		// Create some cards
+		let card1 = repo::create_card(&pool, &item.get_id(), 3, 0.5)
+			.await
+			.unwrap();
+		let card2 = repo::create_card(&pool, &item.get_id(), 4, 0.5)
+			.await
+			.unwrap();
+
+		// Call the handler with no filters
+		let result = list_cards_handler(State(pool.clone()), Query(GetQueryDto::default()))
+			.await
+			.unwrap();
+
+		// Check the result
+		let cards = result.0;
+		assert_eq!(cards.len(), 4);
+		assert!(cards.iter().any(|c| c["id"] == card1.get_id()));
+		assert!(cards.iter().any(|c| c["id"] == card2.get_id()));
+	}
+
+	#[tokio::test]
+	async fn test_list_cards_by_item_handler() {
+		let pool = setup_test_db();
+
+		// Set up some test data
+		let item_type =
+			repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+		let item1 = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Item 1".to_string(),
+			json!({"front": "Hello", "back": "World"}),
+		)
+		.await
+		.unwrap();
+
+		let item2 = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Item 2".to_string(),
+			json!({"front": "Goodbye", "back": "World"}),
+		)
+		.await
+		.unwrap();
+
+		// Create cards for the items
+		let card1 = repo::create_card(&pool, &item1.get_id(), 3, 0.5)
+			.await
+			.unwrap();
+		let card2 = repo::create_card(&pool, &item2.get_id(), 3, 0.5)
+			.await
+			.unwrap();
+
+		// Call the handler
+		let result = list_cards_by_item_handler(
+			State(pool.clone()),
+			Path(item1.get_id()),
+			Query(GetQueryDto::default()),
+		)
+		.await
+		.unwrap();
+
+		// Check the result
+		let cards = result.0;
+		assert_eq!(cards.len(), 3);
+		assert!(
+			cards.iter().any(|c| c["id"] == card1.get_id()),
+			"item 1's cards not found in list"
+		);
+		assert!(
+			!cards.iter().any(|c| c["id"] == card2.get_id()),
+			"item 2's cards found in list"
+		);
+	}
+
+	#[tokio::test]
+	async fn test_list_cards_by_item_handler_not_found() {
+		let pool = setup_test_db();
+
+		// Call the handler with a non-existent item ID
+		let result = list_cards_by_item_handler(
+			State(pool.clone()),
+			Path("nonexistent".to_string()),
+			Query(GetQueryDto::default()),
+		)
+		.await;
+
+		// Check that we got a NotFound error
+		assert!(result.is_err());
+		assert!(matches!(result.unwrap_err(), ApiError::NotFound));
+	}
+
+	#[tokio::test]
+	async fn test_update_card_priority_handler_success() {
+		let pool = setup_test_db();
+
+		// Create test data
+		let item_type =
+			repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Test Item".to_string(),
+			json!({"front": "Hello", "back": "World"}),
+		)
+		.await
+		.unwrap();
+
+		// Create a card with initial priority
+		let initial_priority = 0.5;
+		let card = repo::create_card(&pool, &item.get_id(), 2, initial_priority)
+			.await
+			.unwrap();
+
+		// Update the card's priority
+		let new_priority = 0.8;
+		let payload = new_priority;
+
+		let result =
+			update_card_priority_handler(State(pool.clone()), Path(card.get_id()), Json(payload))
+				.await
+				.unwrap();
+
+		// Check the result
+		let updated_card = &result.0;
+		assert!(
+			(updated_card["priority"].as_f64().unwrap() as f32 - new_priority).abs() < 0.0001,
+			"Priority not updated correctly, should be {}, but is {}",
+			new_priority,
+			updated_card["priority"]
+		);
+	}
+
+	#[tokio::test]
+	async fn test_update_card_priority_handler_boundary_values() {
+		let pool = setup_test_db();
+
+		// Create test data
+		let item_type =
+			repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Test Item".to_string(),
+			json!({"front": "Hello", "back": "World"}),
+		)
+		.await
+		.unwrap();
+
+		let card = repo::create_card(&pool, &item.get_id(), 2, 0.5)
+			.await
+			.unwrap();
+
+		// Test minimum valid priority (0.0)
+		let min_priority = 0.0;
+		let payload = min_priority;
+
+		let result =
+			update_card_priority_handler(State(pool.clone()), Path(card.get_id()), Json(payload))
+				.await
+				.unwrap();
+
+		let updated_card = &result.0;
+		assert!((updated_card["priority"].as_f64().unwrap() as f32 - min_priority).abs() < 0.0001);
+
+		// Test maximum valid priority (1.0)
+		let max_priority = 1.0;
+		let payload = max_priority;
+
+		let result =
+			update_card_priority_handler(State(pool.clone()), Path(card.get_id()), Json(payload))
+				.await
+				.unwrap();
+
+		let updated_card = &result.0;
+		assert!((updated_card["priority"].as_f64().unwrap() as f32 - max_priority).abs() < 0.0001);
+	}
+
+	#[tokio::test]
+	async fn test_update_card_priority_handler_invalid_priority_too_low() {
+		let pool = setup_test_db();
+
+		// Create test data
+		let item_type =
+			repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Test Item".to_string(),
+			json!({"front": "Hello", "back": "World"}),
+		)
+		.await
+		.unwrap();
+
+		let card = repo::create_card(&pool, &item.get_id(), 2, 0.5)
+			.await
+			.unwrap();
+
+		// Test priority below valid range
+		let below_min_priority = -0.1;
+		let payload = below_min_priority;
+
+		let result =
+			update_card_priority_handler(State(pool.clone()), Path(card.get_id()), Json(payload))
+				.await;
+
+		// Should return an error
+		assert!(result.is_err());
+		assert!(matches!(result.unwrap_err(), ApiError::InvalidPriority(_)));
+	}
+
+	#[tokio::test]
+	async fn test_update_card_priority_handler_invalid_priority_too_high() {
+		let pool = setup_test_db();
+
+		// Create test data
+		let item_type =
+			repo::create_item_type(&pool, "Test Type 1".to_string(), "fsrs".to_string())
+				.await
+				.unwrap();
+		let item = repo::create_item(
+			&pool,
+			&item_type.get_id(),
+			"Test Item".to_string(),
+			json!({"front": "Hello", "back": "World"}),
+		)
+		.await
+		.unwrap();
+
+		let card = repo::create_card(&pool, &item.get_id(), 2, 0.5)
+			.await
+			.unwrap();
+
+		// Test priority above valid range
+		let above_max_priority = 1.1;
+		let payload = above_max_priority;
+
+		let result =
+			update_card_priority_handler(State(pool.clone()), Path(card.get_id()), Json(payload))
+				.await;
+
+		// Should return an error
+		assert!(result.is_err());
+		assert!(matches!(result.unwrap_err(), ApiError::InvalidPriority(_)));
+	}
+
+	#[tokio::test]
+	async fn test_update_card_priority_handler_nonexistent_card() {
+		let pool = setup_test_db();
+
+		// Try to update a card that doesn't exist
+		let nonexistent_card_id = "00000000-0000-0000-0000-000000000000";
+		let payload = 0.5;
+
+		let result = update_card_priority_handler(
+			State(pool.clone()),
+			Path(nonexistent_card_id.to_string()),
+			Json(payload),
+		)
+		.await;
+
+		// Should return an error
+		assert!(result.is_err());
+		assert!(matches!(result.unwrap_err(), ApiError::NotFound));
+	}
 }
