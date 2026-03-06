@@ -118,8 +118,17 @@ pub async fn list_reviews_by_card_handler(
 ) -> Result<Json<Vec<Review>>, ApiError> {
 	debug!("Listing reviews for card");
 
-	// First check if the card exists
-	let card = repo::get_card(&pool, &card_id)
+	// Bare-DB read — we only need existence, not `card_data`, so paying for
+	// the chain-recompute in `get_card` would be wasted work on every
+	// list-reviews call.
+	//
+	// TODO: Push "check X exists or return NotFound" into the repo functions
+	// themselves. Today this pattern is repeated across handlers
+	// (`list_cards_by_item_handler`, `list_tags_for_card`, etc.); each pre-check
+	// is a separate query that `get_reviews_for_card` / the repo function
+	// could fold into its own transaction, closing a TOCTOU window at the
+	// same time.
+	let card = repo::get_card_raw(&pool, &card_id)
 		.map_err(ApiError::Database)?
 		.ok_or(ApiError::NotFound)?;
 

@@ -30,3 +30,6 @@ pub use review::Review;
 
 mod item_relation;
 pub use item_relation::ItemRelation;
+
+mod card_fetched_event;
+pub use card_fetched_event::CardFetchedEvent;

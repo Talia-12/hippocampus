@@ -102,8 +102,9 @@ pub fn get_tag(pool: &DbPool, tag_id: &TagId) -> Result<Tag> {
 pub fn list_tags_for_card(pool: &DbPool, card_id: &CardId) -> Result<Vec<Tag>> {
 	debug!("Listing tags for card");
 
-	// Get the card to find its item_id
-	let card = super::get_card(pool, card_id)?.ok_or_else(|| anyhow!("Card not found"))?;
+	// Get the card to find its item_id. We only need the item_id, so the
+	// bare DB read is enough — no need to pay for a cache ensure here.
+	let card = super::get_card_raw(pool, card_id)?.ok_or_else(|| anyhow!("Card not found"))?;
 
 	debug!(
 		"Card found, looking for tags on item: {}",

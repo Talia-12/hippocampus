@@ -1,6 +1,14 @@
 // @generated automatically by Diesel CLI.
 
 diesel::table! {
+	card_fetched_events (item_type_id, order_index) {
+		item_type_id -> Text,
+		order_index -> Integer,
+		function_name -> Text,
+	}
+}
+
+diesel::table! {
 	cards (id) {
 		id -> Text,
 		item_id -> Text,
@@ -12,6 +20,9 @@ diesel::table! {
 		suspended -> Nullable<Timestamp>,
 		sort_position -> Float,
 		priority_offset -> Float,
+		card_data -> Nullable<Text>,
+		updated_at -> Timestamp,
+		cache_updated_at -> Nullable<Timestamp>,
 	}
 }
 
@@ -38,6 +49,7 @@ diesel::table! {
 		name -> Text,
 		created_at -> Timestamp,
 		review_function -> Text,
+		updated_at -> Timestamp,
 	}
 }
 
@@ -77,6 +89,7 @@ diesel::table! {
 	}
 }
 
+diesel::joinable!(card_fetched_events -> item_types (item_type_id));
 diesel::joinable!(cards -> items (item_id));
 diesel::joinable!(item_tags -> items (item_id));
 diesel::joinable!(item_tags -> tags (tag_id));
@@ -84,6 +97,7 @@ diesel::joinable!(items -> item_types (item_type));
 diesel::joinable!(reviews -> cards (card_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
+	card_fetched_events,
 	cards,
 	item_relations,
 	item_tags,

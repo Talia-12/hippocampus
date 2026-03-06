@@ -86,6 +86,12 @@ pub mod dto;
 
 pub mod config;
 
+/// Card event registry for card fetched event functions
+pub mod card_event_registry;
+
+/// Time helpers (precision-matched to SQLite's `strftime('...%f', 'now')`)
+pub mod time_utils;
+
 use axum::{
 	Router,
 	routing::{delete, get, patch, post},
@@ -137,6 +143,15 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
 		.route(
 			"/item_types/{item_type_id}/items",
 			get(handlers::list_items_by_item_type_handler),
+		)
+		.route(
+			"/item_types/{item_type_id}/card_fetched_events",
+			post(handlers::create_card_fetched_event_handler)
+				.get(handlers::list_card_fetched_events_handler),
+		)
+		.route(
+			"/item_types/{item_type_id}/card_fetched_events/{function_name}",
+			delete(handlers::delete_card_fetched_event_handler),
 		)
 		// Routes for items
 		.route(
@@ -928,7 +943,7 @@ mod tests {
 		assert!(review["id"].is_string());
 
 		// Check that the item was updated with review information
-		let updated_card = repo::get_card(&pool, &card.get_id()).unwrap().unwrap();
+		let updated_card = repo::get_card(&pool, &card.get_id()).await.unwrap().unwrap();
 		assert!(updated_card.get_last_review().is_some());
 		assert!(updated_card.get_next_review() > Utc::now());
 	}

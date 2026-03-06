@@ -1,5 +1,7 @@
+use crate::card_event_registry::CardEventChainError;
 use crate::db::{DbPool, ExecuteWithRetry};
 use crate::models::{Card, CardId, Item, ItemId};
+use crate::repo::card_cache::{self, CacheScope, EnsureCacheError};
 use crate::schema::{cards, item_tags, metadata};
 use crate::{GetQueryDto, SuspendedFilter};
 use anyhow::{Result, anyhow};
@@ -140,25 +142,17 @@ pub async fn create_card(
 	Ok(new_card)
 }
 
-/// Retrieves a card from the database by its ID
+/// Bare-DB fetch of a card by id — no cache ensure pass.
 ///
-/// ### Arguments
-///
-/// * `pool` - A reference to the database connection pool
-/// * `card_id` - The ID of the card to retrieve
-///
-/// ### Returns
-///
-/// A Result containing an Option with the Card if found, or None if not found
-///
-/// ### Errors
-///
-/// Returns an error if:
-/// - Unable to get a connection from the pool
-/// - The database query fails for reasons other than the card not existing
+/// Used inside the repo (existence checks, post-mutate shortcuts, and the
+/// cache module itself, which MUST NOT recurse into its own invalidation
+/// path). Exposed publicly so handlers that only need existence / metadata
+/// (e.g. the reviews listing) can skip the chain-recompute cost of
+/// `get_card`. Handlers that return `card_data` to the client must still use
+/// `get_card`.
 #[instrument(skip(pool), fields(card_id = %card_id))]
-pub fn get_card(pool: &DbPool, card_id: &CardId) -> Result<Option<Card>> {
-	debug!("Retrieving card by id");
+pub fn get_card_raw(pool: &DbPool, card_id: &CardId) -> Result<Option<Card>> {
+	debug!("Retrieving card by id (raw)");
 
 	let conn = &mut pool.get()?;
 
@@ -173,22 +167,79 @@ pub fn get_card(pool: &DbPool, card_id: &CardId) -> Result<Option<Card>> {
 	Ok(result)
 }
 
-/// Lists all cards in the database with optional filtering
+/// Error surface for the cache-aware card read path.
+///
+/// Typed so the HTTP layer can distinguish a registry/data misconfiguration
+/// (`EventChain`) from a plain database failure (`Other`) and surface a
+/// clear error to the client instead of collapsing everything to 500.
+/// Internal callers that just want `anyhow::Result` get automatic
+/// conversion via the `thiserror`-derived `std::error::Error` impl.
+#[derive(Debug, thiserror::Error)]
+pub enum CardFetchError {
+	/// The event chain for this card failed. In practice this is either a
+	/// registry/DB drift (DB references a function name that isn't in the
+	/// in-memory registry) or a registered function that errored out.
+	#[error(transparent)]
+	EventChain(CardEventChainError),
+	/// Anything else — connection pool, Diesel, serialization. Collapsed
+	/// into `anyhow::Error` because there's nothing the client can do about
+	/// any of these.
+	#[error(transparent)]
+	Other(#[from] anyhow::Error),
+}
+
+impl From<EnsureCacheError> for CardFetchError {
+	fn from(e: EnsureCacheError) -> Self {
+		match e {
+			EnsureCacheError::EventChain(ch) => CardFetchError::EventChain(ch),
+			EnsureCacheError::Database(de) => CardFetchError::Other(anyhow::Error::from(de)),
+			EnsureCacheError::Other(ae) => CardFetchError::Other(ae),
+		}
+	}
+}
+
+impl From<diesel::result::Error> for CardFetchError {
+	fn from(e: diesel::result::Error) -> Self {
+		CardFetchError::Other(anyhow::Error::from(e))
+	}
+}
+
+/// Retrieves a card by id, ensuring its `card_data` cache is fresh.
+///
+/// This is the canonical read path. The cache-ensure + row load happen
+/// inside a single `immediate_transaction` on one pooled connection, so
+/// the returned card's `card_data` is exactly what the ensure pass
+/// computed (or what was already on disk, if the cache was fresh). No
+/// concurrent writer can slip between the ensure pass and the read.
+///
+/// This replaces the old `get_card_with_cache`, which stitched together
+/// three separate pool connections to load (card, item, item_type) and
+/// could therefore see an inconsistent snapshot across them.
 ///
 /// ### Arguments
 ///
 /// * `pool` - A reference to the database connection pool
-/// * `query` - Optional filters for the cards
+/// * `card_id` - The ID of the card to retrieve
 ///
 /// ### Returns
 ///
-/// A Result containing a vector of Cards matching the filters
+/// `Ok(Some(card))` — the card with fresh `card_data`.
+/// `Ok(None)` — no card exists with that id.
+/// `Err(CardFetchError::EventChain(_))` — the DB references a card event
+/// function that's no longer in the registry, or a registered function
+/// errored out. Server-side inconsistency; surface to the client.
+/// `Err(CardFetchError::Other(_))` — anything else (pool, Diesel, etc).
+#[instrument(skip(pool), fields(card_id = %card_id))]
+pub async fn get_card(pool: &DbPool, card_id: &CardId) -> Result<Option<Card>, CardFetchError> {
+	Ok(card_cache::ensure_and_read_card(pool, card_id).await?)
+}
+
+/// Lists all cards in the database with optional filtering.
 ///
-/// ### Errors
-///
-/// Returns an error if:
-/// - Unable to get a connection from the pool
-/// - The database query fails
+/// Synchronous, non-cache-aware — returns cards with whatever `card_data`
+/// happens to be on disk. Handlers that need fresh `card_data` must go
+/// through `list_cards` (async, cache-aware). Internal repo callers that
+/// only need card ids / priorities / sort positions can stay here.
 #[instrument(skip(pool), fields(query = %query))]
 pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec<Card>> {
 	debug!("Listing cards with filters: {:?}", query);
@@ -385,7 +436,7 @@ pub async fn set_card_suspended(pool: &DbPool, card_id: &CardId, suspended: bool
 		card_id, suspended
 	);
 
-	let card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
+	let card = get_card_raw(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
 
 	// Check if the suspension state is already correct
 	if card.get_suspended().is_some() == suspended {
@@ -479,7 +530,7 @@ pub async fn update_card_priority(pool: &DbPool, card_id: &CardId, priority: f32
 	}
 
 	// Check if the card exists
-	let card = get_card(pool, card_id)?;
+	let card = get_card_raw(pool, card_id)?;
 	if card.is_none() {
 		return Err(anyhow!("Card not found"));
 	}
@@ -495,7 +546,8 @@ pub async fn update_card_priority(pool: &DbPool, card_id: &CardId, priority: f32
 
 	drop(conn);
 
-	let card = get_card(pool, card_id)?;
+	// Cache-aware read so the returned card carries fresh card_data.
+	let card = get_card(pool, card_id).await?;
 
 	return Ok(card.unwrap_or_else(|| panic!("We already checked if the card exists, so this should never happen (somehow the card was deleted)")));
 }
@@ -517,7 +569,7 @@ pub async fn move_card_to_top(pool: &DbPool, card_id: &CardId) -> Result<Card> {
 	debug!("Moving card to top of sort order");
 
 	// Verify card exists
-	let _card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
+	let _card = get_card_raw(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
 
 	let conn = &mut pool.get()?;
 
@@ -542,7 +594,9 @@ pub async fn move_card_to_top(pool: &DbPool, card_id: &CardId) -> Result<Card> {
 		card_id, new_position
 	);
 
-	get_card(pool, card_id)?.ok_or(anyhow!("Card not found after update"))
+	get_card(pool, card_id)
+		.await?
+		.ok_or(anyhow!("Card not found after update"))
 }
 
 /// Moves a card to the bottom of the sort order
@@ -562,7 +616,7 @@ pub async fn move_card_to_bottom(pool: &DbPool, card_id: &CardId) -> Result<Card
 	debug!("Moving card to bottom of sort order");
 
 	// Verify card exists
-	let _card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
+	let _card = get_card_raw(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
 
 	let conn = &mut pool.get()?;
 
@@ -587,7 +641,9 @@ pub async fn move_card_to_bottom(pool: &DbPool, card_id: &CardId) -> Result<Card
 		card_id, new_position
 	);
 
-	get_card(pool, card_id)?.ok_or(anyhow!("Card not found after update"))
+	get_card(pool, card_id)
+		.await?
+		.ok_or(anyhow!("Card not found after update"))
 }
 
 /// Moves a card relative to another card (before or after)
@@ -614,8 +670,8 @@ pub async fn move_card_relative(
 	debug!("Moving card relative to another card");
 
 	// Verify both cards exist
-	let _card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
-	let target = get_card(pool, target_card_id)?.ok_or(anyhow!("Target card not found"))?;
+	let _card = get_card_raw(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
+	let target = get_card_raw(pool, target_card_id)?.ok_or(anyhow!("Target card not found"))?;
 
 	let target_pos = target.get_sort_position();
 
@@ -662,7 +718,9 @@ pub async fn move_card_relative(
 		new_position
 	);
 
-	get_card(pool, card_id)?.ok_or(anyhow!("Card not found after update"))
+	get_card(pool, card_id)
+		.await?
+		.ok_or(anyhow!("Card not found after update"))
 }
 
 /// Resets sort positions to default
@@ -737,7 +795,7 @@ pub async fn clear_sort_positions(pool: &DbPool, query: &GetQueryDto) -> Result<
 pub async fn clear_card_sort_position(pool: &DbPool, card_id: &CardId) -> Result<()> {
 	debug!("Clearing sort position for card");
 
-	let _card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
+	let _card = get_card_raw(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
 
 	let conn = &mut pool.get()?;
 
@@ -851,6 +909,38 @@ pub fn list_all_cards(pool: &DbPool) -> Result<Vec<Card>> {
 	let results = cards::table.load::<Card>(conn)?;
 
 	Ok(results)
+}
+
+/// Cache-aware list: ensures `card_data` is current for every card that matches
+/// `query`, then returns them. This is what handlers should call when serving
+/// `GET /cards`.
+///
+/// Scope-first: we only recompute caches for cards in the filter, not the
+/// whole table (the previous implementation did the latter, which was O(N)
+/// per request).
+#[instrument(skip(pool, query))]
+pub async fn list_cards(pool: &DbPool, query: &GetQueryDto) -> Result<Vec<Card>, CardFetchError> {
+	// Two passes of `list_cards_with_filters`: one to figure out which card
+	// ids need caching, one to read them back after the cache writes land.
+	// Handled this way so the tag-filter logic (which happens in Rust, not
+	// SQL) doesn't have to be re-expressed for the cache-ensure query.
+	let candidate_ids: Vec<CardId> = list_cards_with_filters(pool, query)?
+		.into_iter()
+		.map(|c| c.get_id())
+		.collect();
+	card_cache::ensure_list_cards_cache(pool, CacheScope::Cards(&candidate_ids)).await?;
+	Ok(list_cards_with_filters(pool, query)?)
+}
+
+/// Cache-aware list: ensures `card_data` is current for every card owned by
+/// `item_id`, then returns them. Used by `GET /items/{item_id}/cards`.
+#[instrument(skip(pool), fields(item_id = %item_id))]
+pub async fn list_cards_by_item(
+	pool: &DbPool,
+	item_id: &ItemId,
+) -> Result<Vec<Card>, CardFetchError> {
+	card_cache::ensure_list_cards_cache(pool, CacheScope::Item(item_id)).await?;
+	Ok(get_cards_for_item(pool, item_id)?)
 }
 
 #[cfg(test)]

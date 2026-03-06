@@ -5,7 +5,6 @@ use crate::dto::GetQueryDto;
 use crate::models::{Item, ItemId, ItemTypeId, JsonValue};
 use crate::schema::items;
 use anyhow::Result;
-use chrono::{NaiveDateTime, Utc};
 use diesel::prelude::*;
 use tracing::{debug, info, instrument};
 
@@ -139,26 +138,27 @@ pub async fn update_item(
 	debug!("Updating item by id");
 
 	// Get the current item to check if it exists
-	let _item = get_item(pool, item_id)?
+	let existing_item = get_item(pool, item_id)?
 		.ok_or_else(|| anyhow::anyhow!("Item with id {} not found", item_id))?;
 
-	// Always update the updated_at timestamp
-	let now = Utc::now().naive_utc();
+	// If nothing to update, return the existing item
+	if title.is_none() && item_data.is_none() {
+		return Ok(existing_item);
+	}
 
 	// Create a struct for changeset that implements AsChangeset
 	// This allows us to only include fields that are Some
+	// Note: updated_at is managed by a SQLite trigger when title or item_data changes
 	#[derive(AsChangeset)]
 	#[diesel(table_name = items)]
 	struct ItemChangeset {
 		title: Option<String>,
 		item_data: Option<JsonValue>,
-		updated_at: NaiveDateTime,
 	}
 
 	let changeset = ItemChangeset {
 		title,
 		item_data: item_data.map(JsonValue),
-		updated_at: now,
 	};
 
 	let mut conn = pool.get()?;
@@ -173,7 +173,7 @@ pub async fn update_item(
 
 	// Get the updated item
 	let updated_item = get_item(pool, item_id)?
-		.ok_or_else(|| panic!("Item with id {} not found after update", item_id))?; // this should panic because updating the item should never result in the item being deleted
+		.ok_or_else(|| panic!("Item with id {} not found after update", item_id))?;
 
 	Ok(updated_item)
 }

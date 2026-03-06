@@ -61,3 +61,50 @@ async fn test_method_not_allowed_response() {
 	assert_eq!(status, StatusCode::METHOD_NOT_ALLOWED);
 	assert_eq!(body["error"], "Method not allowed");
 }
+
+#[tokio::test]
+async fn test_card_event_chain_failed_response() {
+	use crate::card_event_registry::CardEventChainError;
+	use crate::models::CardEventFnName;
+
+	// Registry/data drift: the DB pointed at a function name that isn't
+	// in the in-memory registry. The client sees 500 (this is server-side
+	// misconfiguration, not bad input) with the function name embedded so
+	// operators can identify which row to fix or remove.
+	let chain_err = CardEventChainError::FunctionsNotFound(vec![CardEventFnName(
+		"ghost_function".to_owned(),
+	)]);
+	let error = ApiError::CardEventChainFailed(chain_err);
+	let (status, body) = error_response(error).await;
+	assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+	let msg = body["error"].as_str().unwrap();
+	assert!(
+		msg.contains("ghost_function"),
+		"response should surface the missing function name; got: {}",
+		msg
+	);
+	assert!(
+		msg.starts_with("Card event chain failed:"),
+		"response should lead with the chain-failure tag; got: {}",
+		msg
+	);
+}
+
+#[tokio::test]
+async fn test_card_event_chain_failed_function_failed_response() {
+	use crate::card_event_registry::{CardEventChainError, CardEventError};
+	use crate::models::CardEventFnName;
+
+	// The other CardEventChainError variant: a registered function that
+	// errored out at runtime. Same status code, different message shape.
+	let chain_err = CardEventChainError::FunctionFailed {
+		function_name: CardEventFnName("test_fail".to_owned()),
+		source: CardEventError::ExecutionFailed("boom".to_owned()),
+	};
+	let error = ApiError::CardEventChainFailed(chain_err);
+	let (status, body) = error_response(error).await;
+	assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);
+	let msg = body["error"].as_str().unwrap();
+	assert!(msg.contains("test_fail"));
+	assert!(msg.contains("boom"));
+}

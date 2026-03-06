@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c9bc2e555c4027c7791702da7afad43fcdc0e28348bc0bef50d64936ec53ea74 # shrinks to params = SetupCardParams { item_type_name: "Test 🉐\u{1a65}𑂍N", review_function: "incremental_queue", item_title: "𐡃{?", item_data: Array [Array [String("\u{9d48d}\u{9bed1}.�\u{6debf}\\\u{b8b24}Ѩ+P=aL\u{103836}==?\u{b}Q\u{d8df9}𲾦\u{6ce8b}m'\r\0¥¨\u{947dd}:"), Null, Bool(true), Null, Bool(false), String("{Ð+뺕🕴Q6\u{feff}{\0J\u{feff}Ⱥa&�=\u{34e55}F¶2)\u{fb3f3}🕴?r\u{feff}𮗌*&\\"), Number(-8.555576768201634e-34)]] }
+cc 28dbf7ab5502ad942fb035f569ad0cc4ccb7f134279e95b8af39414a6ff7a4fb # shrinks to params = SetupCardParams { item_type_name: "Test 𛲆=\u{11d90}ƙx🢘?$", review_function: "fsrs", item_title: "𝍦=%o,U🕴¥'ਣ‖G'𞁩\\Ⱥ𑠑$/h�ਸ਼q{j`<:{/7", item_data: Object {} }, new_title = "𝔼@*%ଢ଼ର:6Q\u{1733}Æ`k¥*xåv𐻂"
+cc 6ab2219cc6a281d8f63dbe319ad4c5f7596db665cd8c212a2f0c33f387d36fc0 # shrinks to params_a = SetupCardParams { item_type_name: "Test ", review_function: "fsrs", item_title: "a", item_data: Null }, params_b = SetupCardParams { item_type_name: "Test ", review_function: "fsrs", item_title: " ", item_data: Null }

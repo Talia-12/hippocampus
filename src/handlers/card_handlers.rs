@@ -83,14 +83,20 @@ pub async fn get_card_handler(
 		.await
 		.map_err(ApiError::Database)?;
 
-	// Call the repository function to get the card
-	let card = repo::get_card(&pool, &card_id).map_err(ApiError::Database)?;
+	// `repo::get_card` is the canonical cache-aware read path — it ensures
+	// `card_data` is fresh via a single atomic SELECT + staleness filter and
+	// returns the resulting card. `?` uses `From<CardFetchError> for ApiError`
+	// to route event-chain errors to `CardEventChainFailed` (500 with a
+	// distinct message) instead of collapsing them into `Database` (500
+	// "Internal server error"), so operators can tell registry/data drift
+	// from plain DB failures.
+	let card = repo::get_card(&pool, &card_id).await?;
 
 	match card {
-		Some(ref card) => {
+		Some(card) => {
 			debug!("Card found with id: {}", card.get_id());
 			let json = if query.split_priority.unwrap_or(false) {
-				serde_json::to_value(card).expect("Card serialization should never fail")
+				serde_json::to_value(&card).expect("Card serialization should never fail")
 			} else {
 				card.to_json_hide_priority_offset()
 			};
@@ -129,8 +135,11 @@ pub async fn list_cards_handler(
 		.await
 		.map_err(ApiError::Database)?;
 
-	// Call the repository function to list cards with the specified filters
-	let cards = repo::list_cards_with_filters(&pool, &query).map_err(ApiError::Database)?;
+	// `repo::list_cards` is the cache-aware list: it scopes `ensure_list_cards_cache`
+	// to the request's filter before returning. `?` uses the typed
+	// `CardFetchError → ApiError` conversion (see card_handlers.rs `get_card_handler`
+	// comment) to preserve event-chain error attribution at the HTTP boundary.
+	let cards = repo::list_cards(&pool, &query).await?;
 
 	info!("Retrieved {} cards", cards.len());
 
@@ -179,12 +188,14 @@ pub async fn list_cards_by_item_handler(
 		.map_err(ApiError::Database)?;
 
 	// First check if the item exists
-	repo::get_item(&pool, &item_id)
+	let _item = repo::get_item(&pool, &item_id)
 		.map_err(ApiError::Database)?
 		.ok_or(ApiError::NotFound)?;
 
-	// Call the repository function to get all cards for the item
-	let cards = repo::get_cards_for_item(&pool, &item_id).map_err(ApiError::Database)?;
+	// Call the cache-aware repo wrapper, which ensures all stale `card_data`
+	// caches are recomputed before returning. `?` uses the typed
+	// `CardFetchError → ApiError` conversion (see `get_card_handler` comment).
+	let cards = repo::list_cards_by_item(&pool, &item_id).await?;
 
 	info!("Retrieved {} cards for item {}", cards.len(), item_id);
 
@@ -277,10 +288,9 @@ pub async fn update_card_priority_handler(
 		)));
 	}
 
-	// Check if the card exists
-	let _card = repo::get_card(&pool, &id)
-		.map_err(ApiError::Database)?
-		.ok_or(ApiError::NotFound)?;
+	// Check if the card exists. `?` routes event-chain errors to a distinct
+	// ApiError variant (see `get_card_handler` comment).
+	let _card = repo::get_card(&pool, &id).await?.ok_or(ApiError::NotFound)?;
 
 	// Call the repository function to update the card's priority (also resets priority_offset to 0)
 	let card = repo::update_card_priority(&pool, &id, priority)

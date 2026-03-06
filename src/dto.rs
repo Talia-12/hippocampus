@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-use crate::models::{CardId, Item, ItemId, ItemTypeId, TagId};
+use crate::models::{CardEventFnName, CardId, Item, ItemId, ItemTypeId, OrderIndex, TagId};
 
 /// Data transfer object for creating a new item
 ///
@@ -152,6 +152,22 @@ pub struct ItemParentGraphNode {
 
 	/// The parents of this item
 	pub parents: Vec<ItemParentGraphNode>,
+}
+
+/// Data transfer object for creating a new card fetched event
+///
+/// This struct is used to deserialize JSON requests for creating card fetched events.
+#[derive(Serialize, Deserialize, Debug)]
+pub struct CreateCardFetchedEventDto {
+	/// The position of this event in the pipeline.
+	///
+	/// Represented on the wire as a non-negative integer. The `OrderIndex`
+	/// newtype (u16) makes out-of-range values a deserialization error, so
+	/// clients can't slip in a negative or > 65535 value.
+	pub order_index: OrderIndex,
+
+	/// The name of the function to execute
+	pub function_name: CardEventFnName,
 }
 
 /// Action for setting a card's sort position

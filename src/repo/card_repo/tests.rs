@@ -62,7 +62,7 @@ async fn test_get_card() {
 
 	// Test getting a card by ID
 	let card_id = cards[0].get_id();
-	let retrieved_card = get_card(&pool, &card_id).unwrap().unwrap();
+	let retrieved_card = get_card_raw(&pool, &card_id).unwrap().unwrap();
 
 	assert_eq!(retrieved_card.get_id(), card_id);
 	assert_eq!(retrieved_card.get_item_id(), item.get_id());
@@ -496,7 +496,7 @@ async fn test_update_card_priority() {
 	assert!(result.is_ok());
 
 	// Verify the priority was updated
-	let updated_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
+	let updated_card = get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
 	assert!((updated_card.get_priority() - new_priority).abs() < 0.0001);
 
 	// Test updating to minimum valid priority (0.0)
@@ -505,7 +505,7 @@ async fn test_update_card_priority() {
 	assert!(result.is_ok());
 
 	// Verify the priority was updated to minimum
-	let updated_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
+	let updated_card = get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
 	assert!((updated_card.get_priority() - min_priority).abs() < 0.0001);
 
 	// Test updating to maximum valid priority (1.0)
@@ -514,7 +514,7 @@ async fn test_update_card_priority() {
 	assert!(result.is_ok());
 
 	// Verify the priority was updated to maximum
-	let updated_card = get_card(&pool, &card.get_id()).unwrap().unwrap();
+	let updated_card = get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
 	assert!((updated_card.get_priority() - max_priority).abs() < 0.0001);
 }
 

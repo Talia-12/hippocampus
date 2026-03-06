@@ -12,10 +12,18 @@ name = "hippocampus-cli"
 path = "src/bin/cli/main.rs"
 
 [features]
+# `test` makes the test-only card-event functions (`test_set_title`,
+# `test_increment`, `test_fail`) discoverable from integration-test binaries
+# as well as `#[cfg(test)]` code. Leave it off in normal builds so end users
+# can't register these as event handlers.
 test = []
 
 [lints.rust]
  unexpected_cfgs = { level = "warn", check-cfg = ['cfg(test)'] }
+
+[[test]]
+name = "card_fetched_event_tests"
+required-features = ["test"]
 
 [dependencies]
 # Web framework (Axum or Warp; example uses Axum)

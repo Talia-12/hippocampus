@@ -6,6 +6,10 @@ use axum::{
 use thiserror::Error;
 use tracing::{debug, error, info, warn};
 
+use crate::card_event_registry::CardEventChainError;
+use crate::models::CardEventFnName;
+use crate::repo::CardFetchError;
+
 #[derive(Error, Debug)]
 pub enum ApiError {
 	#[error("Database error: {0}")]
@@ -22,6 +26,17 @@ pub enum ApiError {
 	MethodNotAllowed,
 	#[error("Cycle detected: adding this relation would create a cycle")]
 	CycleDetected,
+	#[error("Conflict: {0}")]
+	Conflict(String),
+	#[error("Unknown card event function: {0}")]
+	UnknownCardEventFn(CardEventFnName),
+	/// A card fetch tried to run the event chain and the chain failed —
+	/// usually because the DB references a function name that isn't in the
+	/// in-memory registry, or a registered function errored out. This is
+	/// server-side inconsistency (the DB and the registry disagree) rather
+	/// than bad client input.
+	#[error("Card event chain failed: {0}")]
+	CardEventChainFailed(CardEventChainError),
 }
 
 impl IntoResponse for ApiError {
@@ -76,6 +91,27 @@ impl IntoResponse for ApiError {
 					"Adding this relation would create a cycle".to_string(),
 				)
 			}
+			ApiError::Conflict(msg) => {
+				warn!(error.kind = "conflict", message = %msg, "Conflict: {}", msg);
+				(StatusCode::CONFLICT, msg.clone())
+			}
+			ApiError::UnknownCardEventFn(name) => {
+				warn!(error.kind = "unknown_card_event_fn", function_name = %name, "Unknown card event function: {}", name);
+				(
+					StatusCode::BAD_REQUEST,
+					format!("Unknown card event function: {}", name),
+				)
+			}
+			ApiError::CardEventChainFailed(chain_err) => {
+				// Log at `error` level because this is server-side
+				// misconfiguration, not bad client input — operators need
+				// to know when the DB and the registry have drifted apart.
+				error!(error.kind = "card_event_chain_failed", error.message = %chain_err, "Card event chain failed: {}", chain_err);
+				(
+					StatusCode::INTERNAL_SERVER_ERROR,
+					format!("Card event chain failed: {}", chain_err),
+				)
+			}
 		};
 
 		// Log all error responses in a consistent format
@@ -90,6 +126,19 @@ impl IntoResponse for ApiError {
 		}));
 
 		(status, body).into_response()
+	}
+}
+
+/// `?`-friendly conversion for handlers that call `repo::get_card` /
+/// `repo::list_cards` / `repo::list_cards_by_item`. Keeps the typed
+/// distinction between registry/data drift (which needs operator
+/// attention) and incidental DB failures (which collapse to 500).
+impl From<CardFetchError> for ApiError {
+	fn from(e: CardFetchError) -> Self {
+		match e {
+			CardFetchError::EventChain(ch) => ApiError::CardEventChainFailed(ch),
+			CardFetchError::Other(ae) => ApiError::Database(ae),
+		}
 	}
 }
 

@@ -3,6 +3,7 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::models::{CardId, ItemId};
+use crate::time_utils::now_ms;
 
 use super::JsonValue;
 
@@ -41,6 +42,15 @@ pub struct Card {
 	/// Daily random offset applied to priority for shuffling similarly-prioritized cards
 	#[serde(default)]
 	priority_offset: f32,
+
+	/// Cached JSON result of the card fetched event chain
+	card_data: Option<JsonValue>,
+
+	/// When this card's core fields were last changed
+	updated_at: NaiveDateTime,
+
+	/// When the card_data cache was last recomputed
+	cache_updated_at: Option<NaiveDateTime>,
 }
 
 impl Card {
@@ -73,6 +83,9 @@ impl Card {
 			suspended: None,
 			sort_position: 0.0,
 			priority_offset: 0.0,
+			card_data: None,
+			updated_at: now_ms(),
+			cache_updated_at: None,
 		}
 	}
 
@@ -111,6 +124,9 @@ impl Card {
 			suspended: suspended.map(|dt| dt.naive_utc()),
 			sort_position: 0.0,
 			priority_offset: 0.0,
+			card_data: None,
+			updated_at: now_ms(),
+			cache_updated_at: None,
 		}
 	}
 
@@ -312,6 +328,61 @@ impl Card {
 	/// * `priority_offset` - The new priority offset for the card
 	pub fn set_priority_offset(&mut self, priority_offset: f32) {
 		self.priority_offset = priority_offset;
+	}
+
+	/// Gets the card's cached event chain data
+	///
+	/// ### Returns
+	///
+	/// The cached JSON result of the card fetched event chain, or None if not yet computed
+	pub fn get_card_data(&self) -> Option<JsonValue> {
+		self.card_data.clone()
+	}
+
+	/// Sets the card's cached event chain data
+	///
+	/// ### Arguments
+	///
+	/// * `card_data` - The cached event chain data
+	pub fn set_card_data(&mut self, card_data: Option<JsonValue>) {
+		self.card_data = card_data;
+	}
+
+	/// Gets the card's updated_at timestamp
+	///
+	/// ### Returns
+	///
+	/// The timestamp when this card's core fields were last changed
+	pub fn get_updated_at(&self) -> DateTime<Utc> {
+		DateTime::from_naive_utc_and_offset(self.updated_at, Utc)
+	}
+
+	/// Gets the card's raw updated_at timestamp
+	///
+	/// ### Returns
+	///
+	/// The raw NaiveDateTime when this card's core fields were last changed
+	pub fn get_updated_at_raw(&self) -> NaiveDateTime {
+		self.updated_at
+	}
+
+	/// Gets the card's cache_updated_at timestamp
+	///
+	/// ### Returns
+	///
+	/// The timestamp when card_data was last recomputed, or None if never cached
+	pub fn get_cache_updated_at(&self) -> Option<DateTime<Utc>> {
+		self.cache_updated_at
+			.map(|dt| DateTime::from_naive_utc_and_offset(dt, Utc))
+	}
+
+	/// Gets the card's raw cache_updated_at timestamp
+	///
+	/// ### Returns
+	///
+	/// The raw NaiveDateTime when card_data was last recomputed, or None if never cached
+	pub fn get_cache_updated_at_raw(&self) -> Option<NaiveDateTime> {
+		self.cache_updated_at
 	}
 
 	/// Serializes the card to JSON with the priority offset folded into the priority field

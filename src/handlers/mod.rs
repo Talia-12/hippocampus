@@ -1,3 +1,4 @@
+mod card_fetched_event_handlers;
 mod card_handlers;
 /// Web API Handlers
 ///
@@ -12,6 +13,7 @@ mod review_handlers;
 mod tag_handlers;
 
 // Re-export all handlers
+pub use card_fetched_event_handlers::*;
 pub use card_handlers::*;
 pub use item_handlers::*;
 pub use item_relation_handlers::*;

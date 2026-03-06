@@ -426,3 +426,26 @@ proptest! {
 		});
 	}
 }
+
+/// Regression for seed `6e61f2e70558...` against IR1.1: this specific
+/// unicode-heavy title had previously surfaced a roundtrip bug in
+/// `create_item` + `get_item`. Kept as an explicit unit test per the
+/// "proptest regressions become unit tests" rule.
+#[tokio::test]
+async fn ir1_1_regression_unicode_title() {
+	let pool = setup_test_db();
+	let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string())
+		.await
+		.unwrap();
+	let title = "$`ꬠ*`%🕴O".to_owned();
+	let created = create_item(
+		&pool,
+		&item_type.get_id(),
+		title.clone(),
+		serde_json::json!({}),
+	)
+	.await
+	.unwrap();
+	let retrieved = get_item(&pool, &created.get_id()).unwrap().unwrap();
+	assert_eq!(retrieved.get_title(), title);
+}

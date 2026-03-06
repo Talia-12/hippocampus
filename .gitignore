@@ -9,3 +9,4 @@ backups/
 
 .helix/
 .direnv/
+.claude/scheduled_tasks.lock

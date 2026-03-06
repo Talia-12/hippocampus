@@ -5,8 +5,8 @@ use crate::repo::tests::setup_test_db;
 use crate::repo::{add_tag_to_item, create_item, create_item_type, create_tag};
 use crate::test_utils::{
 	CardMutations, arb_card_mutations, arb_datetime_utc, arb_invalid_priority,
-	arb_optional_datetime_utc, arb_priority, arb_priority_offset, arb_sort_position,
-	arb_suspended_filter,
+	arb_optional_datetime_utc, arb_priority, arb_priority_offset, arb_setup_card_params,
+	arb_sort_position, arb_suspended_filter, arb_wide_offset, setup_card,
 };
 use proptest::prelude::*;
 use serde_json::json;
@@ -138,7 +138,7 @@ proptest! {
 			).await.unwrap();
 
 			let card = create_card(&pool, &item.get_id(), card_index, priority).await.unwrap();
-			let retrieved = get_card(&pool, &card.get_id()).unwrap().unwrap();
+			let retrieved = get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
 
 			prop_assert_eq!(retrieved.get_id(), card.get_id());
 			prop_assert_eq!(retrieved.get_item_id(), card.get_item_id());
@@ -164,7 +164,7 @@ proptest! {
 			let mut card = get_cards_for_item(&pool, &item.get_id()).unwrap().remove(0);
 
 			apply_mutations_to_card(&pool, &mut card, &mutations).await;
-			let retrieved = get_card(&pool, &card.get_id()).unwrap().unwrap();
+			let retrieved = get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
 
 			prop_assert_eq!(retrieved.get_next_review(), mutations.next_review);
 			prop_assert_eq!(retrieved.get_last_review(), mutations.last_review);
@@ -190,7 +190,7 @@ proptest! {
 			let updated = update_card_priority(&pool, &card.get_id(), priority).await.unwrap();
 			prop_assert!((updated.get_priority() - priority).abs() < 1e-6);
 
-			let retrieved = get_card(&pool, &card.get_id()).unwrap().unwrap();
+			let retrieved = get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
 			prop_assert!((retrieved.get_priority() - priority).abs() < 1e-6);
 			Ok::<_, TestCaseError>(())
 		})?;
@@ -213,7 +213,7 @@ proptest! {
 			let result = update_card_priority(&pool, &card.get_id(), priority).await;
 			prop_assert!(result.is_err());
 
-			let retrieved = get_card(&pool, &card.get_id()).unwrap().unwrap();
+			let retrieved = get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
 			prop_assert!((retrieved.get_priority() - original_priority).abs() < 1e-6);
 			Ok::<_, TestCaseError>(())
 		})?;
@@ -234,12 +234,12 @@ proptest! {
 
 			// Set to initial state
 			set_card_suspended(&pool, &card.get_id(), initial_suspended).await.unwrap();
-			let after_set = get_card(&pool, &card.get_id()).unwrap().unwrap();
+			let after_set = get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
 			prop_assert_eq!(after_set.get_suspended().is_some(), initial_suspended);
 
 			// Toggle
 			set_card_suspended(&pool, &card.get_id(), !initial_suspended).await.unwrap();
-			let after_toggle = get_card(&pool, &card.get_id()).unwrap().unwrap();
+			let after_toggle = get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
 			prop_assert_eq!(after_toggle.get_suspended().is_some(), !initial_suspended);
 			Ok::<_, TestCaseError>(())
 		})?;
@@ -260,10 +260,10 @@ proptest! {
 
 			// Apply twice
 			set_card_suspended(&pool, &card.get_id(), target).await.unwrap();
-			let after_first = get_card(&pool, &card.get_id()).unwrap().unwrap();
+			let after_first = get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
 
 			set_card_suspended(&pool, &card.get_id(), target).await.unwrap();
-			let after_second = get_card(&pool, &card.get_id()).unwrap().unwrap();
+			let after_second = get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
 
 			prop_assert_eq!(after_first.get_suspended().is_some(), target);
 			prop_assert_eq!(after_second.get_suspended().is_some(), target);
@@ -1025,7 +1025,7 @@ proptest! {
 			let target_id = &cards[n - 1].get_id();
 
 			let moved = move_card_relative(&pool, card_id, target_id, true).await.unwrap();
-			let target = get_card(&pool, target_id).unwrap().unwrap();
+			let target = get_card_raw(&pool, target_id).unwrap().unwrap();
 
 			prop_assert!(moved.get_sort_position() > target.get_sort_position());
 			Ok::<_, TestCaseError>(())
@@ -1048,7 +1048,7 @@ proptest! {
 			let target_id = &cards[0].get_id();
 
 			let moved = move_card_relative(&pool, card_id, target_id, false).await.unwrap();
-			let target = get_card(&pool, target_id).unwrap().unwrap();
+			let target = get_card_raw(&pool, target_id).unwrap().unwrap();
 
 			prop_assert!(moved.get_sort_position() < target.get_sort_position());
 			Ok::<_, TestCaseError>(())
@@ -1233,7 +1233,7 @@ proptest! {
 				let priority = (i as f32 + 1.0) / (n as f32 + 1.0);
 				update_card_priority(&pool, &c.get_id(), priority).await.unwrap();
 				// Set a small offset that doesn't change relative ordering
-				let mut card = get_card(&pool, &c.get_id()).unwrap().unwrap();
+				let mut card = get_card_raw(&pool, &c.get_id()).unwrap().unwrap();
 				card.set_priority_offset(0.001 * i as f32);
 				update_card(&pool, &card).await.unwrap();
 			}
@@ -1646,7 +1646,7 @@ proptest! {
 			let card_id = cards[0].get_id();
 
 			// Set a non-zero offset first
-			let mut card = get_card(&pool, &card_id).unwrap().unwrap();
+			let mut card = get_card_raw(&pool, &card_id).unwrap().unwrap();
 			card.set_priority_offset(offset);
 			update_card(&pool, &card).await.unwrap();
 
@@ -1715,6 +1715,162 @@ proptest! {
 				let after_pos = &after.iter().find(|(aid, _)| aid == id).unwrap().1;
 				prop_assert_eq!(before_pos, after_pos,
 					"sort_position changed for card {}", id);
+			}
+			Ok::<_, TestCaseError>(())
+		})?;
+	}
+}
+
+// ============================================================================
+// T6: `update_card_updated_at` trigger — priority_offset exclusion.
+//
+// The trigger's WHEN clause deliberately omits `priority_offset` (and the
+// two cache columns). `priority_offset` is rewritten for every card on the
+// first fetch of each day by `regenerate_priority_offsets`; if the trigger
+// treated that write as a "core field change", every card's event-chain
+// cache would be invalidated on that first fetch — turning a cheap daily
+// shuffle into an O(N) chain-recompute storm.
+//
+// These tests pin:
+//   T6.1 — priority_offset writes via direct diesel UPDATE do NOT bump
+//          `cards.updated_at`.
+//   T6.2 — for comparison, a tracked column (sort_position) DOES bump it,
+//          so T6.1 isn't tautologically satisfied by a broken trigger
+//          that simply never fires.
+//   T6.3 — `regenerate_priority_offsets` (the motivating caller) leaves
+//          every card's `updated_at` untouched across a full sweep.
+// ============================================================================
+
+proptest! {
+	/// T6.1: UPDATE touching only `priority_offset` does not bump
+	/// `cards.updated_at`. Covers the wide offset range ([-2.0, 2.0]) so
+	/// values well outside the daily-shuffle band ([-0.05, 0.05]) are also
+	/// exercised — any future migration or one-off fix-up writing an
+	/// arbitrary offset must still be silent from the trigger's POV.
+	#[test]
+	fn prop_t6_1_priority_offset_update_does_not_bump_updated_at(
+		params in arb_setup_card_params(),
+		offset in arb_wide_offset(),
+	) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		rt.block_on(async {
+			let pool = setup_test_db();
+			let test_card = setup_card(&pool, params).await;
+			let card_id = test_card.card.get_id();
+
+			let before = get_card_raw(&pool, &card_id)
+				.unwrap()
+				.unwrap()
+				.get_updated_at_raw();
+
+			// SQLite's `strftime('%Y-%m-%d %H:%M:%f', 'now')` has
+			// millisecond precision — so a 10ms sleep guarantees that, if
+			// the trigger incorrectly fired, the post-UPDATE timestamp
+			// would be strictly greater than the pre-UPDATE one and the
+			// equality check below would fail loudly. Without the sleep,
+			// a regressed trigger firing inside the same millisecond would
+			// be indistinguishable from correct silence.
+			tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+			let conn = &mut pool.get().unwrap();
+			diesel::update(cards::table.find(card_id.clone()))
+				.set(cards::priority_offset.eq(offset))
+				.execute(conn)
+				.unwrap();
+
+			let after = get_card_raw(&pool, &card_id)
+				.unwrap()
+				.unwrap()
+				.get_updated_at_raw();
+
+			prop_assert_eq!(
+				before, after,
+				"cards.updated_at must not move when only priority_offset is updated (offset={})",
+				offset,
+			);
+			Ok::<_, TestCaseError>(())
+		})?;
+	}
+
+	/// T6.2: Companion to T6.1 — a tracked column (sort_position) DOES
+	/// bump `cards.updated_at`. Without this, T6.1 alone would pass
+	/// tautologically if the trigger ever regressed to "never fires",
+	/// defeating the stale-cache guarantee for every other column.
+	#[test]
+	fn prop_t6_2_sort_position_update_does_bump_updated_at(
+		params in arb_setup_card_params(),
+		sort_pos in arb_sort_position(),
+	) {
+		// A fresh card has sort_position = 0.0; setting it to 0.0 again
+		// is a no-op in the trigger's WHEN clause (`OLD IS NOT NEW` is
+		// false for equal values) and wouldn't fire the bump — that's
+		// correct behavior, but not what this test is probing.
+		prop_assume!(sort_pos != 0.0);
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		rt.block_on(async {
+			let pool = setup_test_db();
+			let test_card = setup_card(&pool, params).await;
+			let card_id = test_card.card.get_id();
+
+			let before = get_card_raw(&pool, &card_id)
+				.unwrap()
+				.unwrap()
+				.get_updated_at_raw();
+
+			tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+			let conn = &mut pool.get().unwrap();
+			diesel::update(cards::table.find(card_id.clone()))
+				.set(cards::sort_position.eq(sort_pos))
+				.execute(conn)
+				.unwrap();
+
+			let after = get_card_raw(&pool, &card_id)
+				.unwrap()
+				.unwrap()
+				.get_updated_at_raw();
+
+			prop_assert!(
+				after > before,
+				"cards.updated_at must advance on sort_position change; before={:?} after={:?}",
+				before,
+				after,
+			);
+			Ok::<_, TestCaseError>(())
+		})?;
+	}
+
+	/// T6.3: `regenerate_priority_offsets` — the daily-shuffle caller
+	/// that motivated the exclusion — must leave every card's
+	/// `updated_at` exactly where it was. This is the realistic path:
+	/// an unfiltered sweep across every card in the DB. If this ever
+	/// bumped `updated_at` we'd thrash the event-chain cache on the
+	/// first fetch of every day.
+	#[test]
+	fn prop_t6_3_regenerate_priority_offsets_preserves_updated_at(
+		n in 1usize..8,
+	) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		rt.block_on(async {
+			let pool = setup_test_db();
+			let cards_before = create_n_cards(&pool, n).await;
+			let before: Vec<_> = cards_before
+				.iter()
+				.map(|c| (c.get_id(), c.get_updated_at_raw()))
+				.collect();
+
+			tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+
+			regenerate_priority_offsets(&pool).await.unwrap();
+
+			for (id, before_ts) in &before {
+				let after = get_card_raw(&pool, id).unwrap().unwrap();
+				prop_assert_eq!(
+					*before_ts,
+					after.get_updated_at_raw(),
+					"card {} updated_at changed after priority_offset regen",
+					id,
+				);
 			}
 			Ok::<_, TestCaseError>(())
 		})?;

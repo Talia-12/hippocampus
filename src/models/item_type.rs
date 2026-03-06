@@ -3,6 +3,7 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::models::ItemTypeId;
+use crate::time_utils::now_ms;
 
 /// Represents an item type in the system
 #[derive(
@@ -22,6 +23,9 @@ pub struct ItemType {
 
 	/// The review function used for scheduling cards of this item type
 	review_function: String,
+
+	/// When this item type was last updated
+	updated_at: NaiveDateTime,
 }
 
 impl ItemType {
@@ -32,11 +36,13 @@ impl ItemType {
 	/// * `name` - The name of the item type
 	/// * `review_function` - The review function used for scheduling (e.g. "fsrs", "incremental_queue")
 	pub fn new(name: String, review_function: String) -> Self {
+		let now = now_ms();
 		Self {
 			id: ItemTypeId::new(),
 			name,
-			created_at: Utc::now().naive_utc(),
+			created_at: now,
 			review_function,
+			updated_at: now,
 		}
 	}
 
@@ -63,6 +69,7 @@ impl ItemType {
 			name,
 			created_at: created_at.naive_utc(),
 			review_function,
+			updated_at: created_at.naive_utc(),
 		}
 	}
 
@@ -109,6 +116,24 @@ impl ItemType {
 	/// The raw NaiveDateTime when this item type was created
 	pub fn get_created_at_raw(&self) -> NaiveDateTime {
 		self.created_at
+	}
+
+	/// Gets the item type's updated_at timestamp
+	///
+	/// ### Returns
+	///
+	/// The timestamp when this item type was last updated
+	pub fn get_updated_at(&self) -> DateTime<Utc> {
+		DateTime::from_naive_utc_and_offset(self.updated_at, Utc)
+	}
+
+	/// Gets the item type's raw updated_at timestamp
+	///
+	/// ### Returns
+	///
+	/// The raw NaiveDateTime when this item type was last updated
+	pub fn get_updated_at_raw(&self) -> NaiveDateTime {
+		self.updated_at
 	}
 
 	/// Gets the item type's review function

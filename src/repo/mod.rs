@@ -1,3 +1,5 @@
+mod card_cache;
+mod card_fetched_event_repo;
 mod card_repo;
 mod item_relation_repo;
 mod item_repo;
@@ -13,7 +15,13 @@ mod item_type_repo;
 mod review_repo;
 mod tag_repo;
 
-// Re-export all repository functions
+// Re-export all repository functions.
+//
+// Note: `card_cache` is intentionally NOT re-exported here — it is a private
+// implementation detail used by `card_repo`. The canonical read paths
+// (`get_card`, `list_cards_with_filters`, `get_cards_for_item`) already call
+// its helpers, so no consumer outside `repo` ever needs them.
+pub use card_fetched_event_repo::*;
 pub use card_repo::*;
 pub use item_relation_repo::*;
 pub use item_repo::*;

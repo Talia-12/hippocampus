@@ -3,6 +3,7 @@ use diesel::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use crate::models::{ItemId, ItemTypeId};
+use crate::time_utils::now_ms;
 
 use super::JsonValue;
 
@@ -50,7 +51,7 @@ impl Item {
 	///
 	/// A new `Item` instance with the specified title
 	pub fn new(item_type: ItemTypeId, title: String, data: JsonValue) -> Self {
-		let now = Utc::now().naive_utc();
+		let now = now_ms();
 		Self {
 			id: ItemId::new(),
 			item_type,
@@ -120,7 +121,7 @@ impl Item {
 	/// * `item_type` - The new type for the item
 	pub fn set_item_type(&mut self, item_type: ItemTypeId) {
 		self.item_type = item_type;
-		self.updated_at = Utc::now().naive_utc();
+		self.updated_at = now_ms();
 	}
 
 	/// Gets the item's title
@@ -139,7 +140,7 @@ impl Item {
 	/// * `title` - The new title for the item
 	pub fn set_title(&mut self, title: String) {
 		self.title = title;
-		self.updated_at = Utc::now().naive_utc();
+		self.updated_at = now_ms();
 	}
 
 	/// Gets the item's data
@@ -158,7 +159,7 @@ impl Item {
 	/// * `data` - The new JSON data for the item
 	pub fn set_data(&mut self, data: JsonValue) {
 		self.item_data = data;
-		self.updated_at = Utc::now().naive_utc();
+		self.updated_at = now_ms();
 	}
 
 	/// Gets the item's creation timestamp as a DateTime<Utc>
