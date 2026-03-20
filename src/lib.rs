@@ -55,6 +55,13 @@
 /// Routes for tags:
 /// - GET /tags: List all tags (handlers::list_tags_handler)
 /// - POST /tags: Create a new tag (handlers::create_tag_handler)
+///
+/// Routes for item relations:
+/// - GET /item_relations: List item relations with optional filters (handlers::list_item_relations_handler)
+/// - POST /item_relations/{parent_id}/{child_id}: Create a new item relation (handlers::create_item_relation_handler)
+/// - DELETE /item_relations/{parent_id}/{child_id}: Delete an item relation (handlers::delete_item_relation_handler)
+/// - GET /items/{item_id}/children_graph: Get the children graph of an item (handlers::get_children_graph_handler)
+/// - GET /items/{item_id}/parent_graph: Get the parent graph of an item (handlers::get_parent_graph_handler)
 
 /// Database connection module
 pub mod db;
@@ -192,6 +199,24 @@ pub fn create_app(pool: Arc<db::DbPool>) -> Router {
 		.route(
 			"/tags",
 			post(handlers::create_tag_handler).get(handlers::list_tags_handler),
+		)
+		// Routes for item relations
+		.route(
+			"/item_relations",
+			get(handlers::list_item_relations_handler),
+		)
+		.route(
+			"/item_relations/{parent_id}/{child_id}",
+			post(handlers::create_item_relation_handler)
+				.delete(handlers::delete_item_relation_handler),
+		)
+		.route(
+			"/items/{item_id}/children_graph",
+			get(handlers::get_children_graph_handler),
+		)
+		.route(
+			"/items/{item_id}/parent_graph",
+			get(handlers::get_parent_graph_handler),
 		)
 		// Apply CORS middleware to all routes
 		.layer(cors)

@@ -66,6 +66,7 @@ fn test_get_query_dto_display_empty() {
 #[test]
 fn test_get_query_dto_display_full() {
 	use chrono::TimeZone;
+
 	let dto = GetQueryDto {
 		item_type_id: Some("type-1".to_string()),
 		tag_ids: vec!["tag-a".to_string(), "tag-b".to_string()],
@@ -75,7 +76,30 @@ fn test_get_query_dto_display_full() {
 		suspended_after: None,
 		suspended_before: None,
 		split_priority: Some(true),
+		parent_item_id: None,
+		child_item_id: None,
 	};
+
+	let display = format!("{}", dto);
+	assert!(display.contains("item_type_id: type-1"));
+	assert!(display.contains("tag-a"));
+	assert!(display.contains("tag-b"));
+	assert!(display.contains("next_review_before: 2025-06-15"));
+	assert!(display.contains("last_review_after: 2025-01-01"));
+
+	let dto = GetQueryDto {
+		item_type_id: Some("type-1".to_string()),
+		tag_ids: vec!["tag-a".to_string(), "tag-b".to_string()],
+		next_review_before: Some(Utc.with_ymd_and_hms(2025, 6, 15, 12, 0, 0).unwrap()),
+		last_review_after: Some(Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap()),
+		suspended_filter: SuspendedFilter::Include,
+		suspended_after: None,
+		suspended_before: None,
+		split_priority: Some(true),
+		parent_item_id: None,
+		child_item_id: None,
+	};
+
 	let display = format!("{}", dto);
 	assert!(display.contains("item_type_id: type-1"));
 	assert!(display.contains("tag-a"));

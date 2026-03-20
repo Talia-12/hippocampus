@@ -681,16 +681,18 @@ proptest! {
 			if filter_tag0 { query_tags.push(tag_ids_all[0].clone()); }
 			if filter_tag1 { query_tags.push(tag_ids_all[1].clone()); }
 
-			let query = GetQueryDto {
-				item_type_id: query_type_id,
-				tag_ids: query_tags,
-				next_review_before: query_nrb,
-				last_review_after: query_lra,
-				suspended_filter: query_sf,
-				suspended_after: query_sa,
-				suspended_before: query_sb,
-				split_priority: None,
-			};
+			 let query = GetQueryDto {
+				 item_type_id: query_type_id,
+				 tag_ids: query_tags,
+				 next_review_before: query_nrb,
+				 last_review_after: query_lra,
+				 suspended_filter: query_sf,
+				 suspended_after: query_sa,
+				 suspended_before: query_sb,
+				 split_priority: None,
+				parent_item_id: None,
+				child_item_id: None,
+			 };
 
 			let all_cards = list_all_cards(&pool).unwrap();
 			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
@@ -1294,16 +1296,18 @@ proptest! {
 				Some(item_type_map.values().last().unwrap().clone())
 			};
 
-			let query = GetQueryDto {
-				item_type_id: query_type_id,
-				tag_ids: vec![],
-				next_review_before: query_nrb,
-				last_review_after: query_lra,
-				suspended_filter: query_sf,
-				suspended_after: query_sa,
-				suspended_before: query_sb,
-				split_priority: None,
-			};
+			 let query = GetQueryDto {
+				 item_type_id: query_type_id,
+				 tag_ids: vec![],
+				 next_review_before: query_nrb,
+				 last_review_after: query_lra,
+				 suspended_filter: query_sf,
+				 suspended_after: query_sa,
+				 suspended_before: query_sb,
+				 split_priority: None,
+				parent_item_id: None,
+				child_item_id: None,
+			 };
 
 			// Compute oracle matching set
 			let matching_ids = oracle_filter(&list_all_cards(&pool).unwrap(), &query, &item_type_map, &HashMap::new());
@@ -1391,16 +1395,18 @@ proptest! {
 				None
 			};
 
-			let query = GetQueryDto {
-				item_type_id: query_type_id,
-				tag_ids: query_tags,
-				next_review_before: None,
-				last_review_after: None,
-				suspended_filter: query_sf,
-				suspended_after: None,
-				suspended_before: None,
-				split_priority: None,
-			};
+			 let query = GetQueryDto {
+				 item_type_id: query_type_id,
+				 tag_ids: query_tags,
+				 next_review_before: None,
+				 last_review_after: None,
+				 suspended_filter: query_sf,
+				 suspended_after: None,
+				 suspended_before: None,
+				 split_priority: None,
+				parent_item_id: None,
+				child_item_id: None,
+			 };
 
 			// Compute oracle matching set
 			let fresh_cards = list_all_cards(&pool).unwrap();

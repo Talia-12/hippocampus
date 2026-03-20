@@ -1,7 +1,10 @@
 use super::*;
 use crate::repo::create_item_type;
+use crate::repo::create_item_type;
 use crate::repo::tests::setup_test_db;
-use crate::test_utils::{arb_json, arb_messy_string, dedup_names, json_approx_eq};
+use crate::test_utils::{
+	arb_item_params, arb_json, arb_messy_string, create_items, json_approx_eq,
+};
 use proptest::prelude::*;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -90,26 +93,18 @@ proptest! {
 				"get_item should return None for nonexistent id={:?}", id);
 		});
 	}
+	 /// IR1.6: bulk create with deduplicated titles produces unique, retrievable items
+	 #[test]
+	 fn prop_ir1_6_bulk_create_unique_ids(
+		item_params in arb_item_params(100)
+	 ) {
+		 let rt = tokio::runtime::Runtime::new().unwrap();
+		 rt.block_on(async {
+			 let pool = setup_test_db();
+			 let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
+			let count = item_params.len();
 
-	/// IR1.6: bulk create with deduplicated titles produces unique, retrievable items
-	#[test]
-	fn prop_ir1_6_bulk_create_unique_ids(
-		titles in prop::collection::vec("\\PC+", 0..=100)
-			.prop_map(dedup_names)
-	) {
-		let rt = tokio::runtime::Runtime::new().unwrap();
-		rt.block_on(async {
-			let pool = setup_test_db();
-			let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
-			let count = titles.len();
-
-			let mut created = Vec::with_capacity(count);
-			for title in &titles {
-				let data = serde_json::json!({"title": title});
-				created.push(
-					create_item(&pool, &item_type.get_id(), title.clone(), data).await.unwrap()
-				);
-			}
+			let created = create_items(&pool, &item_type.get_id(), item_params).await;
 
 			// All IDs are unique
 			let ids: HashSet<_> = created.iter().map(|it| it.get_id()).collect();
@@ -249,22 +244,18 @@ proptest! {
 // ============================================================================
 
 proptest! {
-	/// IR3.1: list_items count equals number of items created
-	#[test]
-	fn prop_ir3_1_list_count(
-		titles in prop::collection::vec("\\PC+", 0..=100)
-			.prop_map(dedup_names)
-	) {
-		let rt = tokio::runtime::Runtime::new().unwrap();
-		rt.block_on(async {
-			let pool = setup_test_db();
-			let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
-			let count = titles.len();
+	 /// IR3.1: list_items count equals number of items created
+	 #[test]
+	 fn prop_ir3_1_list_count(
+		item_params in arb_item_params(100)
+	 ) {
+		 let rt = tokio::runtime::Runtime::new().unwrap();
+		 rt.block_on(async {
+			 let pool = setup_test_db();
+			 let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
+			let count = item_params.len();
 
-			for title in &titles {
-				let data = serde_json::json!({"key": "value"});
-				create_item(&pool, &item_type.get_id(), title.clone(), data).await.unwrap();
-			}
+			create_items(&pool, &item_type.get_id(), item_params).await;
 
 			let all = list_items(&pool).unwrap();
 			assert_eq!(all.len(), count,
@@ -321,18 +312,15 @@ proptest! {
 		});
 	}
 
-	/// IR3.4: list_items_with_filters(default_query) == list_items
-	#[test]
-	fn prop_ir3_4_default_filter_equals_list(count in 0usize..=10) {
-		let rt = tokio::runtime::Runtime::new().unwrap();
-		rt.block_on(async {
-			let pool = setup_test_db();
-			let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
+	 /// IR3.4: list_items_with_filters(default_query) == list_items
+	 #[test]
+	fn prop_ir3_4_default_filter_equals_list(item_params in arb_item_params(10)) {
+		 let rt = tokio::runtime::Runtime::new().unwrap();
+		 rt.block_on(async {
+			 let pool = setup_test_db();
+			 let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
 
-			for i in 0..count {
-				let data = serde_json::json!({"key": "value"});
-				create_item(&pool, &item_type.get_id(), format!("Item{}", i), data).await.unwrap();
-			}
+			create_items(&pool, &item_type.get_id(), item_params).await;
 
 			let all = list_items(&pool).unwrap();
 			let query = crate::dto::GetQueryDto::default();
@@ -375,18 +363,14 @@ proptest! {
 		});
 	}
 
-	/// IR3.6: list_items_with_filters deduplicates: each item appears at most once
-	#[test]
-	fn prop_ir3_6_filtered_no_duplicates(count in 0usize..=10) {
-		let rt = tokio::runtime::Runtime::new().unwrap();
-		rt.block_on(async {
-			let pool = setup_test_db();
-			let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
-
-			for i in 0..count {
-				let data = serde_json::json!({"key": "value"});
-				create_item(&pool, &item_type.get_id(), format!("Item{}", i), data).await.unwrap();
-			}
+	 /// IR3.6: list_items_with_filters deduplicates: each item appears at most once
+	 #[test]
+	fn prop_ir3_6_filtered_no_duplicates(item_params in arb_item_params(10)) {
+		 let rt = tokio::runtime::Runtime::new().unwrap();
+		 rt.block_on(async {
+			 let pool = setup_test_db();
+			 let item_type = create_item_type(&pool, "TestType".to_string(), "fsrs".to_string()).await.unwrap();
+			create_items(&pool, &item_type.get_id(), item_params).await;
 
 			let far_future = chrono::Utc::now() + chrono::Duration::days(365 * 100);
 			let query = crate::dto::GetQueryDtoBuilder::new()

@@ -252,6 +252,18 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
 		card_query = card_query.filter(cards::suspended.gt(suspended_date.naive_utc()));
 	}
 
+	// Apply relation filters (parent_item_id / child_item_id)
+	if let Some(ref parent_id) = query.parent_item_id {
+		debug!("Filtering by parent_item_id: {}", parent_id);
+		let child_ids = super::item_relation_repo::get_children_of(pool, parent_id)?;
+		card_query = card_query.filter(cards::item_id.eq_any(child_ids));
+	}
+	if let Some(ref child_id) = query.child_item_id {
+		debug!("Filtering by child_item_id: {}", child_id);
+		let parent_ids = super::item_relation_repo::get_parents_of(pool, child_id)?;
+		card_query = card_query.filter(cards::item_id.eq_any(parent_ids));
+	}
+
 	// Order by sort_position DESC (positive first, 0 = unsorted, negative last),
 	// then by effective priority DESC as tiebreaker
 	card_query = card_query.order_by((
