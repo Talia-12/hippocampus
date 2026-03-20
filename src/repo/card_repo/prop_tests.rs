@@ -955,9 +955,9 @@ proptest! {
 		})?;
 	}
 
-	/// T4.3: Assigned sort_position < all other existing sort_positions
+	/// T4.3: Assigned sort_position > all other existing sort_positions
 	#[test]
-	fn prop_t4_3_move_to_top_position_strictly_less(n in 2usize..20) {
+	fn prop_t4_3_move_to_top_position_strictly_greater(n in 2usize..20) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let pool = setup_test_db();
@@ -969,14 +969,15 @@ proptest! {
 
 			let target = &cards[n / 2];
 			let updated = move_card_to_top(&pool, &target.get_id()).await.unwrap();
-			let new_pos = updated.get_sort_position().unwrap();
+			let new_pos = updated.get_sort_position();
 
 			let all = list_all_cards(&pool).unwrap();
 			for c in &all {
 				if c.get_id() != target.get_id() {
-					if let Some(pos) = c.get_sort_position() {
-						prop_assert!(new_pos < pos,
-							"top card pos {} not < other pos {}", new_pos, pos);
+					let pos = c.get_sort_position();
+					if pos != 0.0 {
+						prop_assert!(new_pos > pos,
+							"top card pos {} not > other pos {}", new_pos, pos);
 					}
 				}
 			}
@@ -984,21 +985,21 @@ proptest! {
 		})?;
 	}
 
-	/// T4.4: When no cards have sort_positions, move_card_to_top assigns 0.0
+	/// T4.4: When no cards have been moved, move_card_to_top assigns 1.0 (max of 0.0 defaults + 1.0)
 	#[test]
-	fn prop_t4_4_move_to_top_first_card_gets_zero(n in 1usize..10) {
+	fn prop_t4_4_move_to_top_first_card_gets_one(n in 1usize..10) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let pool = setup_test_db();
 			let cards = create_n_cards(&pool, n).await;
 
 			let updated = move_card_to_top(&pool, &cards[0].get_id()).await.unwrap();
-			prop_assert_eq!(updated.get_sort_position(), Some(0.0));
+			prop_assert_eq!(updated.get_sort_position(), 1.0);
 			Ok::<_, TestCaseError>(())
 		})?;
 	}
 
-	/// T4.5: After move_card_relative(c, t, before=true), c.sort_position < t.sort_position
+	/// T4.5: After move_card_relative(c, t, before=true), c.sort_position > t.sort_position
 	#[test]
 	fn prop_t4_5_move_relative_before_ordering(n in 3usize..15) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1017,12 +1018,12 @@ proptest! {
 			let moved = move_card_relative(&pool, card_id, target_id, true).await.unwrap();
 			let target = get_card(&pool, target_id).unwrap().unwrap();
 
-			prop_assert!(moved.get_sort_position().unwrap() < target.get_sort_position().unwrap());
+			prop_assert!(moved.get_sort_position() > target.get_sort_position());
 			Ok::<_, TestCaseError>(())
 		})?;
 	}
 
-	/// T4.6: After move_card_relative(c, t, before=false), c.sort_position > t.sort_position
+	/// T4.6: After move_card_relative(c, t, before=false), c.sort_position < t.sort_position
 	#[test]
 	fn prop_t4_6_move_relative_after_ordering(n in 3usize..15) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1040,7 +1041,7 @@ proptest! {
 			let moved = move_card_relative(&pool, card_id, target_id, false).await.unwrap();
 			let target = get_card(&pool, target_id).unwrap().unwrap();
 
-			prop_assert!(moved.get_sort_position().unwrap() > target.get_sort_position().unwrap());
+			prop_assert!(moved.get_sort_position() < target.get_sort_position());
 			Ok::<_, TestCaseError>(())
 		})?;
 	}
@@ -1084,9 +1085,9 @@ proptest! {
 		})?;
 	}
 
-	/// T4.8: After clear_sort_positions, all cards have sort_position == None
+	/// T4.8: After clear_sort_positions, all cards have sort_position == 0.0
 	#[test]
-	fn prop_t4_8_clear_all_sort_positions_nulls_all(n in 1usize..20) {
+	fn prop_t4_8_clear_all_sort_positions_zeros_all(n in 1usize..20) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let pool = setup_test_db();
@@ -1100,14 +1101,14 @@ proptest! {
 
 			let all = list_all_cards(&pool).unwrap();
 			for c in &all {
-				prop_assert_eq!(c.get_sort_position(), None,
-					"card {} still has sort_position", c.get_id());
+				prop_assert_eq!(c.get_sort_position(), 0.0,
+					"card {} still has non-zero sort_position", c.get_id());
 			}
 			Ok::<_, TestCaseError>(())
 		})?;
 	}
 
-	/// T4.9: clear_card_sort_position(c) sets only c to None; others unchanged
+	/// T4.9: clear_card_sort_position(c) sets only c to 0.0; others unchanged
 	#[test]
 	fn prop_t4_9_clear_single_sort_position_only_target(n in 2usize..15) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1120,7 +1121,7 @@ proptest! {
 			}
 
 			// Record positions before
-			let before: Vec<(String, Option<f32>)> = list_all_cards(&pool).unwrap()
+			let before: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			let target_id = cards[n / 2].get_id();
@@ -1129,7 +1130,7 @@ proptest! {
 			let after = list_all_cards(&pool).unwrap();
 			for c in &after {
 				if c.get_id() == target_id {
-					prop_assert_eq!(c.get_sort_position(), None);
+					prop_assert_eq!(c.get_sort_position(), 0.0);
 				} else {
 					let orig = before.iter().find(|(id, _)| *id == c.get_id()).unwrap().1;
 					prop_assert_eq!(c.get_sort_position(), orig,
@@ -1140,9 +1141,9 @@ proptest! {
 		})?;
 	}
 
-	/// T4.10: All cards with sort_position appear before all cards without in list results
+	/// T4.10: All cards with sort_position != 0.0 appear before cards with 0.0 in list results
 	#[test]
-	fn prop_t4_10_nulls_last_ordering(n in 2usize..15) {
+	fn prop_t4_10_zeros_last_ordering(n in 2usize..15) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let pool = setup_test_db();
@@ -1159,20 +1160,20 @@ proptest! {
 			};
 			let result = list_cards_with_filters(&pool, &query).unwrap();
 
-			let mut seen_null = false;
+			let mut seen_zero = false;
 			for c in &result {
-				if c.get_sort_position().is_none() {
-					seen_null = true;
+				if c.get_sort_position() == 0.0 {
+					seen_zero = true;
 				} else {
-					prop_assert!(!seen_null,
-						"positioned card {} appears after a null-positioned card", c.get_id());
+					prop_assert!(!seen_zero,
+						"positioned card {} appears after a zero-positioned card", c.get_id());
 				}
 			}
 			Ok::<_, TestCaseError>(())
 		})?;
 	}
 
-	/// T4.11: A card with sort_position appears before a card without sort_position
+	/// T4.11: A card with non-zero sort_position appears before a card with default (0.0) sort_position
 	#[test]
 	fn prop_t4_11_sort_position_trumps_priority(
 		low_prio in 0.0f32..0.1f32,
@@ -1210,7 +1211,7 @@ proptest! {
 		})?;
 	}
 
-	/// T4.12: Among cards with sort_position=None, ordering is by (priority + priority_offset) DESC
+	/// T4.12: Among cards with sort_position=0.0, ordering is by (priority + priority_offset) DESC
 	#[test]
 	fn prop_t4_12_effective_priority_ordering_among_nulls(n in 2usize..10) {
 		let rt = tokio::runtime::Runtime::new().unwrap();
@@ -1234,7 +1235,7 @@ proptest! {
 			};
 			let result = list_cards_with_filters(&pool, &query).unwrap();
 
-			// All have None sort_position, so should be ordered by effective priority DESC
+			// All have 0.0 sort_position, so should be ordered by effective priority DESC
 			for w in result.windows(2) {
 				let eff_a = w[0].get_priority() + w[0].get_priority_offset();
 				let eff_b = w[1].get_priority() + w[1].get_priority_offset();
@@ -1254,7 +1255,7 @@ proptest! {
 	/// T4.13: Filtered clear — oracle agreement (comprehensive)
 	///
 	/// For any set of cards with arbitrary sort positions and any non-tag query,
-	/// clear_sort_positions(pool, &query) nulls matching cards and preserves
+	/// clear_sort_positions(pool, &query) zeros matching cards and preserves
 	/// non-matching cards' sort positions.
 	#[test]
 	fn prop_t4_13_filtered_clear_oracle_agreement(
@@ -1283,7 +1284,7 @@ proptest! {
 			}
 
 			// Record sort positions before clear
-			let before: HashMap<String, Option<f32>> = list_all_cards(&pool).unwrap()
+			let before: HashMap<String, f32> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			// Build query with item_type filter to ensure non-default query
@@ -1315,7 +1316,7 @@ proptest! {
 			let after = list_all_cards(&pool).unwrap();
 			for c in &after {
 				if matching_set.contains(&c.get_id()) {
-					prop_assert_eq!(c.get_sort_position(), None,
+					prop_assert_eq!(c.get_sort_position(), 0.0,
 						"matching card {} should have sort_position cleared", c.get_id());
 				} else {
 					let original = before.get(&c.get_id()).unwrap();
@@ -1372,7 +1373,7 @@ proptest! {
 			}
 
 			// Record sort positions before clear
-			let before: HashMap<String, Option<f32>> = list_all_cards(&pool).unwrap()
+			let before: HashMap<String, f32> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			// Build query with tag filters (ensure at least one tag to make non-default)
@@ -1413,7 +1414,7 @@ proptest! {
 			let after = list_all_cards(&pool).unwrap();
 			for c in &after {
 				if matching_set.contains(&c.get_id()) {
-					prop_assert_eq!(c.get_sort_position(), None,
+					prop_assert_eq!(c.get_sort_position(), 0.0,
 						"matching card {} should have sort_position cleared", c.get_id());
 				} else {
 					let original = before.get(&c.get_id()).unwrap();
@@ -1447,7 +1448,7 @@ proptest! {
 			}
 
 			// Record sort positions before clear
-			let before: HashMap<String, Option<f32>> = list_all_cards(&pool).unwrap()
+			let before: HashMap<String, f32> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			// Build a query matching nothing (nonexistent item type)
@@ -1500,12 +1501,12 @@ async fn test_t4_e3_move_relative_nonexistent_target() {
 }
 
 #[tokio::test]
-async fn test_t4_e4_move_relative_target_no_position() {
+async fn test_t4_e4_move_relative_target_default_position() {
 	let pool = setup_test_db();
 	let cards = create_n_cards(&pool, 2).await;
-	// Target has no sort_position (default None)
+	// Target has default sort_position (0.0)
 	let result = move_card_relative(&pool, &cards[0].get_id(), &cards[1].get_id(), true).await;
-	assert!(result.is_err());
+	assert!(result.is_ok());
 }
 
 #[tokio::test]
@@ -1677,12 +1678,12 @@ proptest! {
 				move_card_to_top(&pool, &c.get_id()).await.unwrap();
 			}
 
-			let before: Vec<(String, Option<f32>)> = list_all_cards(&pool).unwrap()
+			let before: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			regenerate_priority_offsets(&pool).await.unwrap();
 
-			let after: Vec<(String, Option<f32>)> = list_all_cards(&pool).unwrap()
+			let after: Vec<(String, f32)> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
 
 			for (id, before_pos) in &before {

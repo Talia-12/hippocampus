@@ -183,10 +183,7 @@ pub fn print_cards(cards: &[Card], config: &OutputConfig) {
 					Some(dt) => format!("suspended {}", dt.format("%Y-%m-%d %H:%M")),
 					None => "active".to_string(),
 				};
-				let sort_pos = match card.get_sort_position() {
-					Some(pos) => format!("{:.2}", pos),
-					None => "-".to_string(),
-				};
+				let sort_pos = format!("{:.2}", card.get_sort_position());
 				println!(
 					"{:<id_w$}  {:<item_w$}  {:>8.2}  {:<16}  {:>8}  {}",
 					card.get_id(),
@@ -226,10 +223,7 @@ pub fn print_card(card: &Card, config: &OutputConfig) {
 				Some(dt) => println!("Last Review: {}", dt),
 				None => println!("Last Review: never"),
 			}
-			match card.get_sort_position() {
-				Some(pos) => println!("Sort Pos:    {:.2}", pos),
-				None => println!("Sort Pos:    -"),
-			}
+			println!("Sort Pos:    {:.2}", card.get_sort_position());
 			match card.get_suspended() {
 				Some(dt) => println!("Suspended:   {}", dt),
 				None => println!("Suspended:   no"),
@@ -504,10 +498,7 @@ pub fn print_todo_cards(cards_with_items: &[(Card, Option<Item>)], config: &Outp
 				title_w = max_title,
 			);
 			for ((card, _), title) in cards_with_items.iter().zip(titles.iter()) {
-				let sort_pos = match card.get_sort_position() {
-					Some(pos) => format!("{:.2}", pos),
-					None => "-".to_string(),
-				};
+				let sort_pos = format!("{:.2}", card.get_sort_position());
 				println!(
 					"{:<id_w$}  {:<title_w$}  {:<16}  {:>8.2}  {}",
 					card.get_id(),

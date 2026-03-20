@@ -34,8 +34,8 @@ pub struct Card {
 	/// When this card was suspended (or null if it isn't suspended)
 	suspended: Option<NaiveDateTime>,
 
-	/// Temporary sort position for client-driven review ordering
-	sort_position: Option<f32>,
+	/// Sort position for client-driven review ordering (0.0 = unsorted default)
+	sort_position: f32,
 
 	/// Daily random offset applied to priority for shuffling similarly-prioritized cards
 	#[serde(default)]
@@ -70,7 +70,7 @@ impl Card {
 			scheduler_data: None,
 			priority,
 			suspended: None,
-			sort_position: None,
+			sort_position: 0.0,
 			priority_offset: 0.0,
 		}
 	}
@@ -108,7 +108,7 @@ impl Card {
 			scheduler_data,
 			priority,
 			suspended: suspended.map(|dt| dt.naive_utc()),
-			sort_position: None,
+			sort_position: 0.0,
 			priority_offset: 0.0,
 		}
 	}
@@ -281,8 +281,8 @@ impl Card {
 	///
 	/// ### Returns
 	///
-	/// The sort position of the card, or None if not set
-	pub fn get_sort_position(&self) -> Option<f32> {
+	/// The sort position of the card (0.0 = unsorted default)
+	pub fn get_sort_position(&self) -> f32 {
 		self.sort_position
 	}
 
@@ -291,7 +291,7 @@ impl Card {
 	/// ### Arguments
 	///
 	/// * `sort_position` - The new sort position for the card
-	pub fn set_sort_position(&mut self, sort_position: Option<f32>) {
+	pub fn set_sort_position(&mut self, sort_position: f32) {
 		self.sort_position = sort_position;
 	}
 
@@ -363,7 +363,7 @@ mod tests {
 	#[test]
 	fn test_new_card_sort_position_default() {
 		let card = Card::new("item1".to_string(), 0, Utc::now(), 0.5);
-		assert_eq!(card.get_sort_position(), None);
+		assert_eq!(card.get_sort_position(), 0.0);
 	}
 
 	#[test]
@@ -384,7 +384,7 @@ mod tests {
 			0.5,
 			None,
 		);
-		assert_eq!(card.get_sort_position(), None);
+		assert_eq!(card.get_sort_position(), 0.0);
 	}
 
 	#[test]

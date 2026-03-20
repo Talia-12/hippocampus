@@ -65,6 +65,11 @@ pub enum CardCommands {
 		/// The card ID
 		id: String,
 	},
+	/// Reorder a card to the bottom of the queue
+	ReorderToBottom {
+		/// The card ID
+		id: String,
+	},
 	/// Reorder a card to before another card
 	ReorderBefore {
 		/// The card ID to move
@@ -170,6 +175,12 @@ pub async fn execute(
 		CardCommands::ReorderToTop { id } => {
 			let card = client
 				.set_sort_position(&id, &SortPositionAction::Top)
+				.await?;
+			output::print_card_json(&card, config);
+		}
+		CardCommands::ReorderToBottom { id } => {
+			let card = client
+				.set_sort_position(&id, &SortPositionAction::Bottom)
 				.await?;
 			output::print_card_json(&card, config);
 		}

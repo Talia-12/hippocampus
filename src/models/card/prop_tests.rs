@@ -35,10 +35,9 @@ proptest! {
 	#[test]
 	fn prop_p1r_1_sort_position_any_f32_roundtrip(v in arb_any_f32()) {
 		let mut card = Card::new("item1".to_string(), 0, Utc::now(), 0.5);
-		card.set_sort_position(Some(v));
+		card.set_sort_position(v);
 		let got = card.get_sort_position();
-		prop_assert!(got.is_some());
-		prop_assert_eq!(got.unwrap().to_bits(), v.to_bits());
+		prop_assert_eq!(got.to_bits(), v.to_bits());
 	}
 
 	/// P1r.2: priority_offset roundtrip with any f32 (bit-exact for NaN)
@@ -211,7 +210,7 @@ proptest! {
 			"priority_offset should default to 0.0 when absent");
 	}
 
-	/// P3.3: serialize → deserialize preserves sort_position (including None)
+	/// P3.3: serialize → deserialize preserves sort_position
 	#[test]
 	fn prop_p3_3_serde_roundtrip_preserves_sort_position(pos in arb_sort_position()) {
 		let mut card = Card::new("item1".to_string(), 0, Utc::now(), 0.5);

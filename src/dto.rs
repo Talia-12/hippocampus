@@ -104,6 +104,9 @@ pub enum SortPositionAction {
 	/// Move the card to the top of the sort order
 	#[serde(rename = "top")]
 	Top,
+	/// Move the card to the bottom of the sort order
+	#[serde(rename = "bottom")]
+	Bottom,
 	/// Move the card before another card
 	#[serde(rename = "before")]
 	Before { card_id: String },

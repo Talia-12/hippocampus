@@ -252,13 +252,10 @@ pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec
 		card_query = card_query.filter(cards::suspended.gt(suspended_date.naive_utc()));
 	}
 
-	// Order by sort_position ASC NULLS LAST, then by effective priority DESC
-	// SQLite sorts NULLs first in ASC, so we use a CASE expression to push NULLs to the end
+	// Order by sort_position DESC (positive first, 0 = unsorted, negative last),
+	// then by effective priority DESC as tiebreaker
 	card_query = card_query.order_by((
-		diesel::dsl::sql::<diesel::sql_types::Integer>(
-			"CASE WHEN sort_position IS NULL THEN 1 ELSE 0 END",
-		),
-		cards::sort_position.asc(),
+		cards::sort_position.desc(),
 		diesel::dsl::sql::<diesel::sql_types::Float>("(priority + priority_offset) DESC"),
 	));
 
@@ -493,7 +490,7 @@ pub async fn update_card_priority(pool: &DbPool, card_id: &str, priority: f32) -
 
 /// Moves a card to the top of the sort order
 ///
-/// Sets the card's sort_position to MIN(sort_position) - 1.0, or 0.0 if no cards have positions.
+/// Sets the card's sort_position to MAX(sort_position) + 1.0, or 1.0 if no other cards exist.
 ///
 /// ### Arguments
 ///
@@ -512,24 +509,69 @@ pub async fn move_card_to_top(pool: &DbPool, card_id: &str) -> Result<Card> {
 
 	let conn = &mut pool.get()?;
 
-	// Find the minimum sort_position
-	let min_position: Option<f32> = cards::table
-		.filter(cards::sort_position.is_not_null())
-		.select(diesel::dsl::min(cards::sort_position))
+	// Find the maximum sort_position (excluding this card)
+	let max_position: Option<f32> = cards::table
+		.filter(cards::id.ne(card_id))
+		.select(diesel::dsl::max(cards::sort_position))
 		.first::<Option<f32>>(conn)?;
 
-	let new_position = match min_position {
-		Some(min) => min - 1.0,
-		None => 0.0,
+	let new_position = match max_position {
+		Some(max) => max + 1.0,
+		None => 1.0,
 	};
 
 	diesel::update(cards::table.find(card_id.to_string()))
-		.set(cards::sort_position.eq(Some(new_position)))
+		.set(cards::sort_position.eq(new_position))
 		.execute_with_retry(conn)
 		.await?;
 
 	info!(
 		"Moved card {} to top with sort_position {}",
+		card_id, new_position
+	);
+
+	get_card(pool, card_id)?.ok_or(anyhow!("Card not found after update"))
+}
+
+/// Moves a card to the bottom of the sort order
+///
+/// Sets the card's sort_position to MIN(sort_position) - 1.0, or -1.0 if no other cards exist.
+///
+/// ### Arguments
+///
+/// * `pool` - A reference to the database connection pool
+/// * `card_id` - The ID of the card to move to bottom
+///
+/// ### Returns
+///
+/// A Result containing the updated Card
+#[instrument(skip(pool), fields(card_id = %card_id))]
+pub async fn move_card_to_bottom(pool: &DbPool, card_id: &str) -> Result<Card> {
+	debug!("Moving card to bottom of sort order");
+
+	// Verify card exists
+	let _card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
+
+	let conn = &mut pool.get()?;
+
+	// Find the minimum sort_position (excluding this card)
+	let min_position: Option<f32> = cards::table
+		.filter(cards::id.ne(card_id))
+		.select(diesel::dsl::min(cards::sort_position))
+		.first::<Option<f32>>(conn)?;
+
+	let new_position = match min_position {
+		Some(min) => min - 1.0,
+		None => -1.0,
+	};
+
+	diesel::update(cards::table.find(card_id.to_string()))
+		.set(cards::sort_position.eq(new_position))
+		.execute_with_retry(conn)
+		.await?;
+
+	info!(
+		"Moved card {} to bottom with sort_position {}",
 		card_id, new_position
 	);
 
@@ -563,42 +605,40 @@ pub async fn move_card_relative(
 	let _card = get_card(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
 	let target = get_card(pool, target_card_id)?.ok_or(anyhow!("Target card not found"))?;
 
-	let target_pos = target
-		.get_sort_position()
-		.ok_or(anyhow!("Target card has no sort position"))?;
+	let target_pos = target.get_sort_position();
 
 	let conn = &mut pool.get()?;
 
 	let new_position = if before {
-		// Find the card immediately before the target
+		// "Before" in the queue means higher sort_position (DESC order)
+		// Find the card with the next higher sort_position than target
 		let predecessor: Option<f32> = cards::table
-			.filter(cards::sort_position.is_not_null())
-			.filter(cards::sort_position.lt(target_pos))
-			.filter(cards::id.ne(card_id))
-			.select(diesel::dsl::max(cards::sort_position))
-			.first::<Option<f32>>(conn)?;
-
-		match predecessor {
-			Some(pred_pos) => (pred_pos + target_pos) / 2.0,
-			None => target_pos - 1.0,
-		}
-	} else {
-		// Find the card immediately after the target
-		let successor: Option<f32> = cards::table
-			.filter(cards::sort_position.is_not_null())
 			.filter(cards::sort_position.gt(target_pos))
 			.filter(cards::id.ne(card_id))
 			.select(diesel::dsl::min(cards::sort_position))
 			.first::<Option<f32>>(conn)?;
 
+		match predecessor {
+			Some(pred_pos) => (pred_pos + target_pos) / 2.0,
+			None => target_pos + 1.0,
+		}
+	} else {
+		// "After" in the queue means lower sort_position (DESC order)
+		// Find the card with the next lower sort_position than target
+		let successor: Option<f32> = cards::table
+			.filter(cards::sort_position.lt(target_pos))
+			.filter(cards::id.ne(card_id))
+			.select(diesel::dsl::max(cards::sort_position))
+			.first::<Option<f32>>(conn)?;
+
 		match successor {
 			Some(succ_pos) => (target_pos + succ_pos) / 2.0,
-			None => target_pos + 1.0,
+			None => target_pos - 1.0,
 		}
 	};
 
 	diesel::update(cards::table.find(card_id.to_string()))
-		.set(cards::sort_position.eq(Some(new_position)))
+		.set(cards::sort_position.eq(new_position))
 		.execute_with_retry(conn)
 		.await?;
 
@@ -613,12 +653,12 @@ pub async fn move_card_relative(
 	get_card(pool, card_id)?.ok_or(anyhow!("Card not found after update"))
 }
 
-/// Clears all sort positions
+/// Resets sort positions to default
 ///
-/// Sets sort_position to NULL for cards matching the given query filters.
+/// Sets sort_position to 0.0 for cards matching the given query filters.
 ///
-/// If no filters are set (default query), clears sort positions for all cards.
-/// Otherwise, only clears sort positions for cards matching the filters.
+/// If no filters are set (default query), resets sort positions for all cards.
+/// Otherwise, only resets sort positions for cards matching the filters.
 ///
 /// ### Arguments
 ///
@@ -646,7 +686,7 @@ pub async fn clear_sort_positions(pool: &DbPool, query: &GetQueryDto) -> Result<
 		info!("Empty query, clearing all cards");
 
 		diesel::update(cards::table)
-			.set(cards::sort_position.eq(None::<f32>))
+			.set(cards::sort_position.eq(0.0_f32))
 			.execute_with_retry(conn)
 			.await?;
 
@@ -659,7 +699,7 @@ pub async fn clear_sort_positions(pool: &DbPool, query: &GetQueryDto) -> Result<
 		let ids: Vec<String> = matching_cards.into_iter().map(|c| c.get_id()).collect();
 
 		diesel::update(cards::table.filter(cards::id.eq_any(ids)))
-			.set(cards::sort_position.eq(None::<f32>))
+			.set(cards::sort_position.eq(0.0_f32))
 			.execute_with_retry(conn)
 			.await?;
 
@@ -669,9 +709,9 @@ pub async fn clear_sort_positions(pool: &DbPool, query: &GetQueryDto) -> Result<
 	Ok(())
 }
 
-/// Clears a single card's sort position
+/// Resets a single card's sort position
 ///
-/// Sets the card's sort_position to NULL.
+/// Sets the card's sort_position to 0.0 (unsorted default).
 ///
 /// ### Arguments
 ///
@@ -690,11 +730,11 @@ pub async fn clear_card_sort_position(pool: &DbPool, card_id: &str) -> Result<()
 	let conn = &mut pool.get()?;
 
 	diesel::update(cards::table.find(card_id.to_string()))
-		.set(cards::sort_position.eq(None::<f32>))
+		.set(cards::sort_position.eq(0.0_f32))
 		.execute_with_retry(conn)
 		.await?;
 
-	info!("Cleared sort position for card {}", card_id);
+	info!("Reset sort position for card {}", card_id);
 	Ok(())
 }
 

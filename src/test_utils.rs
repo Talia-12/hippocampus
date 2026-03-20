@@ -192,9 +192,9 @@ pub fn arb_card_mutations() -> impl Strategy<Value = CardMutations> {
 		)
 }
 
-/// Generates an arbitrary sort position: 50% None, 50% Some(f32) in (-1000..1000)
-pub fn arb_sort_position() -> impl Strategy<Value = Option<f32>> {
-	prop_oneof![Just(None), (-1000.0f32..1000.0f32).prop_map(Some),]
+/// Generates an arbitrary sort position: f32 in (-1000..1000), with 50% chance of 0.0 (unsorted)
+pub fn arb_sort_position() -> impl Strategy<Value = f32> {
+	prop_oneof![Just(0.0f32), -1000.0f32..1000.0f32,]
 }
 
 /// Generates a valid priority offset in [-0.05, +0.05] via integer division

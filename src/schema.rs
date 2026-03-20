@@ -10,7 +10,7 @@ diesel::table! {
 		scheduler_data -> Nullable<Text>,
 		priority -> Float,
 		suspended -> Nullable<Timestamp>,
-		sort_position -> Nullable<Float>,
+		sort_position -> Float,
 		priority_offset -> Float,
 	}
 }

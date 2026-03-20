@@ -314,6 +314,9 @@ pub async fn set_sort_position_handler(
 		SortPositionAction::Top => repo::move_card_to_top(&pool, &card_id)
 			.await
 			.map_err(ApiError::Database)?,
+		SortPositionAction::Bottom => repo::move_card_to_bottom(&pool, &card_id)
+			.await
+			.map_err(ApiError::Database)?,
 		SortPositionAction::Before { card_id: target_id } => {
 			repo::move_card_relative(&pool, &card_id, &target_id, true)
 				.await

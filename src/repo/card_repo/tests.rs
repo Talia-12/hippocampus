@@ -1159,9 +1159,9 @@ async fn test_clear_sort_positions_with_item_type_filter() {
 		move_card_to_top(&pool, &c.get_id()).await.unwrap();
 	}
 
-	// Verify all have sort positions
+	// Verify all have non-zero sort positions
 	let all_before = list_all_cards(&pool).unwrap();
-	assert!(all_before.iter().all(|c| c.get_sort_position().is_some()));
+	assert!(all_before.iter().all(|c| c.get_sort_position() != 0.0));
 
 	// Clear only type A
 	let query = GetQueryDtoBuilder::new()
@@ -1175,7 +1175,7 @@ async fn test_clear_sort_positions_with_item_type_filter() {
 	for c in &cards_a {
 		assert_eq!(
 			c.get_sort_position(),
-			None,
+			0.0,
 			"type A card {} should have been cleared",
 			c.get_id()
 		);
@@ -1185,7 +1185,7 @@ async fn test_clear_sort_positions_with_item_type_filter() {
 	let cards_b = get_cards_for_item(&pool, &item_b.get_id()).unwrap();
 	for c in &cards_b {
 		assert!(
-			c.get_sort_position().is_some(),
+			c.get_sort_position() != 0.0,
 			"type B card {} should still have sort_position",
 			c.get_id()
 		);
@@ -1230,7 +1230,7 @@ async fn test_clear_sort_positions_with_tag_filter() {
 	}
 
 	// Record item2 positions before
-	let item2_before: Vec<(String, Option<f32>)> = get_cards_for_item(&pool, &item2.get_id())
+	let item2_before: Vec<(String, f32)> = get_cards_for_item(&pool, &item2.get_id())
 		.unwrap()
 		.iter()
 		.map(|c| (c.get_id(), c.get_sort_position()))
@@ -1248,7 +1248,7 @@ async fn test_clear_sort_positions_with_tag_filter() {
 	for c in &cards1 {
 		assert_eq!(
 			c.get_sort_position(),
-			None,
+			0.0,
 			"tagged card {} should have been cleared",
 			c.get_id()
 		);
@@ -1300,7 +1300,7 @@ async fn test_clear_sort_positions_default_query_clears_all() {
 		list_all_cards(&pool)
 			.unwrap()
 			.iter()
-			.all(|c| c.get_sort_position().is_some())
+			.all(|c| c.get_sort_position() != 0.0)
 	);
 
 	// Clear with default query
@@ -1308,12 +1308,12 @@ async fn test_clear_sort_positions_default_query_clears_all() {
 		.await
 		.unwrap();
 
-	// All should be None
+	// All should be 0.0
 	let after = list_all_cards(&pool).unwrap();
 	for c in &after {
 		assert_eq!(
 			c.get_sort_position(),
-			None,
+			0.0,
 			"card {} should have been cleared",
 			c.get_id()
 		);
@@ -1343,7 +1343,7 @@ async fn test_clear_sort_positions_no_matching_cards() {
 	}
 
 	// Record positions before
-	let before: Vec<(String, Option<f32>)> = list_all_cards(&pool)
+	let before: Vec<(String, f32)> = list_all_cards(&pool)
 		.unwrap()
 		.iter()
 		.map(|c| (c.get_id(), c.get_sort_position()))
@@ -1400,29 +1400,29 @@ async fn test_clear_sort_positions_mixed_sort_positions() {
 	// Give only type A's first card a sort position
 	let cards_a = get_cards_for_item(&pool, &item_a.get_id()).unwrap();
 	move_card_to_top(&pool, &cards_a[0].get_id()).await.unwrap();
-	// cards_a[1] and all type B cards have no sort position
+	// cards_a[1] and all type B cards have default sort position (0.0)
 
 	// Record positions before
-	let before: Vec<(String, Option<f32>)> = list_all_cards(&pool)
+	let before: Vec<(String, f32)> = list_all_cards(&pool)
 		.unwrap()
 		.iter()
 		.map(|c| (c.get_id(), c.get_sort_position()))
 		.collect();
 
-	// Clear with type A filter — matches both cards_a[0] (has position) and cards_a[1] (no position)
+	// Clear with type A filter — matches both cards_a[0] (has position) and cards_a[1] (default 0.0)
 	let query = GetQueryDtoBuilder::new()
 		.item_type_id(type_a.get_id())
 		.suspended_filter(SuspendedFilter::Include)
 		.build();
 	clear_sort_positions(&pool, &query).await.unwrap();
 
-	// All type A cards should have None (including the one that already was None)
+	// All type A cards should have 0.0 (including the one that already was 0.0)
 	let cards_a_after = get_cards_for_item(&pool, &item_a.get_id()).unwrap();
 	for c in &cards_a_after {
 		assert_eq!(
 			c.get_sort_position(),
-			None,
-			"type A card {} should be None",
+			0.0,
+			"type A card {} should be 0.0",
 			c.get_id()
 		);
 	}
@@ -1479,7 +1479,7 @@ async fn test_clear_sort_positions_with_suspended_filter() {
 	}
 
 	// Record non-suspended card positions before
-	let non_suspended_before: Vec<(String, Option<f32>)> =
+	let non_suspended_before: Vec<(String, f32)> =
 		get_cards_for_item(&pool, &item2.get_id())
 			.unwrap()
 			.iter()
@@ -1497,7 +1497,7 @@ async fn test_clear_sort_positions_with_suspended_filter() {
 	for c in &cards1_after {
 		assert_eq!(
 			c.get_sort_position(),
-			None,
+			0.0,
 			"suspended card {} should have been cleared",
 			c.get_id()
 		);

@@ -23,8 +23,9 @@ cargo test --test integration test_create_item
 # Run tests with test feature enabled
 cargo test --features test
 
-# Run database migrations
-diesel migration run
+# Run database migrations (must specify --database-url for each database)
+diesel migration run --database-url srs_server.db
+diesel migration run --database-url test_database.db
 ```
 
 ## Code Style Guidelines
