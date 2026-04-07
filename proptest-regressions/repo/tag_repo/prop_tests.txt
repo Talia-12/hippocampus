@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc b155d374d6ef54576f10e5cbdad780efdde302245b9f24fa40f4838418a008da # shrinks to params = SetupCardParams { item_type_name: "Test ", review_function: "fsrs", item_title: "B", item_data: Null }, title_b = "B", data_b = Null, count_a = 0, count_b = 0

@@ -1,7 +1,8 @@
 use axum::{
 	Json,
-	extract::{Path, Query, State},
+	extract::{Path, State},
 };
+use axum_extra::extract::Query;
 use std::sync::Arc;
 use tracing::{debug, info, instrument};
 

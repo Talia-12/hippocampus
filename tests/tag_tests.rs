@@ -536,6 +536,130 @@ async fn test_list_tags_for_nonexistent_item() {
 	assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }
 
+/// Tests filtering cards by a single tag_ids query parameter
+///
+/// This test verifies that GET /cards?tag_ids=<id> correctly filters
+/// cards to only those whose parent item has the specified tag.
+/// This is a regression test for the axum_extra::extract::Query fix.
+#[tokio::test]
+async fn test_list_cards_filtered_by_tag_id() {
+	let mut app = create_test_app();
+
+	// Create an item type and two items
+	let item_type = create_item_type(&mut app, "Basic".to_string()).await;
+	let item1 = create_item(&mut app, &item_type.get_id(), "Item 1".to_string(), None).await;
+	let item2 = create_item(&mut app, &item_type.get_id(), "Item 2".to_string(), None).await;
+
+	// Create a tag and add it only to item1
+	let tag = create_tag(&mut app, "Special".to_string()).await;
+	let request = Request::builder()
+		.uri(format!("/items/{}/tags/{}", item1.get_id(), tag.get_id()))
+		.method("POST")
+		.body(Body::empty())
+		.unwrap();
+	let response = app.call(request).await.unwrap();
+	assert!(response.status().is_success());
+
+	// Query cards filtered by that tag
+	let request = Request::builder()
+		.uri(format!("/cards?tag_ids={}", tag.get_id()))
+		.method("GET")
+		.body(Body::empty())
+		.unwrap();
+	let response = app.call(request).await.unwrap();
+	assert_eq!(response.status(), StatusCode::OK);
+
+	let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+	let cards: Vec<Value> = serde_json::from_slice(&body).unwrap();
+
+	// All returned cards should belong to item1
+	assert!(!cards.is_empty(), "Should return cards for the tagged item");
+	for card in &cards {
+		assert_eq!(
+			card["item_id"].as_str().unwrap(),
+			item1.get_id(),
+			"All cards should belong to item1"
+		);
+	}
+
+	// Verify item2's cards are not included
+	let item2_cards = get_cards_for_item(&mut app, &item2.get_id()).await;
+	for item2_card in &item2_cards {
+		assert!(
+			!cards
+				.iter()
+				.any(|c| c["id"].as_str().unwrap() == item2_card.get_id()),
+			"Item2's cards should not appear in tag-filtered results"
+		);
+	}
+}
+
+/// Tests filtering items by multiple tag_ids query parameters
+///
+/// This test verifies that GET /items?tag_ids=<id1>&tag_ids=<id2> correctly
+/// deserializes repeated query params into a Vec and filters items accordingly.
+/// The filter uses intersection semantics: items must have ALL specified tags.
+#[tokio::test]
+async fn test_list_items_filtered_by_multiple_tag_ids() {
+	let mut app = create_test_app();
+
+	// Create an item type and three items
+	let item_type = create_item_type(&mut app, "Basic".to_string()).await;
+	let item1 = create_item(&mut app, &item_type.get_id(), "Item 1".to_string(), None).await;
+	let item2 = create_item(&mut app, &item_type.get_id(), "Item 2".to_string(), None).await;
+	let item3 = create_item(&mut app, &item_type.get_id(), "Item 3".to_string(), None).await;
+
+	// Create two tags
+	let tag_a = create_tag(&mut app, "TagA".to_string()).await;
+	let tag_b = create_tag(&mut app, "TagB".to_string()).await;
+
+	// item1 gets both tags, item2 gets only tag_a, item3 gets neither
+	for (item_id, tag_id) in [
+		(item1.get_id(), tag_a.get_id()),
+		(item1.get_id(), tag_b.get_id()),
+		(item2.get_id(), tag_a.get_id()),
+	] {
+		let request = Request::builder()
+			.uri(format!("/items/{}/tags/{}", item_id, tag_id))
+			.method("POST")
+			.body(Body::empty())
+			.unwrap();
+		let response = app.call(request).await.unwrap();
+		assert!(response.status().is_success());
+	}
+
+	// Query items filtered by both tags (intersection: must have ALL)
+	let request = Request::builder()
+		.uri(format!(
+			"/items?tag_ids={}&tag_ids={}",
+			tag_a.get_id(),
+			tag_b.get_id()
+		))
+		.method("GET")
+		.body(Body::empty())
+		.unwrap();
+	let response = app.call(request).await.unwrap();
+	assert_eq!(response.status(), StatusCode::OK);
+
+	let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+	let items: Vec<Value> = serde_json::from_slice(&body).unwrap();
+
+	// Only item1 has both tags
+	let item_ids: Vec<&str> = items.iter().map(|i| i["id"].as_str().unwrap()).collect();
+	assert!(
+		item_ids.contains(&item1.get_id().as_str()),
+		"Item1 (has both tags) should be in results"
+	);
+	assert!(
+		!item_ids.contains(&item2.get_id().as_str()),
+		"Item2 (only TagA) should not be in results"
+	);
+	assert!(
+		!item_ids.contains(&item3.get_id().as_str()),
+		"Item3 (no tags) should not be in results"
+	);
+}
+
 /// Tests error case: listing tags for a non-existent card
 ///
 /// This test verifies that attempting to list tags for a non-existent card
