@@ -1,6 +1,8 @@
 use super::*;
 use crate::repo::tests::setup_test_db;
-use crate::test_utils::{arb_messy_string, arb_setup_card_params, dedup_names, setup_card};
+use crate::test_utils::{
+	SetupCardParams, arb_messy_string, arb_setup_card_params, dedup_names, setup_card,
+};
 use proptest::prelude::*;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -163,8 +165,15 @@ proptest! {
 		let rt = tokio::runtime::Runtime::new().unwrap();
 		rt.block_on(async {
 			let pool = setup_test_db();
+			// Ensure item titles are distinct to avoid UNIQUE constraint violations
+			let deduped = dedup_names(vec![params.item_title.clone(), title_b]);
+			let params = SetupCardParams {
+				item_title: deduped[0].clone(),
+				..params
+			};
+			let title_b = deduped[1].clone();
 			let tc_a = setup_card(&pool, params).await;
-			// Create a second item under the same item type to avoid UNIQUE constraint
+			// Create a second item under the same item type
 			let item_b = crate::repo::create_item(
 				&pool, &tc_a.item_type.get_id(), title_b, data_b,
 			).await.unwrap();
