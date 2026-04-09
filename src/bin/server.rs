@@ -8,6 +8,7 @@ use clap::Parser;
 /// The application provides a RESTful API for managing items and reviews
 /// in a spaced repetition system, which helps users memorize information
 /// more effectively by scheduling reviews at optimal intervals.
+use diesel::Connection;
 use hippocampus::{config::CliArgs, *};
 use std::{net::SocketAddr, path::PathBuf, sync::Arc};
 use tracing::{error, info};
@@ -71,6 +72,30 @@ async fn main() {
 		config.backup_interval(),
 		config.backup_count,
 	);
+
+	// Create the database file if it doesn't exist (skip for in-memory databases)
+	if config.database_url != ":memory:"
+		&& !std::path::Path::new(&config.database_url).exists()
+	{
+		info!(
+			"Database file not found, creating new database at {}",
+			config.database_url
+		);
+		if let Some(parent) = std::path::Path::new(&config.database_url).parent() {
+			if !parent.as_os_str().is_empty() && !parent.exists() {
+				std::fs::create_dir_all(parent).expect("Failed to create database directory");
+			}
+		}
+		std::fs::File::create(&config.database_url).expect("Failed to create database file");
+	}
+
+	// Run embedded migrations
+	info!("Running database migrations");
+	{
+		let mut conn = diesel::SqliteConnection::establish(&config.database_url)
+			.expect("Failed to connect to database for migrations");
+		run_migrations(&mut conn);
+	}
 
 	// Initialize the database connection pool
 	// This pool will be shared across all request handlers
