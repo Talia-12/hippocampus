@@ -4,86 +4,11 @@
 /// - Creates a new database file if one doesn't exist
 /// - Runs embedded migrations against the database
 /// - Serves requests successfully after setup
+mod common;
+
+use common::{ServerGuard, SERVER_ADDR, STARTUP_TIMEOUT, http_get, wait_for_server};
 use diesel::prelude::*;
-use std::io::{Read, Write};
-use std::net::TcpStream;
-use std::process::{Child, Command};
-use std::thread;
-use std::time::{Duration, Instant};
-
-const SERVER_ADDR: &str = "127.0.0.1:3001";
-const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
-const POLL_INTERVAL: Duration = Duration::from_millis(100);
-
-/// Waits for the server to be ready by polling the TCP port.
-///
-/// ### Arguments
-///
-/// * `addr` - The address to connect to
-/// * `timeout` - Maximum time to wait
-///
-/// ### Returns
-///
-/// `true` if the server became ready, `false` if the timeout was reached
-fn wait_for_server(addr: &str, timeout: Duration) -> bool {
-	let start = Instant::now();
-	while start.elapsed() < timeout {
-		if TcpStream::connect(addr).is_ok() {
-			return true;
-		}
-		thread::sleep(POLL_INTERVAL);
-	}
-	false
-}
-
-/// Sends a minimal HTTP GET request and returns the status code and body.
-///
-/// ### Arguments
-///
-/// * `addr` - The server address (host:port)
-/// * `path` - The request path (e.g. "/item_types")
-///
-/// ### Returns
-///
-/// A tuple of (status_code, body_string)
-fn http_get(addr: &str, path: &str) -> (u16, String) {
-	let mut stream = TcpStream::connect(addr).expect("Failed to connect to server");
-	stream
-		.set_read_timeout(Some(Duration::from_secs(5)))
-		.unwrap();
-
-	let request = format!(
-		"GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-		path, addr
-	);
-	stream.write_all(request.as_bytes()).unwrap();
-
-	let mut response = String::new();
-	stream.read_to_string(&mut response).unwrap_or(0);
-
-	// Parse status code from first line (e.g. "HTTP/1.1 200 OK")
-	let status = response
-		.lines()
-		.next()
-		.and_then(|line| line.split_whitespace().nth(1))
-		.and_then(|code| code.parse::<u16>().ok())
-		.unwrap_or(0);
-
-	// Body is after the blank line
-	let body = response.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
-
-	(status, body)
-}
-
-/// Helper to ensure the child process is killed on drop
-struct ServerGuard(Child);
-
-impl Drop for ServerGuard {
-	fn drop(&mut self) {
-		let _ = self.0.kill();
-		let _ = self.0.wait();
-	}
-}
+use std::process::Command;
 
 /// Tests that the server creates a new database and runs migrations when
 /// pointed at a non-existent database file.
