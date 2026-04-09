@@ -52,7 +52,10 @@ fn http_get(addr: &str, path: &str) -> (u16, String) {
 		.set_read_timeout(Some(Duration::from_secs(5)))
 		.unwrap();
 
-	let request = format!("GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", path, addr);
+	let request = format!(
+		"GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+		path, addr
+	);
 	stream.write_all(request.as_bytes()).unwrap();
 
 	let mut response = String::new();
@@ -67,11 +70,7 @@ fn http_get(addr: &str, path: &str) -> (u16, String) {
 		.unwrap_or(0);
 
 	// Body is after the blank line
-	let body = response
-		.split("\r\n\r\n")
-		.nth(1)
-		.unwrap_or("")
-		.to_string();
+	let body = response.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
 
 	(status, body)
 }

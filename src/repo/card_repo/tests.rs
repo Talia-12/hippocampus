@@ -1479,12 +1479,11 @@ async fn test_clear_sort_positions_with_suspended_filter() {
 	}
 
 	// Record non-suspended card positions before
-	let non_suspended_before: Vec<(String, f32)> =
-		get_cards_for_item(&pool, &item2.get_id())
-			.unwrap()
-			.iter()
-			.map(|c| (c.get_id(), c.get_sort_position()))
-			.collect();
+	let non_suspended_before: Vec<(String, f32)> = get_cards_for_item(&pool, &item2.get_id())
+		.unwrap()
+		.iter()
+		.map(|c| (c.get_id(), c.get_sort_position()))
+		.collect();
 
 	// Clear with SuspendedFilter::Only
 	let query = GetQueryDtoBuilder::new()

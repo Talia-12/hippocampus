@@ -74,9 +74,7 @@ async fn main() {
 	);
 
 	// Create the database file if it doesn't exist (skip for in-memory databases)
-	if config.database_url != ":memory:"
-		&& !std::path::Path::new(&config.database_url).exists()
-	{
+	if config.database_url != ":memory:" && !std::path::Path::new(&config.database_url).exists() {
 		info!(
 			"Database file not found, creating new database at {}",
 			config.database_url
