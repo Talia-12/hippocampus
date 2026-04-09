@@ -112,6 +112,7 @@ fn test_server_creates_database_and_runs_migrations() {
 	let child = Command::new(bin_path)
 		.arg("--database-url")
 		.arg(&db_path)
+		.env("HOME", tmp_dir.path())
 		.spawn()
 		.expect("Failed to spawn server process");
 
