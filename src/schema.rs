@@ -16,6 +16,15 @@ diesel::table! {
 }
 
 diesel::table! {
+	item_relations (parent_item_id, child_item_id) {
+		parent_item_id -> Text,
+		child_item_id -> Text,
+		relation_type -> Text,
+		created_at -> Timestamp,
+	}
+}
+
+diesel::table! {
 	item_tags (item_id, tag_id) {
 		item_id -> Text,
 		tag_id -> Text,
@@ -75,5 +84,12 @@ diesel::joinable!(items -> item_types (item_type));
 diesel::joinable!(reviews -> cards (card_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
-	cards, item_tags, item_types, items, metadata, reviews, tags,
+	cards,
+	item_relations,
+	item_tags,
+	item_types,
+	items,
+	metadata,
+	reviews,
+	tags,
 );

@@ -138,6 +138,45 @@ impl<T> ExecuteWithRetry for T where
 {
 }
 
+/// Runs a closure inside an `immediate_transaction` with retry on transient errors.
+///
+/// Uses the same exponential backoff strategy as `ExecuteWithRetry`.
+/// The closure receives a mutable reference to the connection and must return
+/// a `Result<T, diesel::result::Error>`.
+///
+/// ### Arguments
+///
+/// * `conn` - A mutable reference to the SQLite connection
+/// * `f` - A closure that performs operations within the transaction
+///
+/// ### Returns
+///
+/// A Result containing the closure's return value on success
+pub async fn transaction_with_retry<T, F>(
+	conn: &mut SqliteConnection,
+	mut f: F,
+) -> Result<T, DieselError>
+where
+	F: FnMut(&mut SqliteConnection) -> Result<T, DieselError>,
+{
+	let mut attempts = 0;
+	let mut delay = Duration::from_millis(INITIAL_DELAY_MS);
+
+	loop {
+		match conn.immediate_transaction(&mut f) {
+			Ok(val) => return Ok(val),
+			Err(e) => {
+				if attempts >= MAX_RETRIES || !is_retryable_error(&e) {
+					return Err(e);
+				}
+				attempts += 1;
+				sleep(delay).await;
+				delay *= 2;
+			}
+		}
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use diesel::prelude::*;

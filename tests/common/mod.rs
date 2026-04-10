@@ -5,6 +5,10 @@ use axum::{
 	http::{Request, StatusCode},
 };
 use chrono;
+use std::io::{Read as _, Write as _};
+use std::net::TcpStream;
+use std::process::Child;
+use std::time::{Duration, Instant};
 /// Common test utilities for Hippocampus integration tests
 ///
 /// This file contains shared functions and utilities for all integration tests,
@@ -35,8 +39,12 @@ use tower::Service;
 ///
 /// An Axum Router configured with all routes and connected to an in-memory database
 pub fn create_test_app() -> Router {
-	// Create a connection pool with an in-memory SQLite database
-	let pool = Arc::new(init_pool(":memory:"));
+	// Use a unique shared in-memory database so all connections in the pool
+	// share the same data. Plain ":memory:" gives each connection its own
+	// separate database, which breaks handlers that acquire multiple connections.
+	let unique_id = uuid::Uuid::new_v4();
+	let database_url = format!("file:test_{}?mode=memory&cache=shared", unique_id);
+	let pool = Arc::new(init_pool(&database_url));
 
 	// Run migrations on the in-memory database to set up the schema
 	let conn = &mut pool.get().unwrap();
@@ -294,4 +302,88 @@ pub async fn create_card(app: &mut Router, item_id: &str, card_index: i32, prior
 	let card: Card = serde_json::from_slice(&body).unwrap();
 
 	card
+}
+
+// ============================================================================
+// Server binary test helpers
+// ============================================================================
+
+pub const SERVER_ADDR: &str = "127.0.0.1:3001";
+pub const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
+
+/// Ensures the child server process is killed on drop
+pub struct ServerGuard(pub Child);
+
+impl Drop for ServerGuard {
+	fn drop(&mut self) {
+		let _ = self.0.kill();
+		let _ = self.0.wait();
+	}
+}
+
+/// Waits for the server to be ready by polling the TCP port.
+pub fn wait_for_server(addr: &str, timeout: Duration) -> bool {
+	let start = Instant::now();
+	while start.elapsed() < timeout {
+		if TcpStream::connect(addr).is_ok() {
+			return true;
+		}
+		std::thread::sleep(POLL_INTERVAL);
+	}
+	false
+}
+
+/// Sends a minimal HTTP GET request and returns the status code and body.
+pub fn http_get(addr: &str, path: &str) -> (u16, String) {
+	let mut stream = TcpStream::connect(addr).expect("Failed to connect to server");
+	stream
+		.set_read_timeout(Some(Duration::from_secs(5)))
+		.unwrap();
+
+	let request = format!(
+		"GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+		path, addr
+	);
+	stream.write_all(request.as_bytes()).unwrap();
+
+	let mut response = String::new();
+	stream.read_to_string(&mut response).unwrap_or(0);
+
+	let status = response
+		.lines()
+		.next()
+		.and_then(|line| line.split_whitespace().nth(1))
+		.and_then(|code| code.parse::<u16>().ok())
+		.unwrap_or(0);
+
+	let body = response.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
+	(status, body)
+}
+
+/// Sends a minimal HTTP POST request with a JSON body and returns the status code and body.
+pub fn http_post(addr: &str, path: &str, json_body: &str) -> (u16, String) {
+	let mut stream = TcpStream::connect(addr).expect("Failed to connect to server");
+	stream
+		.set_read_timeout(Some(Duration::from_secs(5)))
+		.unwrap();
+
+	let request = format!(
+		"POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+		path, addr, json_body.len(), json_body
+	);
+	stream.write_all(request.as_bytes()).unwrap();
+
+	let mut response = String::new();
+	stream.read_to_string(&mut response).unwrap_or(0);
+
+	let status = response
+		.lines()
+		.next()
+		.and_then(|line| line.split_whitespace().nth(1))
+		.and_then(|code| code.parse::<u16>().ok())
+		.unwrap_or(0);
+
+	let body = response.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
+	(status, body)
 }

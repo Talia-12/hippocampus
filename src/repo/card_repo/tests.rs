@@ -1514,3 +1514,137 @@ async fn test_clear_sort_positions_with_suspended_filter() {
 		);
 	}
 }
+
+#[tokio::test]
+async fn test_list_cards_with_parent_item_id_filter() {
+	let pool = setup_test_db();
+	let item_type =
+		crate::repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string())
+			.await
+			.unwrap();
+
+	let parent = crate::repo::create_item(
+		&pool,
+		&item_type.get_id(),
+		"Parent".to_string(),
+		serde_json::json!({"front": "F", "back": "B"}),
+	)
+	.await
+	.unwrap();
+	let child1 = crate::repo::create_item(
+		&pool,
+		&item_type.get_id(),
+		"Child 1".to_string(),
+		serde_json::json!({"front": "F", "back": "B"}),
+	)
+	.await
+	.unwrap();
+	let child2 = crate::repo::create_item(
+		&pool,
+		&item_type.get_id(),
+		"Child 2".to_string(),
+		serde_json::json!({"front": "F", "back": "B"}),
+	)
+	.await
+	.unwrap();
+	let _unrelated = crate::repo::create_item(
+		&pool,
+		&item_type.get_id(),
+		"Unrelated".to_string(),
+		serde_json::json!({"front": "F", "back": "B"}),
+	)
+	.await
+	.unwrap();
+
+	crate::repo::create_item_relation(&pool, &parent.get_id(), &child1.get_id(), "extract")
+		.await
+		.unwrap();
+	crate::repo::create_item_relation(&pool, &parent.get_id(), &child2.get_id(), "extract")
+		.await
+		.unwrap();
+
+	let query = crate::dto::GetQueryDtoBuilder::new()
+		.parent_item_id(parent.get_id())
+		.build();
+
+	let result = list_cards_with_filters(&pool, &query).unwrap();
+
+	// Each child item should have 2 cards (Test Type), so 4 total
+	assert_eq!(result.len(), 4);
+
+	// All cards should belong to child1 or child2
+	for card in &result {
+		assert!(
+			card.get_item_id() == child1.get_id() || card.get_item_id() == child2.get_id(),
+			"Card should belong to a child item, but belongs to {}",
+			card.get_item_id()
+		);
+	}
+}
+
+#[tokio::test]
+async fn test_list_cards_with_child_item_id_filter() {
+	let pool = setup_test_db();
+	let item_type =
+		crate::repo::create_item_type(&pool, "Test Type".to_string(), "fsrs".to_string())
+			.await
+			.unwrap();
+
+	let parent1 = crate::repo::create_item(
+		&pool,
+		&item_type.get_id(),
+		"Parent 1".to_string(),
+		serde_json::json!({"front": "F", "back": "B"}),
+	)
+	.await
+	.unwrap();
+	let parent2 = crate::repo::create_item(
+		&pool,
+		&item_type.get_id(),
+		"Parent 2".to_string(),
+		serde_json::json!({"front": "F", "back": "B"}),
+	)
+	.await
+	.unwrap();
+	let child = crate::repo::create_item(
+		&pool,
+		&item_type.get_id(),
+		"Child".to_string(),
+		serde_json::json!({"front": "F", "back": "B"}),
+	)
+	.await
+	.unwrap();
+	let _unrelated = crate::repo::create_item(
+		&pool,
+		&item_type.get_id(),
+		"Unrelated".to_string(),
+		serde_json::json!({"front": "F", "back": "B"}),
+	)
+	.await
+	.unwrap();
+
+	crate::repo::create_item_relation(&pool, &parent1.get_id(), &child.get_id(), "extract")
+		.await
+		.unwrap();
+	crate::repo::create_item_relation(&pool, &parent2.get_id(), &child.get_id(), "extract")
+		.await
+		.unwrap();
+
+	let query = crate::dto::GetQueryDtoBuilder::new()
+		.child_item_id(child.get_id())
+		.build();
+
+	let result = list_cards_with_filters(&pool, &query).unwrap();
+
+	// Each parent item should have 2 cards (Test Type), so 4 total
+	assert_eq!(result.len(), 4);
+
+	// All cards should belong to parent1 or parent2
+	for card in &result {
+		assert!(
+			card.get_item_id() == parent1.get_id() || card.get_item_id() == parent2.get_id(),
+			"Card should belong to a parent item, but belongs to {}",
+			card.get_item_id()
+		);
+	}
+}
