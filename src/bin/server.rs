@@ -26,24 +26,19 @@ use tracing_subscriber::{self, Registry, filter::LevelFilter, fmt, prelude::*};
 #[tokio::main]
 async fn main() {
 	let args = CliArgs::parse();
+	let debug = args.debug;
+
+	// Load configuration from all sources (validates path overrides in debug builds)
+	let config = config::get_config(args).unwrap_or_else(|e| {
+		eprintln!("Error: {}", e);
+		std::process::exit(1);
+	});
 
 	// Initialize logging for better debugging and monitoring
 	println!("Initializing logging");
-	let _guard = init_tracing(args.debug);
+	let _guard = init_tracing(debug, config.state_dir.clone());
 
 	info!("Starting Hippocampus SRS Server");
-
-	// Load environment variables from .env file if it exists
-	if std::fs::metadata(".env").is_ok() {
-		info!("Loading .env file");
-		dotenv::dotenv().ok();
-	}
-
-	// Load configuration from all sources
-	let config = config::get_config(args).unwrap_or_else(|e| {
-		error!("Failed to load configuration: {}", e);
-		panic!("Failed to load configuration: {}", e);
-	});
 
 	info!("Using database at {}", config.database_url);
 
@@ -148,17 +143,14 @@ async fn main() {
 ///
 /// A special debug layer can be enabled by setting the HIPPOCAMPUS_DEBUG
 /// environment variable, which will output DEBUG-level logs to the console.
-fn init_tracing(debug: bool) -> impl Drop {
-	// If the state dir path is not None, we should do our logging in there
-	let state_dir_path = config::get_state_dir_path();
-
-	let log_dir_path = state_dir_path
+fn init_tracing(debug: bool, state_dir: Option<PathBuf>) -> impl Drop {
+	let log_dir_path = state_dir
 		.map(|path| path.join("logs"))
 		.unwrap_or_else(|| PathBuf::from("logs"));
 
 	// Create a directory for logs if it doesn't exist
 	if !log_dir_path.exists() {
-		std::fs::create_dir(log_dir_path.clone()).expect("Failed to create logs directory");
+		std::fs::create_dir_all(log_dir_path.clone()).expect("Failed to create logs directory");
 	}
 
 	// Setup a file appender for all log levels

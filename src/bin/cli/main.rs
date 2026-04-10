@@ -59,7 +59,7 @@ fn resolve_server_url(cli_url: Option<String>) -> String {
 	}
 
 	// Try reading from config file
-	let config_dir = config::get_config_dir_path();
+	let config_dir = config::get_config_dir_path(None);
 	if let Some(ref dir) = config_dir {
 		let config_path = dir.join("config.toml");
 		if let Ok(update) = config::config_from_file(Some(config_path)) {
