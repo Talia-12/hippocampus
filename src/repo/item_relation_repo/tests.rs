@@ -519,5 +519,8 @@ async fn test_get_parent_graph_diamond() {
 			}
 		}
 	}
-	assert_eq!(a_count, 2, "A should appear as grandparent via both B and C");
+	assert_eq!(
+		a_count, 2,
+		"A should appear as grandparent via both B and C"
+	);
 }

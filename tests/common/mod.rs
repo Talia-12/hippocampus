@@ -5,10 +5,6 @@ use axum::{
 	http::{Request, StatusCode},
 };
 use chrono;
-use std::io::{Read as _, Write as _};
-use std::net::TcpStream;
-use std::process::Child;
-use std::time::{Duration, Instant};
 /// Common test utilities for Hippocampus integration tests
 ///
 /// This file contains shared functions and utilities for all integration tests,
@@ -20,7 +16,11 @@ use hippocampus::{
 	models::{Card, Item, ItemId, ItemType, ItemTypeId, Tag, TagId},
 };
 use serde_json::{Value, json};
+use std::io::{Read as _, Write as _};
+use std::net::TcpStream;
+use std::process::Child;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tower::Service;
 
 /// Creates a test application with an in-memory SQLite database
@@ -375,7 +375,10 @@ pub fn http_post(addr: &str, path: &str, json_body: &str) -> (u16, String) {
 
 	let request = format!(
 		"POST {} HTTP/1.1\r\nHost: {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-		path, addr, json_body.len(), json_body
+		path,
+		addr,
+		json_body.len(),
+		json_body
 	);
 	stream.write_all(request.as_bytes()).unwrap();
 

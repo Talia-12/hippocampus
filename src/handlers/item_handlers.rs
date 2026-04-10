@@ -497,9 +497,11 @@ mod tests {
 		let pool = setup_test_db();
 
 		// Call the handler with a non-existent item type ID
-		let result =
-			list_items_by_item_type_handler(State(pool.clone()), Path(ItemTypeId("nonexistent".to_string())))
-				.await;
+		let result = list_items_by_item_type_handler(
+			State(pool.clone()),
+			Path(ItemTypeId("nonexistent".to_string())),
+		)
+		.await;
 
 		// Check that we got a NotFound error
 		assert!(result.is_err());

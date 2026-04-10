@@ -279,9 +279,11 @@ mod tests {
 		let pool = setup_test_db();
 
 		// Call the handler with a non-existent card ID
-		let result =
-			list_reviews_by_card_handler(State(pool.clone()), Path(CardId("nonexistent".to_string())))
-				.await;
+		let result = list_reviews_by_card_handler(
+			State(pool.clone()),
+			Path(CardId("nonexistent".to_string())),
+		)
+		.await;
 
 		// Check that we got a NotFound error
 		assert!(result.is_err());

@@ -6,7 +6,7 @@
 /// - Serves requests successfully after setup
 mod common;
 
-use common::{ServerGuard, SERVER_ADDR, STARTUP_TIMEOUT, http_get, wait_for_server};
+use common::{SERVER_ADDR, STARTUP_TIMEOUT, ServerGuard, http_get, wait_for_server};
 use diesel::prelude::*;
 use std::process::Command;
 

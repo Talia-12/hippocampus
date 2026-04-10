@@ -255,7 +255,10 @@ mod tests {
 
 		let result = create_item_relation_handler(
 			State(pool.clone()),
-			Path((ItemId("nonexistent".to_string()), ItemId("also-nonexistent".to_string()))),
+			Path((
+				ItemId("nonexistent".to_string()),
+				ItemId("also-nonexistent".to_string()),
+			)),
 			Json(CreateItemRelationDto {
 				relation_type: "extract".to_string(),
 			}),
@@ -320,7 +323,10 @@ mod tests {
 
 		let result = delete_item_relation_handler(
 			State(pool.clone()),
-			Path((ItemId("nonexistent".to_string()), ItemId("also-nonexistent".to_string()))),
+			Path((
+				ItemId("nonexistent".to_string()),
+				ItemId("also-nonexistent".to_string()),
+			)),
 		)
 		.await;
 
@@ -530,8 +536,11 @@ mod tests {
 	async fn test_get_children_graph_handler_not_found() {
 		let pool = setup_test_db();
 
-		let result =
-			get_children_graph_handler(State(pool.clone()), Path(ItemId("nonexistent".to_string()))).await;
+		let result = get_children_graph_handler(
+			State(pool.clone()),
+			Path(ItemId("nonexistent".to_string())),
+		)
+		.await;
 
 		assert!(result.is_err());
 		assert!(matches!(result.unwrap_err(), ApiError::NotFound));
@@ -618,7 +627,8 @@ mod tests {
 		let pool = setup_test_db();
 
 		let result =
-			get_parent_graph_handler(State(pool.clone()), Path(ItemId("nonexistent".to_string()))).await;
+			get_parent_graph_handler(State(pool.clone()), Path(ItemId("nonexistent".to_string())))
+				.await;
 
 		assert!(result.is_err());
 		assert!(matches!(result.unwrap_err(), ApiError::NotFound));

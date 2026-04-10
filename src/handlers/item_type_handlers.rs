@@ -259,9 +259,12 @@ mod tests {
 		let pool = setup_test_db();
 
 		// Call the handler with a non-existent ID
-		let result = get_item_type_handler(State(pool.clone()), Path(ItemTypeId("nonexistent".to_string())))
-			.await
-			.unwrap_err();
+		let result = get_item_type_handler(
+			State(pool.clone()),
+			Path(ItemTypeId("nonexistent".to_string())),
+		)
+		.await
+		.unwrap_err();
 
 		// Check that we got a NotFound error
 		assert!(matches!(result, ApiError::NotFound));
@@ -309,13 +312,10 @@ mod tests {
 			review_function: Some("incremental_queue".to_string()),
 		};
 
-		let result = update_item_type_handler(
-			State(pool.clone()),
-			Path(item_type.get_id()),
-			Json(payload),
-		)
-		.await
-		.unwrap();
+		let result =
+			update_item_type_handler(State(pool.clone()), Path(item_type.get_id()), Json(payload))
+				.await
+				.unwrap();
 
 		assert_eq!(result.0.get_review_function(), "incremental_queue");
 	}
@@ -332,12 +332,9 @@ mod tests {
 			review_function: Some("invalid".to_string()),
 		};
 
-		let result = update_item_type_handler(
-			State(pool.clone()),
-			Path(item_type.get_id()),
-			Json(payload),
-		)
-		.await;
+		let result =
+			update_item_type_handler(State(pool.clone()), Path(item_type.get_id()), Json(payload))
+				.await;
 
 		assert!(matches!(result, Err(ApiError::InvalidReviewFunction(_))));
 	}

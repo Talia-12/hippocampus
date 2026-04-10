@@ -298,8 +298,7 @@ mod tests {
 
 		// Call the handler
 		let result =
-			add_tag_to_item_handler(State(pool.clone()), Path((item.get_id(), tag.get_id())))
-				.await;
+			add_tag_to_item_handler(State(pool.clone()), Path((item.get_id(), tag.get_id()))).await;
 
 		// Check that the operation succeeded
 		assert!(result.is_ok());
@@ -369,11 +368,9 @@ mod tests {
 		assert_eq!(tags_before.len(), 1);
 
 		// Call the handler to remove the tag
-		let result = remove_tag_from_item_handler(
-			State(pool.clone()),
-			Path((item.get_id(), tag.get_id())),
-		)
-		.await;
+		let result =
+			remove_tag_from_item_handler(State(pool.clone()), Path((item.get_id(), tag.get_id())))
+				.await;
 
 		// Check that the operation succeeded
 		assert!(result.is_ok());
@@ -458,8 +455,11 @@ mod tests {
 		let pool = setup_test_db();
 
 		// Call the handler with a non-existent item ID
-		let result =
-			list_tags_for_item_handler(State(pool.clone()), Path(ItemId("nonexistent".to_string()))).await;
+		let result = list_tags_for_item_handler(
+			State(pool.clone()),
+			Path(ItemId("nonexistent".to_string())),
+		)
+		.await;
 
 		// Check that we got a NotFound error
 		assert!(result.is_err());
@@ -527,8 +527,11 @@ mod tests {
 		let pool = setup_test_db();
 
 		// Call the handler with a non-existent card ID
-		let result =
-			list_tags_for_card_handler(State(pool.clone()), Path(CardId("nonexistent".to_string()))).await;
+		let result = list_tags_for_card_handler(
+			State(pool.clone()),
+			Path(CardId("nonexistent".to_string())),
+		)
+		.await;
 
 		// Check that we got a NotFound error
 		assert!(result.is_err());

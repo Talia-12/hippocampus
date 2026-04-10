@@ -5,15 +5,15 @@ use axum::{
 	http::{Request, StatusCode},
 };
 use common::{
-	ServerGuard, SERVER_ADDR, STARTUP_TIMEOUT, create_item, create_item_type, create_test_app,
+	SERVER_ADDR, STARTUP_TIMEOUT, ServerGuard, create_item, create_item_type, create_test_app,
 	get_cards_for_item, http_get, http_post, wait_for_server,
 };
 use hippocampus::{
 	dto::{ItemChildGraphNode, ItemParentGraphNode},
 	models::{Card, CardId, Item, ItemId, ItemRelation},
 };
-use std::process::Command;
 use serde_json::json;
+use std::process::Command;
 use tower::Service;
 
 // ============================================================================
@@ -28,10 +28,7 @@ async fn create_relation(
 	relation_type: &str,
 ) -> (StatusCode, Vec<u8>) {
 	let request = Request::builder()
-		.uri(format!(
-			"/item_relations/{}/{}",
-			parent_id, child_id
-		))
+		.uri(format!("/item_relations/{}/{}", parent_id, child_id))
 		.method("POST")
 		.header("Content-Type", "application/json")
 		.body(Body::from(
@@ -49,10 +46,7 @@ async fn create_relation(
 }
 
 /// Lists item relations via the API with optional filters
-async fn list_relations(
-	app: &mut axum::Router,
-	query: &str,
-) -> (StatusCode, Vec<u8>) {
+async fn list_relations(app: &mut axum::Router, query: &str) -> (StatusCode, Vec<u8>) {
 	let uri = if query.is_empty() {
 		"/item_relations".to_string()
 	} else {
@@ -78,10 +72,7 @@ async fn delete_relation(
 	child_id: &ItemId,
 ) -> StatusCode {
 	let request = Request::builder()
-		.uri(format!(
-			"/item_relations/{}/{}",
-			parent_id, child_id
-		))
+		.uri(format!("/item_relations/{}/{}", parent_id, child_id))
 		.method("DELETE")
 		.body(Body::empty())
 		.unwrap();
@@ -90,10 +81,7 @@ async fn delete_relation(
 }
 
 /// Gets the children graph for an item via the API
-async fn get_children_graph(
-	app: &mut axum::Router,
-	item_id: &ItemId,
-) -> (StatusCode, Vec<u8>) {
+async fn get_children_graph(app: &mut axum::Router, item_id: &ItemId) -> (StatusCode, Vec<u8>) {
 	let request = Request::builder()
 		.uri(format!("/items/{}/children_graph", item_id))
 		.method("GET")
@@ -107,10 +95,7 @@ async fn get_children_graph(
 }
 
 /// Gets the parent graph for an item via the API
-async fn get_parent_graph(
-	app: &mut axum::Router,
-	item_id: &ItemId,
-) -> (StatusCode, Vec<u8>) {
+async fn get_parent_graph(app: &mut axum::Router, item_id: &ItemId) -> (StatusCode, Vec<u8>) {
 	let request = Request::builder()
 		.uri(format!("/items/{}/parent_graph", item_id))
 		.method("GET")
@@ -206,7 +191,8 @@ async fn test_create_item_relation() {
 	let mut app = create_test_app();
 	let (item_a, item_b, _) = setup_three_items(&mut app).await;
 
-	let (status, body) = create_relation(&mut app, &item_a.get_id(), &item_b.get_id(), "extract").await;
+	let (status, body) =
+		create_relation(&mut app, &item_a.get_id(), &item_b.get_id(), "extract").await;
 
 	assert_eq!(status, StatusCode::OK);
 	let relation: ItemRelation = serde_json::from_slice(&body).unwrap();
@@ -243,13 +229,16 @@ async fn test_create_item_relation_cycle_detected() {
 	let (item_a, item_b, item_c) = setup_three_items(&mut app).await;
 
 	// A -> B -> C
-	let (status, _) = create_relation(&mut app, &item_a.get_id(), &item_b.get_id(), "extract").await;
+	let (status, _) =
+		create_relation(&mut app, &item_a.get_id(), &item_b.get_id(), "extract").await;
 	assert_eq!(status, StatusCode::OK);
-	let (status, _) = create_relation(&mut app, &item_b.get_id(), &item_c.get_id(), "extract").await;
+	let (status, _) =
+		create_relation(&mut app, &item_b.get_id(), &item_c.get_id(), "extract").await;
 	assert_eq!(status, StatusCode::OK);
 
 	// C -> A would create a cycle
-	let (status, _) = create_relation(&mut app, &item_c.get_id(), &item_a.get_id(), "extract").await;
+	let (status, _) =
+		create_relation(&mut app, &item_c.get_id(), &item_a.get_id(), "extract").await;
 	assert_eq!(status, StatusCode::CONFLICT);
 }
 
@@ -258,7 +247,8 @@ async fn test_create_item_relation_self_loop() {
 	let mut app = create_test_app();
 	let (item_a, _, _) = setup_three_items(&mut app).await;
 
-	let (status, _) = create_relation(&mut app, &item_a.get_id(), &item_a.get_id(), "extract").await;
+	let (status, _) =
+		create_relation(&mut app, &item_a.get_id(), &item_a.get_id(), "extract").await;
 	assert_eq!(status, StatusCode::CONFLICT);
 }
 
@@ -407,10 +397,34 @@ async fn test_children_graph_linear_chain() {
 async fn test_children_graph_diamond_dag() {
 	let mut app = create_test_app();
 	let item_type = create_item_type(&mut app, "Basic".to_string()).await;
-	let item_a = create_item(&mut app, &item_type.get_id(), "A".to_string(), Some(json!({"front":"a","back":"a"}))).await;
-	let item_b = create_item(&mut app, &item_type.get_id(), "B".to_string(), Some(json!({"front":"b","back":"b"}))).await;
-	let item_c = create_item(&mut app, &item_type.get_id(), "C".to_string(), Some(json!({"front":"c","back":"c"}))).await;
-	let item_d = create_item(&mut app, &item_type.get_id(), "D".to_string(), Some(json!({"front":"d","back":"d"}))).await;
+	let item_a = create_item(
+		&mut app,
+		&item_type.get_id(),
+		"A".to_string(),
+		Some(json!({"front":"a","back":"a"})),
+	)
+	.await;
+	let item_b = create_item(
+		&mut app,
+		&item_type.get_id(),
+		"B".to_string(),
+		Some(json!({"front":"b","back":"b"})),
+	)
+	.await;
+	let item_c = create_item(
+		&mut app,
+		&item_type.get_id(),
+		"C".to_string(),
+		Some(json!({"front":"c","back":"c"})),
+	)
+	.await;
+	let item_d = create_item(
+		&mut app,
+		&item_type.get_id(),
+		"D".to_string(),
+		Some(json!({"front":"d","back":"d"})),
+	)
+	.await;
 
 	// Diamond: A -> B, A -> C, B -> D, C -> D
 	create_relation(&mut app, &item_a.get_id(), &item_b.get_id(), "extract").await;
@@ -496,10 +510,34 @@ async fn test_parent_graph_linear_chain() {
 async fn test_parent_graph_diamond_dag() {
 	let mut app = create_test_app();
 	let item_type = create_item_type(&mut app, "Basic".to_string()).await;
-	let item_a = create_item(&mut app, &item_type.get_id(), "A".to_string(), Some(json!({"front":"a","back":"a"}))).await;
-	let item_b = create_item(&mut app, &item_type.get_id(), "B".to_string(), Some(json!({"front":"b","back":"b"}))).await;
-	let item_c = create_item(&mut app, &item_type.get_id(), "C".to_string(), Some(json!({"front":"c","back":"c"}))).await;
-	let item_d = create_item(&mut app, &item_type.get_id(), "D".to_string(), Some(json!({"front":"d","back":"d"}))).await;
+	let item_a = create_item(
+		&mut app,
+		&item_type.get_id(),
+		"A".to_string(),
+		Some(json!({"front":"a","back":"a"})),
+	)
+	.await;
+	let item_b = create_item(
+		&mut app,
+		&item_type.get_id(),
+		"B".to_string(),
+		Some(json!({"front":"b","back":"b"})),
+	)
+	.await;
+	let item_c = create_item(
+		&mut app,
+		&item_type.get_id(),
+		"C".to_string(),
+		Some(json!({"front":"c","back":"c"})),
+	)
+	.await;
+	let item_d = create_item(
+		&mut app,
+		&item_type.get_id(),
+		"D".to_string(),
+		Some(json!({"front":"d","back":"d"})),
+	)
+	.await;
 
 	// Diamond: A -> B, A -> C, B -> D, C -> D
 	create_relation(&mut app, &item_a.get_id(), &item_b.get_id(), "extract").await;
@@ -522,7 +560,10 @@ async fn test_parent_graph_diamond_dag() {
 			}
 		}
 	}
-	assert_eq!(a_count, 2, "A should appear as grandparent via both B and C");
+	assert_eq!(
+		a_count, 2,
+		"A should appear as grandparent via both B and C"
+	);
 }
 
 #[tokio::test]
@@ -682,8 +723,7 @@ async fn test_list_cards_with_parent_item_id_filter() {
 
 	let cards = list_cards(&mut app, &format!("parent_item_id={}", item_a.get_id())).await;
 
-	let result_card_ids: std::collections::HashSet<_> =
-		cards.iter().map(|c| c.get_id()).collect();
+	let result_card_ids: std::collections::HashSet<_> = cards.iter().map(|c| c.get_id()).collect();
 	assert_eq!(result_card_ids, expected_card_ids);
 
 	// Cards for A should NOT be in results
@@ -716,8 +756,7 @@ async fn test_list_cards_with_child_item_id_filter() {
 
 	let cards = list_cards(&mut app, &format!("child_item_id={}", item_c.get_id())).await;
 
-	let result_card_ids: std::collections::HashSet<_> =
-		cards.iter().map(|c| c.get_id()).collect();
+	let result_card_ids: std::collections::HashSet<_> = cards.iter().map(|c| c.get_id()).collect();
 	assert_eq!(result_card_ids, expected_card_ids);
 
 	// Cards for C should NOT be in results
@@ -819,10 +858,7 @@ fn test_relation_filter_with_file_database() {
 	assert_eq!(status, 200, "Failed to create relation: {}", body);
 
 	// List cards with parent_item_id filter — this is the double-connection path
-	let (status, body) = http_get(
-		SERVER_ADDR,
-		&format!("/cards?parent_item_id={}", parent_id),
-	);
+	let (status, body) = http_get(SERVER_ADDR, &format!("/cards?parent_item_id={}", parent_id));
 	assert_eq!(
 		status, 200,
 		"Relation-filtered card listing returned {} (body: {})",
@@ -844,10 +880,7 @@ fn test_relation_filter_with_file_database() {
 	);
 
 	// Also verify items listing with the same filter
-	let (status, body) = http_get(
-		SERVER_ADDR,
-		&format!("/items?parent_item_id={}", parent_id),
-	);
+	let (status, body) = http_get(SERVER_ADDR, &format!("/items?parent_item_id={}", parent_id));
 	assert_eq!(
 		status, 200,
 		"Relation-filtered item listing returned {} (body: {})",
