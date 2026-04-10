@@ -1,7 +1,7 @@
 ---
 name: review-pr
 description: Perform a detailed PR review covering architecture, correctness, error handling, performance, type safety, and test coverage.
-user_invocable: true
+user-invocable: true
 ---
 
 # PR Review
