@@ -313,7 +313,17 @@ pub async fn create_card(
 // Server binary test helpers
 // ============================================================================
 
+/// The address the spawned `hippocampus` server binary listens on.
+///
+/// This must match the port the binary selects in `src/bin/server.rs`, which
+/// differs between debug (`3001`) and release (`3000`) builds. Tests compiled
+/// in the same profile as the spawned binary will agree on the address; in
+/// particular, `nix build` compiles tests in release mode, so this resolves to
+/// `3000` there.
+#[cfg(debug_assertions)]
 pub const SERVER_ADDR: &str = "127.0.0.1:3001";
+#[cfg(not(debug_assertions))]
+pub const SERVER_ADDR: &str = "127.0.0.1:3000";
 pub const STARTUP_TIMEOUT: Duration = Duration::from_secs(15);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 

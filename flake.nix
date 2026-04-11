@@ -70,7 +70,6 @@
             checkFlags = [
               "--skip" "prop_test"
               "--skip" "proptests"
-              "--skip" "test_server_creates_database_and_runs_migrations"
             ];
           };
         in {
