@@ -37,3 +37,9 @@ diesel migration run --database-url test_database.db
 - **Types**: Strong typing with getters/setters for all struct fields
 - **Documentation**: All functions have doc comments with purpose, args, and returns
 - **Database**: Use Diesel ORM with properly separated models and repository functions
+
+## Testing Philosophy
+- **Build new features with red/green TDD**: Write a failing test that specifies the new behavior (red), then implement the minimum code to make it pass (green), then refactor.
+- **Prefer proptests over unit tests**: Reach for property-based tests first; fall back to unit tests only when a property is hard to express or when locking in a specific concrete case.
+- **Tests should fully specify the program**: The goal is a test set so complete that if all non-test code were deleted, the program could be reconstructed from scratch by implementing against the tests. When adding or changing behavior, ask whether the tests alone would force that behavior to exist.
+- **Proptest regressions become unit tests**: Whenever a proptest fails and proptest writes a regression seed (e.g. into `proptest-regressions/`), also add a dedicated unit test that exercises that specific failing input. The regression file guards the seed; the unit test makes the failure mode explicit, named, and immediately visible in the test output if it ever recurs.
