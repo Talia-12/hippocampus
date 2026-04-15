@@ -1,0 +1,16 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 8ac8b3ce4c1e288af58a635bcf2a953b6fd5862eb60d235efd77cf34b6676ca8 # shrinks to n_items = 1
+cc 222a0c929d77c93cb81101a57085c0cd4867f9feab221cc9feb95fd64a5a6964 # shrinks to n_types = 2, items_per_type = 1, type_ix = 0
+cc 9fb6176c541c4c8d32dfca0305e3f6adcf4aeb0bb138e788b0f0498d3f2dade9 # shrinks to n_types = 2, items_per_type = 1, type_ix = 0
+cc db5eb8e789b2acf19aaf9b2a30555a44f1b5eba92465089770b494d4d47c0f30 # shrinks to n_items = 2, n_tags = 2, attach_pairs = [], query_tag_ixs = [0]
+cc e28d4fbfb93b99f7eb7618e6956c1c65981964771b8bfc8341a48b02a56df30f # shrinks to n_items = 3, n_tags = 2, attach_pairs = [], query_tag_ix = 0
+cc 7cfbaba63ec38e24388080598176a65008e55342558b746eb2e3f3eec8e35121 # shrinks to garbage = ""
+cc 32118c68e841286d6aee796ba62d3e018dac9d6a15ea89442542a27009cff295 # shrinks to n_items = 2, mutations = [(None, None, None)], cutoff = 2020-01-01T00:00:00Z
+cc ebf4cb5a690075180c73f97ed817a84072ccae25ecbed62ddbaf54e88e68ac01 # shrinks to garbage = ""
+cc 9d1f7684df15387eee302f38569e7b1ac7d485858bc04edaa7c2cb1cf643e9ad # shrinks to n_items = 2, mutations = [(Some(2026-09-02T09:42:07Z), None, None)], cutoff = 2020-01-01T00:00:00Z
+cc 5c47c2527688e2093502a98a0a99b193341ece70bd3126017b7023d6587c32ea # shrinks to n_types = 1, items_per_type = 2, n_tags = 1, attach_pairs = [], relation_pairs = [], date_muts = [(None, None, None)], ratings = [(0, 1)], type_ix = 0, query_tag_ixs = [], next_cutoff = None, last_after = Some(2020-01-01T00:00:00Z), susp_after = None, susp_before = None, parent_ix = None, child_ix = None, susp_filter = Include

@@ -357,7 +357,7 @@ proptest! {
 				..Default::default()
 			};
 
-			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
+			let sql_result = list_cards(&pool, &query).await.unwrap();
 			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
 			oracle_result.sort();
 
@@ -392,7 +392,7 @@ proptest! {
 				..Default::default()
 			};
 
-			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
+			let sql_result = list_cards(&pool, &query).await.unwrap();
 			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
 			oracle_result.sort();
 
@@ -424,7 +424,7 @@ proptest! {
 				..Default::default()
 			};
 
-			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
+			let sql_result = list_cards(&pool, &query).await.unwrap();
 			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
 			oracle_result.sort();
 
@@ -456,7 +456,7 @@ proptest! {
 				..Default::default()
 			};
 
-			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
+			let sql_result = list_cards(&pool, &query).await.unwrap();
 			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
 			oracle_result.sort();
 
@@ -485,7 +485,7 @@ proptest! {
 				..Default::default()
 			};
 
-			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
+			let sql_result = list_cards(&pool, &query).await.unwrap();
 			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
 			oracle_result.sort();
 
@@ -514,7 +514,7 @@ proptest! {
 				..Default::default()
 			};
 
-			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
+			let sql_result = list_cards(&pool, &query).await.unwrap();
 			prop_assert_eq!(sorted_ids(&sql_result), sorted_ids(&all_cards));
 			Ok::<_, TestCaseError>(())
 		})?;
@@ -539,7 +539,7 @@ proptest! {
 				..Default::default()
 			};
 
-			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
+			let sql_result = list_cards(&pool, &query).await.unwrap();
 			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
 			oracle_result.sort();
 
@@ -573,7 +573,7 @@ proptest! {
 				..Default::default()
 			};
 
-			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
+			let sql_result = list_cards(&pool, &query).await.unwrap();
 			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &HashMap::new());
 			oracle_result.sort();
 
@@ -633,7 +633,7 @@ proptest! {
 			// Re-read all cards (tags don't change card data but we need fresh state)
 			let all_cards = list_all_cards(&pool).unwrap();
 
-			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
+			let sql_result = list_cards(&pool, &query).await.unwrap();
 			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &item_tags_map);
 			oracle_result.sort();
 
@@ -701,7 +701,7 @@ proptest! {
 			 };
 
 			let all_cards = list_all_cards(&pool).unwrap();
-			let sql_result = list_cards_with_filters(&pool, &query).unwrap();
+			let sql_result = list_cards(&pool, &query).await.unwrap();
 			let mut oracle_result = oracle_filter(&all_cards, &query, &item_type_map, &item_tags_map);
 			oracle_result.sort();
 
@@ -735,7 +735,7 @@ proptest! {
 				}
 			};
 
-			let result = list_cards_with_filters(&pool, &query).unwrap();
+			let result = list_cards(&pool, &query).await.unwrap();
 			prop_assert_eq!(result.len(), 0);
 			Ok::<_, TestCaseError>(())
 		})?;
@@ -758,7 +758,7 @@ proptest! {
 				..Default::default()
 			};
 
-			let result = list_cards_with_filters(&pool, &query).unwrap();
+			let result = list_cards(&pool, &query).await.unwrap();
 			prop_assert_eq!(sorted_ids(&result), sorted_ids(&all_cards));
 			Ok::<_, TestCaseError>(())
 		})?;
@@ -919,7 +919,7 @@ proptest! {
 				suspended_filter: SuspendedFilter::Include,
 				..Default::default()
 			};
-			let result = list_cards_with_filters(&pool, &query).unwrap();
+			let result = list_cards(&pool, &query).await.unwrap();
 			prop_assert_eq!(result[0].get_id(), target.get_id());
 			Ok::<_, TestCaseError>(())
 		})?;
@@ -942,7 +942,7 @@ proptest! {
 				suspended_filter: SuspendedFilter::Include,
 				..Default::default()
 			};
-			let before = list_cards_with_filters(&pool, &query).unwrap();
+			let before = list_cards(&pool, &query).await.unwrap();
 			let target_id = cards[n / 2].get_id();
 
 			// Record ordering of others before
@@ -953,7 +953,7 @@ proptest! {
 
 			move_card_to_top(&pool, &target_id).await.unwrap();
 
-			let after = list_cards_with_filters(&pool, &query).unwrap();
+			let after = list_cards(&pool, &query).await.unwrap();
 			let others_after: Vec<_> = after.iter()
 				.filter(|c| c.get_id() != target_id)
 				.map(|c| c.get_id())
@@ -1071,7 +1071,7 @@ proptest! {
 				suspended_filter: SuspendedFilter::Include,
 				..Default::default()
 			};
-			let before = list_cards_with_filters(&pool, &query).unwrap();
+			let before = list_cards(&pool, &query).await.unwrap();
 
 			let mover_id = cards[0].get_id();
 			let target_id = cards[n - 1].get_id();
@@ -1083,7 +1083,7 @@ proptest! {
 
 			move_card_relative(&pool, &mover_id, &target_id, false).await.unwrap();
 
-			let after = list_cards_with_filters(&pool, &query).unwrap();
+			let after = list_cards(&pool, &query).await.unwrap();
 			let others_after: Vec<_> = after.iter()
 				.filter(|c| c.get_id() != mover_id)
 				.map(|c| c.get_id())
@@ -1167,7 +1167,7 @@ proptest! {
 				suspended_filter: SuspendedFilter::Include,
 				..Default::default()
 			};
-			let result = list_cards_with_filters(&pool, &query).unwrap();
+			let result = list_cards(&pool, &query).await.unwrap();
 
 			let mut seen_zero = false;
 			for c in &result {
@@ -1210,7 +1210,7 @@ proptest! {
 				suspended_filter: SuspendedFilter::Include,
 				..Default::default()
 			};
-			let result = list_cards_with_filters(&pool, &query).unwrap();
+			let result = list_cards(&pool, &query).await.unwrap();
 
 			let pos_a = result.iter().position(|c| c.get_id() == card_a.get_id()).unwrap();
 			let pos_b = result.iter().position(|c| c.get_id() == card_b.get_id()).unwrap();
@@ -1242,7 +1242,7 @@ proptest! {
 				suspended_filter: SuspendedFilter::Include,
 				..Default::default()
 			};
-			let result = list_cards_with_filters(&pool, &query).unwrap();
+			let result = list_cards(&pool, &query).await.unwrap();
 
 			// All have 0.0 sort_position, so should be ordered by effective priority DESC
 			for w in result.windows(2) {

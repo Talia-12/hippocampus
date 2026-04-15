@@ -7,12 +7,24 @@
 
 use super::*;
 use crate::models::{CardEventFnName, OrderIndex};
-use crate::repo::{
-	self, create_card_fetched_event, tests::setup_test_db, update_item,
-};
-use crate::repo::card_repo::{get_card_raw, list_cards_with_filters};
+use crate::repo::card_repo::get_card_raw;
+use crate::repo::query_repo;
+use crate::repo::{self, create_card_fetched_event, tests::setup_test_db, update_item};
+use crate::schema::cards;
 use crate::test_utils::{SetupCardParams, arb_setup_card_params, setup_card};
+use diesel::prelude::{ExpressionMethods, QueryDsl, RunQueryDsl};
 use proptest::prelude::*;
+
+/// Bypasses the cache-ensure pass and loads raw cards matching a query —
+/// the test needs to observe the state left by an earlier
+/// `ensure_list_cards_cache` call without triggering a re-ensure.
+fn raw_cards_matching(pool: &crate::db::DbPool, query: &crate::dto::GetQueryDto) -> Vec<crate::models::Card> {
+	let conn = &mut pool.get().unwrap();
+	cards::table
+		.filter(cards::id.eq_any(query_repo::cards_matching(query)))
+		.load::<crate::models::Card>(conn)
+		.unwrap()
+}
 
 /// Helper: register the `test_set_title` event for an item type so that
 /// `ensure_*_cache` actually has work to do.
@@ -355,7 +367,9 @@ async fn cc5_1_ensure_list_cards_cache_populates_many() {
 			.unwrap();
 	}
 
-	ensure_list_cards_cache(&pool, CacheScope::All).await.unwrap();
+	ensure_list_cards_cache(&pool, CacheScope::Query(&crate::dto::GetQueryDto::default()))
+		.await
+		.unwrap();
 
 	let cards = repo::list_all_cards(&pool).unwrap();
 	assert!(!cards.is_empty());
@@ -386,7 +400,9 @@ async fn cc5_2_ensure_list_cards_cache_skips_no_events() {
 	};
 	let test_card = setup_card(&pool, params).await;
 
-	ensure_list_cards_cache(&pool, CacheScope::All).await.unwrap();
+	ensure_list_cards_cache(&pool, CacheScope::Query(&crate::dto::GetQueryDto::default()))
+		.await
+		.unwrap();
 
 	let card = get_card_raw(&pool, &test_card.card.get_id()).unwrap().unwrap();
 	assert!(card.get_cache_updated_at_raw().is_none());
@@ -417,27 +433,27 @@ async fn cc5_3_ensure_list_cards_cache_mixed_item_types() {
 		.await
 		.unwrap();
 
-	ensure_list_cards_cache(&pool, CacheScope::All).await.unwrap();
+	ensure_list_cards_cache(&pool, CacheScope::Query(&crate::dto::GetQueryDto::default()))
+		.await
+		.unwrap();
 
-	let cards_a = list_cards_with_filters(
+	let cards_a = raw_cards_matching(
 		&pool,
 		&crate::dto::GetQueryDtoBuilder::new()
 			.item_type_id(type_a.get_id())
 			.build(),
-	)
-	.unwrap();
+	);
 	assert!(!cards_a.is_empty());
 	for c in &cards_a {
 		assert!(c.get_cache_updated_at_raw().is_some(), "type-A cache not filled");
 	}
 
-	let cards_b = list_cards_with_filters(
+	let cards_b = raw_cards_matching(
 		&pool,
 		&crate::dto::GetQueryDtoBuilder::new()
 			.item_type_id(type_b.get_id())
 			.build(),
-	)
-	.unwrap();
+	);
 	assert!(!cards_b.is_empty());
 	for c in &cards_b {
 		assert!(c.get_cache_updated_at_raw().is_none(), "type-B cache incorrectly filled");

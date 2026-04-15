@@ -2,7 +2,8 @@ use crate::card_event_registry::CardEventChainError;
 use crate::db::{DbPool, ExecuteWithRetry};
 use crate::models::{Card, CardId, Item, ItemId};
 use crate::repo::card_cache::{self, CacheScope, EnsureCacheError};
-use crate::schema::{cards, item_tags, metadata};
+use crate::repo::query_repo;
+use crate::schema::{cards, metadata};
 use crate::{GetQueryDto, SuspendedFilter};
 use anyhow::{Result, anyhow};
 use chrono::Utc;
@@ -234,132 +235,6 @@ pub async fn get_card(pool: &DbPool, card_id: &CardId) -> Result<Option<Card>, C
 	Ok(card_cache::ensure_and_read_card(pool, card_id).await?)
 }
 
-/// Lists all cards in the database with optional filtering.
-///
-/// Synchronous, non-cache-aware — returns cards with whatever `card_data`
-/// happens to be on disk. Handlers that need fresh `card_data` must go
-/// through `list_cards` (async, cache-aware). Internal repo callers that
-/// only need card ids / priorities / sort positions can stay here.
-#[instrument(skip(pool), fields(query = %query))]
-pub fn list_cards_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec<Card>> {
-	debug!("Listing cards with filters: {:?}", query);
-
-	let conn = &mut pool.get()?;
-
-	// Start with a base query that joins cards with items
-	let mut card_query = cards::table.into_boxed();
-
-	// Apply filter by item type, if specified
-	if let Some(item_type_id) = &query.item_type_id {
-		debug!("Filtering by item type: {}", item_type_id);
-		card_query = card_query.filter(
-			cards::item_id.eq_any(
-				crate::schema::items::table
-					.filter(crate::schema::items::item_type.eq(item_type_id))
-					.select(crate::schema::items::id),
-			),
-		);
-	}
-
-	// Apply filter by review date, if specified
-	if let Some(review_date) = query.next_review_before {
-		debug!("Filtering by review date before: {}", review_date);
-		card_query = card_query.filter(
-			cards::next_review
-				.lt(review_date.naive_utc())
-				.and(cards::next_review.is_not_null()),
-		);
-	}
-
-	// Apply filter by last review date, if specified
-	if let Some(review_date) = query.last_review_after {
-		debug!("Filtering by last review date after: {}", review_date);
-		card_query = card_query.filter(
-			cards::last_review
-				.gt(review_date.naive_utc())
-				.and(cards::last_review.is_not_null()),
-		);
-	}
-
-	// Apply filter to remove suspended cards, if specified
-	if query.suspended_filter == SuspendedFilter::Exclude {
-		card_query = card_query.filter(cards::suspended.is_null());
-	}
-
-	// Apply filter to only include suspended cards, if specified
-	if query.suspended_filter == SuspendedFilter::Only {
-		card_query = card_query.filter(cards::suspended.is_not_null());
-	}
-
-	// Apply filter by suspended date before, if specified
-	if let Some(suspended_date) = query.suspended_before {
-		debug!("Filtering by suspended date before: {}", suspended_date);
-		card_query = card_query.filter(cards::suspended.lt(suspended_date.naive_utc()));
-	}
-
-	// Apply filter by suspended date after, if specified
-	if let Some(suspended_date) = query.suspended_after {
-		debug!("Filtering by suspended date after: {}", suspended_date);
-		card_query = card_query.filter(cards::suspended.gt(suspended_date.naive_utc()));
-	}
-
-	// Apply relation filters (parent_item_id / child_item_id)
-	if let Some(ref parent_id) = query.parent_item_id {
-		debug!("Filtering by parent_item_id: {}", parent_id);
-		let child_ids = super::item_relation_repo::get_children_of(pool, &parent_id)?;
-		card_query = card_query.filter(cards::item_id.eq_any(child_ids));
-	}
-	if let Some(ref child_id) = query.child_item_id {
-		debug!("Filtering by child_item_id: {}", child_id);
-		let parent_ids = super::item_relation_repo::get_parents_of(pool, &child_id)?;
-		card_query = card_query.filter(cards::item_id.eq_any(parent_ids));
-	}
-
-	// Order by sort_position DESC (positive first, 0 = unsorted, negative last),
-	// then by effective priority DESC as tiebreaker
-	card_query = card_query.order_by((
-		cards::sort_position.desc(),
-		diesel::dsl::sql::<diesel::sql_types::Float>("(priority + priority_offset) DESC"),
-	));
-
-	// Execute the query
-	let mut results = card_query.load::<Card>(conn)?;
-
-	// Apply tag filters if specified
-	// Note: This is a bit inefficient as we're filtering in Rust rather than SQL,
-	// but it's simpler than constructing a complex query with multiple joins.
-	if !query.tag_ids.is_empty() {
-		debug!("Filtering by tags: {:?}", query.tag_ids);
-		// Get all item_ids that have all the requested tags
-		let mut item_ids_with_tags: Vec<ItemId> = Vec::new();
-
-		// Get all items with any of the requested tags
-		let items_with_tags: Vec<ItemId> = item_tags::table
-			.filter(item_tags::tag_id.eq_any(&query.tag_ids))
-			.select(item_tags::item_id)
-			.load(conn)?;
-
-		// Count how many tags each item has
-		let mut item_tag_counts = std::collections::HashMap::new();
-		for item_id in items_with_tags {
-			*item_tag_counts.entry(item_id).or_insert(0) += 1;
-		}
-
-		// Only keep items that have all the requested tags
-		for (item_id, count) in item_tag_counts {
-			if count == query.tag_ids.len() {
-				item_ids_with_tags.push(item_id);
-			}
-		}
-
-		// Filter the results to only include cards from items with all the requested tags
-		results.retain(|card| item_ids_with_tags.contains(&card.get_item_id()));
-	}
-
-	info!("Retrieved {} cards matching filters", results.len());
-
-	Ok(results)
-}
 
 /// Gets all cards for a specific item
 ///
@@ -764,16 +639,23 @@ pub async fn clear_sort_positions(pool: &DbPool, query: &GetQueryDto) -> Result<
 	} else {
 		info!("Non-empty query, clearing matching cards");
 
-		let matching_cards = list_cards_with_filters(pool, query)?;
-		let count = matching_cards.len();
-		let ids: Vec<CardId> = matching_cards.into_iter().map(|c| c.get_id()).collect();
+		// Fold the "which cards match" question into the UPDATE itself via
+		// the query_repo subquery — one statement end-to-end, no round-trip
+		// through a Rust Vec<CardId>.
+		//
+		// Uses `.execute` rather than `execute_with_retry`: the boxed
+		// subquery holds a borrow of `query` and therefore isn't `'static`,
+		// so it can't satisfy `execute_with_retry`'s trait bounds. This is
+		// one statement on SQLite so the driver-level busy handler covers
+		// transient lock retries; giving up the repo-layer retry is an
+		// acceptable trade for the atomic single-statement mutation.
+		let affected = diesel::update(
+			cards::table.filter(cards::id.eq_any(query_repo::cards_matching(query))),
+		)
+		.set(cards::sort_position.eq(0.0_f32))
+		.execute(conn)?;
 
-		diesel::update(cards::table.filter(cards::id.eq_any(ids)))
-			.set(cards::sort_position.eq(0.0_f32))
-			.execute_with_retry(conn)
-			.await?;
-
-		info!("Cleared sort positions for {} matching cards", count);
+		info!("Cleared sort positions for {} matching cards", affected);
 	}
 
 	Ok(())
@@ -911,25 +793,31 @@ pub fn list_all_cards(pool: &DbPool) -> Result<Vec<Card>> {
 	Ok(results)
 }
 
-/// Cache-aware list: ensures `card_data` is current for every card that matches
+/// Cache-aware list: ensures `card_data` is current for every card matching
 /// `query`, then returns them. This is what handlers should call when serving
 /// `GET /cards`.
 ///
-/// Scope-first: we only recompute caches for cards in the filter, not the
-/// whole table (the previous implementation did the latter, which was O(N)
-/// per request).
+/// Ensure and read share the *same* `query_repo::cards_matching` predicate
+/// (via `CacheScope::Query`), so a card that matches the filter is always
+/// cache-fresh on return — even if a concurrent writer added a new matching
+/// card between the two passes: the ensure pass's `now_ms` pre-snapshot +
+/// the staleness check guarantee eventual freshness on the next fetch.
+///
+/// Results are ordered by `sort_position DESC` (positive first, 0 = unsorted,
+/// negative last), tiebroken by effective priority `(priority + priority_offset) DESC`.
 #[instrument(skip(pool, query))]
 pub async fn list_cards(pool: &DbPool, query: &GetQueryDto) -> Result<Vec<Card>, CardFetchError> {
-	// Two passes of `list_cards_with_filters`: one to figure out which card
-	// ids need caching, one to read them back after the cache writes land.
-	// Handled this way so the tag-filter logic (which happens in Rust, not
-	// SQL) doesn't have to be re-expressed for the cache-ensure query.
-	let candidate_ids: Vec<CardId> = list_cards_with_filters(pool, query)?
-		.into_iter()
-		.map(|c| c.get_id())
-		.collect();
-	card_cache::ensure_list_cards_cache(pool, CacheScope::Cards(&candidate_ids)).await?;
-	Ok(list_cards_with_filters(pool, query)?)
+	card_cache::ensure_list_cards_cache(pool, CacheScope::Query(query)).await?;
+	let conn = &mut pool
+		.get()
+		.map_err(|e| CardFetchError::Other(anyhow::Error::from(e)))?;
+	Ok(cards::table
+		.filter(cards::id.eq_any(query_repo::cards_matching(query)))
+		.order_by((
+			cards::sort_position.desc(),
+			diesel::dsl::sql::<diesel::sql_types::Float>("(priority + priority_offset) DESC"),
+		))
+		.load::<Card>(conn)?)
 }
 
 /// Cache-aware list: ensures `card_data` is current for every card owned by

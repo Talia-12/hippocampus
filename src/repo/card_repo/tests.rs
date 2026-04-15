@@ -196,8 +196,8 @@ async fn test_filter_cards_by_item_type() {
 		.item_type_id(type2_type.get_id())
 		.build();
 
-	let type1_cards = list_cards_with_filters(&pool, &query1).unwrap();
-	let type2_cards = list_cards_with_filters(&pool, &query2).unwrap();
+	let type1_cards = list_cards(&pool, &query1).await.unwrap();
+	let type2_cards = list_cards(&pool, &query2).await.unwrap();
 
 	// Verify that we got the right cards
 	assert_eq!(type1_cards.len(), 2);
@@ -265,9 +265,9 @@ async fn test_filter_cards_by_tags() {
 		.tag_ids(vec![tag1.get_id(), tag2.get_id()])
 		.build();
 
-	let cards_tag1 = list_cards_with_filters(&pool, &query1).unwrap();
-	let cards_tag2 = list_cards_with_filters(&pool, &query2).unwrap();
-	let cards_both_tags = list_cards_with_filters(&pool, &query_both_tags).unwrap();
+	let cards_tag1 = list_cards(&pool, &query1).await.unwrap();
+	let cards_tag2 = list_cards(&pool, &query2).await.unwrap();
+	let cards_both_tags = list_cards(&pool, &query_both_tags).await.unwrap();
 
 	// Verify that we got the right cards
 	assert_eq!(cards_tag1.len(), 4); // Items 1 and 2 have tag1
@@ -336,7 +336,7 @@ async fn test_filter_cards_by_next_review() {
 	// Filter cards by next_review
 	let query = GetQueryDtoBuilder::new().next_review_before(now).build();
 
-	let due_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let due_cards = list_cards(&pool, &query).await.unwrap();
 
 	// Verify that we got the right cards
 	assert_eq!(due_cards.len(), 2); // Cards 1 and 4 are due
@@ -422,7 +422,7 @@ async fn test_filter_cards_with_multiple_criteria() {
 		.next_review_before(now)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 
 	// Verify that we got exactly the right card
 	assert_eq!(filtered_cards.len(), 1);
@@ -438,14 +438,14 @@ async fn test_filter_cards_with_multiple_criteria() {
 	// 3. Be due for review (next_review is earlier than now)
 }
 
-#[test]
-fn test_filter_cards_edge_cases() {
+#[tokio::test]
+async fn test_filter_cards_edge_cases() {
 	let pool = setup_test_db();
 
 	// Test with empty database
 	let query = GetQueryDtoBuilder::new().build();
 
-	let cards = list_cards_with_filters(&pool, &query).unwrap();
+	let cards = list_cards(&pool, &query).await.unwrap();
 	assert_eq!(cards.len(), 0);
 
 	// Test with non-existent item type
@@ -453,7 +453,7 @@ fn test_filter_cards_edge_cases() {
 		.item_type_id(ItemTypeId("nonexistent".to_string()))
 		.build();
 
-	let cards = list_cards_with_filters(&pool, &query).unwrap();
+	let cards = list_cards(&pool, &query).await.unwrap();
 	assert_eq!(cards.len(), 0);
 
 	// Test with non-existent tag
@@ -461,7 +461,7 @@ fn test_filter_cards_edge_cases() {
 		.add_tag_id(TagId("nonexistent".to_string()))
 		.build();
 
-	let cards = list_cards_with_filters(&pool, &query).unwrap();
+	let cards = list_cards(&pool, &query).await.unwrap();
 	assert_eq!(cards.len(), 0);
 }
 
@@ -601,7 +601,7 @@ async fn test_filter_cards_by_suspended_state_exclude() {
 		.suspended_filter(SuspendedFilter::Exclude)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 
 	// Verify that we only got non-suspended cards
 	assert!(filtered_cards.iter().all(|c| c.get_suspended().is_none()));
@@ -654,7 +654,7 @@ async fn test_filter_cards_by_suspended_state_only() {
 		.suspended_filter(SuspendedFilter::Only)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 
 	// Verify that we only got suspended cards
 	assert_eq!(filtered_cards.len(), 1);
@@ -708,7 +708,7 @@ async fn test_filter_cards_by_suspended_state_include() {
 		.suspended_filter(SuspendedFilter::Include)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 
 	// Verify that we got all cards
 	assert_eq!(filtered_cards.len(), 2);
@@ -766,7 +766,7 @@ async fn test_filter_cards_by_suspended_date_before() {
 		.suspended_before(now)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 	assert_eq!(filtered_cards.len(), 2);
 
 	// Filter cards suspended before yesterday (should only include the older one)
@@ -775,7 +775,7 @@ async fn test_filter_cards_by_suspended_date_before() {
 		.suspended_before(yesterday)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 	assert_eq!(filtered_cards.len(), 1);
 	assert_eq!(filtered_cards[0].get_id(), cards[1].get_id());
 }
@@ -822,7 +822,7 @@ async fn test_filter_cards_by_suspended_date_after() {
 		.suspended_after(two_days_ago - chrono::Duration::hours(1))
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 	assert_eq!(filtered_cards.len(), 2);
 
 	// Filter cards suspended after yesterday (should only include the newer one)
@@ -831,7 +831,7 @@ async fn test_filter_cards_by_suspended_date_after() {
 		.suspended_after(yesterday)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 	assert_eq!(filtered_cards.len(), 0); // None are suspended after yesterday exactly
 
 	// Filter cards suspended after two days ago (should include the more recent one)
@@ -840,7 +840,7 @@ async fn test_filter_cards_by_suspended_date_after() {
 		.suspended_after(two_days_ago)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 	assert_eq!(filtered_cards.len(), 1);
 	assert_eq!(filtered_cards[0].get_id(), cards[0].get_id());
 }
@@ -898,7 +898,7 @@ async fn test_filter_cards_by_last_review_date() {
 		.last_review_after(yesterday)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 	assert_eq!(filtered_cards.len(), 1); // Only card[3] was reviewed after yesterday
 	assert_eq!(filtered_cards[0].get_id(), cards[3].get_id());
 
@@ -907,7 +907,7 @@ async fn test_filter_cards_by_last_review_date() {
 		.last_review_after(two_days_ago)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 	assert_eq!(filtered_cards.len(), 2); // cards[0] and cards[3] were reviewed after two days ago
 	assert!(
 		filtered_cards
@@ -997,7 +997,7 @@ async fn test_filter_cards_by_suspended_date_combined() {
 		.suspended_before(now + chrono::Duration::hours(1))
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 
 	// Should include cards suspended in the last two days
 	assert_eq!(filtered_cards.len(), 2);
@@ -1018,7 +1018,7 @@ async fn test_filter_cards_by_suspended_date_combined() {
 		.suspended_before(two_days_ago)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 
 	// Should only include the card suspended three days ago
 	assert_eq!(filtered_cards.len(), 1);
@@ -1080,7 +1080,7 @@ async fn test_filter_cards_complex_query() {
 		.suspended_filter(SuspendedFilter::Only)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 
 	// Should only include card 1
 	assert_eq!(filtered_cards.len(), 1);
@@ -1093,7 +1093,7 @@ async fn test_filter_cards_complex_query() {
 		.last_review_after(yesterday - chrono::Duration::hours(1))
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 
 	// Should only include card 0
 	assert_eq!(filtered_cards.len(), 1);
@@ -1106,7 +1106,7 @@ async fn test_filter_cards_complex_query() {
 		.suspended_filter(SuspendedFilter::Include)
 		.build();
 
-	let filtered_cards = list_cards_with_filters(&pool, &query).unwrap();
+	let filtered_cards = list_cards(&pool, &query).await.unwrap();
 
 	// Should include both cards
 	assert_eq!(filtered_cards.len(), 2);
@@ -1569,7 +1569,7 @@ async fn test_list_cards_with_parent_item_id_filter() {
 		.parent_item_id(parent.get_id())
 		.build();
 
-	let result = list_cards_with_filters(&pool, &query).unwrap();
+	let result = list_cards(&pool, &query).await.unwrap();
 
 	// Each child item should have 2 cards (Test Type), so 4 total
 	assert_eq!(result.len(), 4);
@@ -1636,7 +1636,7 @@ async fn test_list_cards_with_child_item_id_filter() {
 		.child_item_id(child.get_id())
 		.build();
 
-	let result = list_cards_with_filters(&pool, &query).unwrap();
+	let result = list_cards(&pool, &query).await.unwrap();
 
 	// Each parent item should have 2 cards (Test Type), so 4 total
 	assert_eq!(result.len(), 4);

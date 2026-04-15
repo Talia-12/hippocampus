@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use crate::db::{DbPool, ExecuteWithRetry};
 use crate::dto::GetQueryDto;
 use crate::models::{Item, ItemId, ItemTypeId, JsonValue};
@@ -8,7 +6,8 @@ use anyhow::Result;
 use diesel::prelude::*;
 use tracing::{debug, info, instrument};
 
-use super::card_repo::{create_cards_for_item, list_cards_with_filters};
+use super::card_repo::create_cards_for_item;
+use super::query_repo;
 
 /// Creates a new item in the database
 ///
@@ -239,11 +238,11 @@ pub fn list_items(pool: &DbPool) -> Result<Vec<Item>> {
 	Ok(result)
 }
 
-/// Lists items with optional filters from GetQueryDto
+/// Lists items matching the given `GetQueryDto`.
 ///
-/// If the query only has `item_type_id` set (no card-level filters), filters items directly.
-/// Otherwise, queries cards with `list_cards_with_filters`, collects unique item IDs,
-/// and loads those items.
+/// All filter logic — including the tag AND-semantics and card-level
+/// predicates — is expressed as SQL inside `query_repo::items_matching`, so
+/// this function is a thin wrapper: `items WHERE id IN (items_matching)`.
 ///
 /// ### Arguments
 ///
@@ -256,52 +255,11 @@ pub fn list_items(pool: &DbPool) -> Result<Vec<Item>> {
 #[instrument(skip(pool), fields(query = ?query))]
 pub fn list_items_with_filters(pool: &DbPool, query: &GetQueryDto) -> Result<Vec<Item>> {
 	debug!("Listing items with filters");
-
-	let has_card_filters = query.next_review_before.is_some()
-		|| query.last_review_after.is_some()
-		|| query.suspended_after.is_some()
-		|| query.suspended_before.is_some()
-		|| !query.tag_ids.is_empty()
-		|| query.suspended_filter != crate::dto::SuspendedFilter::default();
-
-	// Resolve relation filters into a set of allowed item IDs
-	let relation_item_ids: Option<HashSet<ItemId>> = resolve_relation_filter(pool, query)?;
-
-	if !has_card_filters {
-		// Only item_type_id filter — query items directly
-		let mut result = if let Some(ref item_type_id) = query.item_type_id {
-			get_items_by_type(pool, &item_type_id)?
-		} else {
-			list_items(pool)?
-		};
-
-		// Apply relation filter if present
-		if let Some(ref allowed_ids) = relation_item_ids {
-			result.retain(|item| allowed_ids.contains(&item.get_id()));
-		}
-
-		return Ok(result);
-	}
-
-	// Use card-level filtering, then collect unique item IDs
-	let cards = list_cards_with_filters(pool, query)?;
-	let mut item_ids: HashSet<ItemId> = cards.into_iter().map(|c| c.get_item_id()).collect();
-
-	// Intersect with relation filter if present
-	if let Some(ref allowed_ids) = relation_item_ids {
-		item_ids = item_ids.intersection(allowed_ids).cloned().collect();
-	}
-
-	if item_ids.is_empty() {
-		return Ok(Vec::new());
-	}
-
 	let conn = &mut pool.get()?;
 	let result = items::table
-		.filter(items::id.eq_any(&item_ids))
+		.filter(items::id.eq_any(query_repo::items_matching(query)))
 		.load::<Item>(conn)?;
-
-	info!("Retrieved {} items from card-level filters", result.len());
+	info!("Retrieved {} items from query filter", result.len());
 	Ok(result)
 }
 
@@ -337,36 +295,6 @@ pub fn get_items_by_type(pool: &DbPool, item_type_id: &ItemTypeId) -> Result<Vec
 
 	// Return the list of items
 	Ok(result)
-}
-
-/// Resolves parent_item_id / child_item_id relation filters into an optional
-/// set of allowed item IDs.
-///
-/// Returns `None` if no relation filters are set, meaning no restriction.
-/// Returns `Some(set)` with the item IDs that match the relation filter.
-fn resolve_relation_filter(pool: &DbPool, query: &GetQueryDto) -> Result<Option<HashSet<ItemId>>> {
-	match (&query.parent_item_id, &query.child_item_id) {
-		(Some(parent_id), None) => {
-			let children = super::item_relation_repo::get_children_of(pool, &parent_id)?;
-			Ok(Some(children.into_iter().collect()))
-		}
-		(None, Some(child_id)) => {
-			let parents = super::item_relation_repo::get_parents_of(pool, &child_id)?;
-			Ok(Some(parents.into_iter().collect()))
-		}
-		(Some(parent_id), Some(child_id)) => {
-			let children: HashSet<ItemId> =
-				super::item_relation_repo::get_children_of(pool, &parent_id)?
-					.into_iter()
-					.collect();
-			let parents: HashSet<ItemId> =
-				super::item_relation_repo::get_parents_of(pool, &child_id)?
-					.into_iter()
-					.collect();
-			Ok(Some(children.intersection(&parents).cloned().collect()))
-		}
-		(None, None) => Ok(None),
-	}
 }
 
 #[cfg(test)]

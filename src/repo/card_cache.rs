@@ -30,7 +30,9 @@
 
 use crate::card_event_registry::{CardEventChainError, run_event_chain};
 use crate::db::DbPool;
+use crate::dto::GetQueryDto;
 use crate::models::{Card, CardFetchedEvent, CardId, Item, ItemId, ItemType, ItemTypeId};
+use crate::repo::query_repo;
 use crate::schema::{card_fetched_events, cards, item_types, items};
 use crate::time_utils::now_ms;
 use chrono::NaiveDateTime;
@@ -90,16 +92,17 @@ impl From<serde_json::Error> for EnsureCacheError {
 /// Callers pick the tightest scope their workload allows so we don't do O(N)
 /// work for an O(1) request.
 pub(super) enum CacheScope<'a> {
-	/// Every card in the DB. Only use this if you genuinely intend to refresh
-	/// all caches — e.g. after a bulk event-registry change or from test
-	/// harnesses that verify end-state across arbitrary datasets.
-	#[allow(dead_code)] // exercised from tests; kept for future admin paths.
-	All,
 	/// All cards belonging to a single item.
 	Item(&'a ItemId),
 	/// Exactly the listed cards. Callers can hand in an empty slice to make
 	/// this a no-op.
 	Cards(&'a [CardId]),
+	/// All cards matching a `GetQueryDto` — implemented via
+	/// `query_repo::cards_matching`, so tag/relation/date/suspended filters
+	/// all fold into the one SQL subquery with no Rust-side post-filter.
+	/// This is what `card_repo::list_cards` uses so the "ensure" and "read"
+	/// passes both select against exactly the same predicate.
+	Query(&'a GetQueryDto),
 }
 
 // ---------------------------------------------------------------------------
@@ -269,12 +272,18 @@ fn load_stale_cards_conn(
 		.into_boxed();
 
 	match scope {
-		CacheScope::All => {}
 		CacheScope::Item(item_id) => {
 			query = query.filter(cards::item_id.eq(*item_id));
 		}
 		CacheScope::Cards(ids) => {
 			query = query.filter(cards::id.eq_any(*ids));
+		}
+		CacheScope::Query(q) => {
+			// Reuse the exact predicate `card_repo::list_cards` uses to
+			// choose rows — so "ensure the cache for cards the read will
+			// return" and "the read" can't see different sets even across
+			// concurrent writers.
+			query = query.filter(cards::id.eq_any(query_repo::cards_matching(q)));
 		}
 	}
 

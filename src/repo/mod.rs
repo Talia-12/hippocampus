@@ -3,6 +3,7 @@ mod card_fetched_event_repo;
 mod card_repo;
 mod item_relation_repo;
 mod item_repo;
+mod query_repo;
 /// Repository module
 ///
 /// This module provides the data access layer for the application.
