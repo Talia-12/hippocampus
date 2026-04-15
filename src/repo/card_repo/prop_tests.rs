@@ -1,5 +1,6 @@
 use super::*;
 use crate::GetQueryDto;
+use crate::db::transaction_with_retry;
 use crate::models::{ItemTypeId, TagId};
 use crate::repo::tests::setup_test_db;
 use crate::repo::{add_tag_to_item, create_item, create_item_type, create_tag};
@@ -1623,7 +1624,10 @@ proptest! {
 			let before: Vec<_> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_priority_offset())).collect();
 
-			ensure_offsets_current(&pool).await.unwrap();
+			{
+				let conn = &mut pool.get().unwrap();
+				transaction_with_retry(conn, ensure_offsets_current).await.unwrap();
+			}
 
 			let after: Vec<_> = list_all_cards(&pool).unwrap()
 				.iter().map(|c| (c.get_id(), c.get_priority_offset())).collect();
@@ -1716,6 +1720,69 @@ proptest! {
 				prop_assert_eq!(before_pos, after_pos,
 					"sort_position changed for card {}", id);
 			}
+			Ok::<_, TestCaseError>(())
+		})?;
+	}
+
+	/// T5.8: With `last_offset_date` seeded to a stale (yesterday-ish) date
+	/// and every card carrying an out-of-range offset sentinel,
+	/// `ensure_offsets_current` must fire the regen — every offset ends up
+	/// inside the regen band [-0.05, 0.05] and the marker is bumped to
+	/// today.
+	///
+	/// Pins the date comparison itself: a regression that loosened it to
+	/// "any date present is current" would still pass T5.4 (no-op when
+	/// current) but would silently fail to regen here, leaving the
+	/// sentinels in place. The out-of-range sentinel makes that failure
+	/// observable regardless of what the RNG draws — no value the regen
+	/// produces can equal 0.5.
+	#[test]
+	fn prop_t5_8_ensure_regenerates_when_stale(n in 1usize..15) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		rt.block_on(async {
+			let pool = setup_test_db();
+			let cards = create_n_cards(&pool, n).await;
+
+			let sentinel = 0.5_f32;
+			{
+				let conn = &mut pool.get().unwrap();
+				for c in &cards {
+					diesel::update(cards::table.find(c.get_id()))
+						.set(cards::priority_offset.eq(sentinel))
+						.execute(conn)
+						.unwrap();
+				}
+				diesel::replace_into(metadata::table)
+					.values((
+						metadata::key.eq("last_offset_date"),
+						metadata::value.eq("2020-01-01"),
+					))
+					.execute(conn)
+					.unwrap();
+			}
+
+			{
+				let conn = &mut pool.get().unwrap();
+				transaction_with_retry(conn, ensure_offsets_current).await.unwrap();
+			}
+
+			for c in &list_all_cards(&pool).unwrap() {
+				let off = c.get_priority_offset();
+				prop_assert!(
+					off >= -0.05 && off <= 0.05,
+					"offset {} out of [-0.05, 0.05] for card {} — regen didn't fire",
+					off, c.get_id(),
+				);
+			}
+
+			let conn = &mut pool.get().unwrap();
+			let last_date: String = metadata::table
+				.find("last_offset_date")
+				.select(metadata::value)
+				.first::<String>(conn)
+				.unwrap();
+			prop_assert_eq!(last_date, chrono::Utc::now().date_naive().to_string());
+
 			Ok::<_, TestCaseError>(())
 		})?;
 	}
@@ -1872,6 +1939,139 @@ proptest! {
 					id,
 				);
 			}
+			Ok::<_, TestCaseError>(())
+		})?;
+	}
+}
+
+// ============================================================================
+// T7: Daily Sort Position Clearing (`ensure_sort_positions_cleared`)
+//
+// Mirrors T5 for the sort-position side: once per day, on the first card
+// fetch of the day, every card's `sort_position` is reset to 0.0. The
+// staleness guard lives in the `metadata` row keyed `last_sort_clear_date`,
+// so a subsequent same-day fetch is a no-op and any manual ordering the
+// user set *after* the daily clear survives until the next day.
+// ============================================================================
+
+proptest! {
+	/// T7.2: After `ensure_sort_positions_cleared`, metadata
+	/// `last_sort_clear_date` is today's date — the staleness guard that
+	/// makes subsequent same-day calls no-ops.
+	#[test]
+	fn prop_t7_2_ensure_updates_metadata_date(n in 0usize..5) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		rt.block_on(async {
+			let pool = setup_test_db();
+			let _cards = create_n_cards(&pool, n).await;
+
+			{
+				let conn = &mut pool.get().unwrap();
+				transaction_with_retry(conn, ensure_sort_positions_cleared).await.unwrap();
+			}
+
+			let conn = &mut pool.get().unwrap();
+			let last_date: String = metadata::table
+				.find("last_sort_clear_date")
+				.select(metadata::value)
+				.first::<String>(conn)
+				.unwrap();
+
+			let today = chrono::Utc::now().date_naive().to_string();
+			prop_assert_eq!(last_date, today);
+			Ok::<_, TestCaseError>(())
+		})?;
+	}
+
+	/// T7.3: A second same-day call to `ensure_sort_positions_cleared` is
+	/// a no-op — sort_positions set *after* the first clear must survive.
+	/// This is what preserves user-set ordering throughout the day.
+	#[test]
+	fn prop_t7_3_ensure_is_noop_when_current(n in 2usize..10) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		rt.block_on(async {
+			let pool = setup_test_db();
+			let cards = create_n_cards(&pool, n).await;
+
+			// First call: establishes today's clear.
+			{
+				let conn = &mut pool.get().unwrap();
+				transaction_with_retry(conn, ensure_sort_positions_cleared).await.unwrap();
+			}
+
+			// User manually reorders a card *after* the daily clear.
+			move_card_to_top(&pool, &cards[0].get_id()).await.unwrap();
+			let after_move: Vec<_> = list_all_cards(&pool).unwrap()
+				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+			// Second same-day call must not clobber the new ordering.
+			{
+				let conn = &mut pool.get().unwrap();
+				transaction_with_retry(conn, ensure_sort_positions_cleared).await.unwrap();
+			}
+
+			let after_second: Vec<_> = list_all_cards(&pool).unwrap()
+				.iter().map(|c| (c.get_id(), c.get_sort_position())).collect();
+
+			prop_assert_eq!(after_move, after_second);
+			Ok::<_, TestCaseError>(())
+		})?;
+	}
+
+	/// T7.4: With `last_sort_clear_date` seeded to a stale (yesterday-ish)
+	/// date and every card carrying a non-zero sort_position,
+	/// `ensure_sort_positions_cleared` must fire the clear — every
+	/// sort_position ends up at 0.0 and the marker is bumped to today.
+	///
+	/// Companion to T5.8 on the sort-position side: pins the date
+	/// comparison itself. A regression that loosened the check to "any
+	/// date present is current" would still pass T7.3 (no-op when
+	/// current) but would silently leave the non-zero positions in place
+	/// here.
+	#[test]
+	fn prop_t7_4_ensure_clears_when_stale(n in 1usize..15) {
+		let rt = tokio::runtime::Runtime::new().unwrap();
+		rt.block_on(async {
+			let pool = setup_test_db();
+			let cards = create_n_cards(&pool, n).await;
+
+			// Give every card a non-zero sort_position so the clear is observable.
+			for c in &cards {
+				move_card_to_top(&pool, &c.get_id()).await.unwrap();
+			}
+
+			{
+				let conn = &mut pool.get().unwrap();
+				diesel::replace_into(metadata::table)
+					.values((
+						metadata::key.eq("last_sort_clear_date"),
+						metadata::value.eq("2020-01-01"),
+					))
+					.execute(conn)
+					.unwrap();
+			}
+
+			{
+				let conn = &mut pool.get().unwrap();
+				transaction_with_retry(conn, ensure_sort_positions_cleared).await.unwrap();
+			}
+
+			for c in &list_all_cards(&pool).unwrap() {
+				prop_assert_eq!(
+					c.get_sort_position(), 0.0,
+					"card {} still has sort_position {} — clear didn't fire",
+					c.get_id(), c.get_sort_position(),
+				);
+			}
+
+			let conn = &mut pool.get().unwrap();
+			let last_date: String = metadata::table
+				.find("last_sort_clear_date")
+				.select(metadata::value)
+				.first::<String>(conn)
+				.unwrap();
+			prop_assert_eq!(last_date, chrono::Utc::now().date_naive().to_string());
+
 			Ok::<_, TestCaseError>(())
 		})?;
 	}

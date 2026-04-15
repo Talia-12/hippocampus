@@ -1,5 +1,7 @@
 use crate::card_event_registry::CardEventChainError;
-use crate::db::{DbPool, ExecuteWithRetry};
+use crate::db::{
+	DbPool, ExecuteWithRetry, deferred_transaction_with_retry, transaction_with_retry,
+};
 use crate::models::{Card, CardId, Item, ItemId};
 use crate::repo::card_cache::{self, CacheScope, EnsureCacheError};
 use crate::repo::query_repo;
@@ -213,9 +215,9 @@ impl From<diesel::result::Error> for CardFetchError {
 /// computed (or what was already on disk, if the cache was fresh). No
 /// concurrent writer can slip between the ensure pass and the read.
 ///
-/// This replaces the old `get_card_with_cache`, which stitched together
-/// three separate pool connections to load (card, item, item_type) and
-/// could therefore see an inconsistent snapshot across them.
+/// Before the cache call we run the daily-state ensure in a separate
+/// DEFERRED transaction — see the body comment for why DEFERRED (and
+/// not IMMEDIATE) and why the two transactions can't be merged.
 ///
 /// ### Arguments
 ///
@@ -232,9 +234,26 @@ impl From<diesel::result::Error> for CardFetchError {
 /// `Err(CardFetchError::Other(_))` — anything else (pool, Diesel, etc).
 #[instrument(skip(pool), fields(card_id = %card_id))]
 pub async fn get_card(pool: &DbPool, card_id: &CardId) -> Result<Option<Card>, CardFetchError> {
+	// DEFERRED tx: in steady state both daily markers are today and the
+	// ensure closure is pure-read (SHARED only), so concurrent readers
+	// don't serialize on the write lock. First call of the day upgrades
+	// to RESERVED to do the regen/clear; the retry handles the unlikely
+	// SQLITE_BUSY-on-upgrade race against another caller doing the same.
+	//
+	// We commit and drop this conn before calling into card_cache: the
+	// cache opens its own IMMEDIATE on a separate pool conn, and holding
+	// RESERVED on conn A while waiting for RESERVED on conn B from the
+	// same pool would deadlock SQLite's single-writer model.
+	{
+		let conn = &mut pool
+			.get()
+			.map_err(|e| CardFetchError::Other(anyhow::Error::from(e)))?;
+		deferred_transaction_with_retry(conn, ensure_daily_state_current)
+			.await
+			.map_err(|e| CardFetchError::Other(anyhow::Error::from(e)))?;
+	}
 	Ok(card_cache::ensure_and_read_card(pool, card_id).await?)
 }
-
 
 /// Gets all cards for a specific item
 ///
@@ -399,32 +418,46 @@ pub async fn update_card(pool: &DbPool, card: &Card) -> Result<()> {
 ///
 /// A Result indicating success (Ok(())) or an error
 pub async fn update_card_priority(pool: &DbPool, card_id: &CardId, priority: f32) -> Result<Card> {
-	// Check if the priority is within the valid range
+	// Precondition: priority must be in [0, 1]. This is a caller error, not
+	// a DB concern, so fail fast before we open any transaction.
 	if priority < 0.0 || priority > 1.0 {
 		return Err(anyhow!("Priority must be between 0 and 1"));
 	}
 
-	// Check if the card exists
-	let card = get_card_raw(pool, card_id)?;
-	if card.is_none() {
-		return Err(anyhow!("Card not found"));
-	}
+	let conn = &mut pool.get()?;
 
-	let mut conn = pool.get()?;
-	diesel::update(cards::table.find(card_id.clone()))
-		.set((
-			cards::priority.eq(priority),
-			cards::priority_offset.eq(0.0f32),
-		))
-		.execute_with_retry(&mut conn)
-		.await?;
+	// One IMMEDIATE transaction so the existence check, the daily offset
+	// ensure, and the priority + offset=0 write commit atomically. Firing
+	// the ensure *inside* the transaction is the fix for the pre-review
+	// race: without it, a stale-marker day could see the next read's
+	// daily regen overwrite our offset=0 reset with a random value.
+	transaction_with_retry(conn, |c| {
+		let exists = cards::table.find(card_id).count().get_result::<i64>(c)? > 0;
+		if !exists {
+			return Err(diesel::result::Error::NotFound);
+		}
 
-	drop(conn);
+		ensure_offsets_current(c)?;
+
+		diesel::update(cards::table.find(card_id.clone()))
+			.set((
+				cards::priority.eq(priority),
+				cards::priority_offset.eq(0.0f32),
+			))
+			.execute(c)?;
+
+		Ok(())
+	})
+	.await
+	.map_err(|e| match e {
+		diesel::result::Error::NotFound => anyhow!("Card not found"),
+		other => anyhow::Error::from(other),
+	})?;
 
 	// Cache-aware read so the returned card carries fresh card_data.
 	let card = get_card(pool, card_id).await?;
 
-	return Ok(card.unwrap_or_else(|| panic!("We already checked if the card exists, so this should never happen (somehow the card was deleted)")));
+	card.ok_or_else(|| anyhow!("Card not found after priority update"))
 }
 
 /// Moves a card to the top of the sort order
@@ -443,26 +476,42 @@ pub async fn update_card_priority(pool: &DbPool, card_id: &CardId, priority: f32
 pub async fn move_card_to_top(pool: &DbPool, card_id: &CardId) -> Result<Card> {
 	debug!("Moving card to top of sort order");
 
-	// Verify card exists
-	let _card = get_card_raw(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
-
 	let conn = &mut pool.get()?;
 
-	// Find the maximum sort_position (excluding this card)
-	let max_position: Option<f32> = cards::table
-		.filter(cards::id.ne(card_id))
-		.select(diesel::dsl::max(cards::sort_position))
-		.first::<Option<f32>>(conn)?;
+	// One IMMEDIATE transaction wraps existence check + daily clear +
+	// max-query + update. The ensure must fire *before* the update so
+	// the new (non-zero) sort_position isn't wiped by the next read's
+	// daily clear; the existence check short-circuits on not-found
+	// before we pay the regen/clear cost.
+	let new_position = transaction_with_retry(conn, |c| {
+		let exists = cards::table.find(card_id).count().get_result::<i64>(c)? > 0;
+		if !exists {
+			return Err(diesel::result::Error::NotFound);
+		}
 
-	let new_position = match max_position {
-		Some(max) => max + 1.0,
-		None => 1.0,
-	};
+		ensure_sort_positions_cleared(c)?;
 
-	diesel::update(cards::table.find(card_id.clone()))
-		.set(cards::sort_position.eq(new_position))
-		.execute_with_retry(conn)
-		.await?;
+		let max_position: Option<f32> = cards::table
+			.filter(cards::id.ne(card_id))
+			.select(diesel::dsl::max(cards::sort_position))
+			.first::<Option<f32>>(c)?;
+
+		let new_position = match max_position {
+			Some(max) => max + 1.0,
+			None => 1.0,
+		};
+
+		diesel::update(cards::table.find(card_id.clone()))
+			.set(cards::sort_position.eq(new_position))
+			.execute(c)?;
+
+		Ok(new_position)
+	})
+	.await
+	.map_err(|e| match e {
+		diesel::result::Error::NotFound => anyhow!("Card not found"),
+		other => anyhow::Error::from(other),
+	})?;
 
 	info!(
 		"Moved card {} to top with sort_position {}",
@@ -490,26 +539,37 @@ pub async fn move_card_to_top(pool: &DbPool, card_id: &CardId) -> Result<Card> {
 pub async fn move_card_to_bottom(pool: &DbPool, card_id: &CardId) -> Result<Card> {
 	debug!("Moving card to bottom of sort order");
 
-	// Verify card exists
-	let _card = get_card_raw(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
-
 	let conn = &mut pool.get()?;
 
-	// Find the minimum sort_position (excluding this card)
-	let min_position: Option<f32> = cards::table
-		.filter(cards::id.ne(card_id))
-		.select(diesel::dsl::min(cards::sort_position))
-		.first::<Option<f32>>(conn)?;
+	let new_position = transaction_with_retry(conn, |c| {
+		let exists = cards::table.find(card_id).count().get_result::<i64>(c)? > 0;
+		if !exists {
+			return Err(diesel::result::Error::NotFound);
+		}
 
-	let new_position = match min_position {
-		Some(min) => min - 1.0,
-		None => -1.0,
-	};
+		ensure_sort_positions_cleared(c)?;
 
-	diesel::update(cards::table.find(card_id.clone()))
-		.set(cards::sort_position.eq(new_position))
-		.execute_with_retry(conn)
-		.await?;
+		let min_position: Option<f32> = cards::table
+			.filter(cards::id.ne(card_id))
+			.select(diesel::dsl::min(cards::sort_position))
+			.first::<Option<f32>>(c)?;
+
+		let new_position = match min_position {
+			Some(min) => min - 1.0,
+			None => -1.0,
+		};
+
+		diesel::update(cards::table.find(card_id.clone()))
+			.set(cards::sort_position.eq(new_position))
+			.execute(c)?;
+
+		Ok(new_position)
+	})
+	.await
+	.map_err(|e| match e {
+		diesel::result::Error::NotFound => anyhow!("Card not found"),
+		other => anyhow::Error::from(other),
+	})?;
 
 	info!(
 		"Moved card {} to bottom with sort_position {}",
@@ -519,6 +579,15 @@ pub async fn move_card_to_bottom(pool: &DbPool, card_id: &CardId) -> Result<Card
 	get_card(pool, card_id)
 		.await?
 		.ok_or(anyhow!("Card not found after update"))
+}
+
+/// Which id was missing when `move_card_relative` short-circuits. Lets the
+/// tx body signal "not found" while preserving which-card-was-missing
+/// through to the outer error — `diesel::result::Error::NotFound` has no
+/// room to carry that.
+enum Missing {
+	Source,
+	Target,
 }
 
 /// Moves a card relative to another card (before or after)
@@ -544,46 +613,82 @@ pub async fn move_card_relative(
 ) -> Result<Card> {
 	debug!("Moving card relative to another card");
 
-	// Verify both cards exist
-	let _card = get_card_raw(pool, card_id)?.ok_or(anyhow!("Card not found"))?;
-	let target = get_card_raw(pool, target_card_id)?.ok_or(anyhow!("Target card not found"))?;
-
-	let target_pos = target.get_sort_position();
-
 	let conn = &mut pool.get()?;
 
-	let new_position = if before {
-		// "Before" in the queue means higher sort_position (DESC order)
-		// Find the card with the next higher sort_position than target
-		let predecessor: Option<f32> = cards::table
-			.filter(cards::sort_position.gt(target_pos))
-			.filter(cards::id.ne(card_id))
-			.select(diesel::dsl::min(cards::sort_position))
-			.first::<Option<f32>>(conn)?;
-
-		match predecessor {
-			Some(pred_pos) => (pred_pos + target_pos) / 2.0,
-			None => target_pos + 1.0,
+	// One IMMEDIATE transaction wraps existence checks + daily clear +
+	// target read + neighbor query + update. Reading `target_pos`
+	// *after* the ensure matters: on a stale-marker day the ensure
+	// zeroes every card's sort_position, so the relative-move anchors
+	// against the post-clear state rather than a pre-clear snapshot
+	// that's no longer observable to anyone else.
+	//
+	// The closure returns `Ok(Err(Missing::…))` for the "one of the two
+	// cards doesn't exist" cases so the outer error mapping can preserve
+	// which id was missing — `diesel::result::Error::NotFound` has no
+	// room to carry that and collapses both to a single string. Genuine
+	// DB failures still come out as `Err(_)` and retry normally.
+	let outcome = transaction_with_retry(conn, |c| {
+		let card_exists = cards::table.find(card_id).count().get_result::<i64>(c)? > 0;
+		if !card_exists {
+			return Ok(Err(Missing::Source));
 		}
-	} else {
-		// "After" in the queue means lower sort_position (DESC order)
-		// Find the card with the next lower sort_position than target
-		let successor: Option<f32> = cards::table
-			.filter(cards::sort_position.lt(target_pos))
-			.filter(cards::id.ne(card_id))
-			.select(diesel::dsl::max(cards::sort_position))
-			.first::<Option<f32>>(conn)?;
-
-		match successor {
-			Some(succ_pos) => (target_pos + succ_pos) / 2.0,
-			None => target_pos - 1.0,
+		let target_exists = cards::table
+			.find(target_card_id)
+			.count()
+			.get_result::<i64>(c)?
+			> 0;
+		if !target_exists {
+			return Ok(Err(Missing::Target));
 		}
+
+		ensure_sort_positions_cleared(c)?;
+
+		let target_pos: f32 = cards::table
+			.find(target_card_id)
+			.select(cards::sort_position)
+			.first::<f32>(c)?;
+
+		let new_position = if before {
+			// "Before" in the queue means higher sort_position (DESC order)
+			// Find the card with the next higher sort_position than target
+			let predecessor: Option<f32> = cards::table
+				.filter(cards::sort_position.gt(target_pos))
+				.filter(cards::id.ne(card_id))
+				.select(diesel::dsl::min(cards::sort_position))
+				.first::<Option<f32>>(c)?;
+
+			match predecessor {
+				Some(pred_pos) => (pred_pos + target_pos) / 2.0,
+				None => target_pos + 1.0,
+			}
+		} else {
+			// "After" in the queue means lower sort_position (DESC order)
+			// Find the card with the next lower sort_position than target
+			let successor: Option<f32> = cards::table
+				.filter(cards::sort_position.lt(target_pos))
+				.filter(cards::id.ne(card_id))
+				.select(diesel::dsl::max(cards::sort_position))
+				.first::<Option<f32>>(c)?;
+
+			match successor {
+				Some(succ_pos) => (target_pos + succ_pos) / 2.0,
+				None => target_pos - 1.0,
+			}
+		};
+
+		diesel::update(cards::table.find(card_id.clone()))
+			.set(cards::sort_position.eq(new_position))
+			.execute(c)?;
+
+		Ok(Ok(new_position))
+	})
+	.await?;
+
+	let new_position = match outcome {
+		Ok(pos) => pos,
+		Err(Missing::Source) => return Err(anyhow!("Card not found")),
+		Err(Missing::Target) => return Err(anyhow!("Target card not found")),
 	};
-
-	diesel::update(cards::table.find(card_id.clone()))
-		.set(cards::sort_position.eq(new_position))
-		.execute_with_retry(conn)
-		.await?;
 
 	info!(
 		"Moved card {} {} card {} with sort_position {}",
@@ -598,12 +703,44 @@ pub async fn move_card_relative(
 		.ok_or(anyhow!("Card not found after update"))
 }
 
+/// Transaction-body worker that actually zeroes every card's
+/// `sort_position` and bumps the `last_sort_clear_date` marker. The
+/// caller must already be inside an IMMEDIATE transaction so the bulk
+/// clear and the marker write commit atomically — otherwise a partial
+/// failure could leave cards reset but the marker stale, forcing a
+/// redundant clear on the next request and defeating the once-per-day
+/// invariant.
+fn do_clear_all_sort_positions(
+	conn: &mut SqliteConnection,
+	today: &str,
+) -> Result<(), diesel::result::Error> {
+	diesel::update(cards::table)
+		.set(cards::sort_position.eq(0.0_f32))
+		.execute(conn)?;
+
+	diesel::replace_into(metadata::table)
+		.values((
+			metadata::key.eq("last_sort_clear_date"),
+			metadata::value.eq(today),
+		))
+		.execute(conn)?;
+
+	Ok(())
+}
+
 /// Resets sort positions to default
 ///
 /// Sets sort_position to 0.0 for cards matching the given query filters.
 ///
-/// If no filters are set (default query), resets sort positions for all cards.
-/// Otherwise, only resets sort positions for cards matching the filters.
+/// If no filters are set (default query), resets sort positions for **all**
+/// cards and also bumps the `last_sort_clear_date` metadata marker — so a
+/// manual full-clear is treated as today's daily reset, and
+/// `ensure_sort_positions_cleared` will be a no-op for the rest of the day.
+/// This mirrors `regenerate_priority_offsets`, which similarly owns both
+/// the bulk write and the matching daily marker so the two are committed
+/// atomically. A filtered clear leaves the marker untouched: only an
+/// unfiltered clear satisfies the "every card is at 0.0" precondition the
+/// marker stands for.
 ///
 /// ### Arguments
 ///
@@ -629,11 +766,13 @@ pub async fn clear_sort_positions(pool: &DbPool, query: &GetQueryDto) -> Result<
 
 	if is_default {
 		info!("Empty query, clearing all cards");
+		let today = Utc::now().date_naive().to_string();
 
-		diesel::update(cards::table)
-			.set(cards::sort_position.eq(0.0_f32))
-			.execute_with_retry(conn)
-			.await?;
+		// One IMMEDIATE transaction wraps the bulk clear and the daily
+		// marker so a partial failure can't leave cards reset but the
+		// marker stale (which would force a redundant clear on the next
+		// request, defeating the once-per-day invariant).
+		transaction_with_retry(conn, |c| do_clear_all_sort_positions(c, &today)).await?;
 
 		info!("Cleared all sort positions");
 	} else {
@@ -707,13 +846,33 @@ pub async fn regenerate_priority_offsets(pool: &DbPool) -> Result<()> {
 	debug!("Regenerating priority offsets for all cards");
 
 	let conn = &mut pool.get()?;
+	let today = Utc::now().date_naive().to_string();
 
-	// Get all card IDs
+	// One IMMEDIATE transaction wraps card-offset updates and the
+	// `last_offset_date` metadata write so a partial failure can't leave
+	// the DB with shuffled offsets but a stale staleness marker (which
+	// would re-shuffle on the next request, defeating the once-per-day
+	// invariant).
+	let count = transaction_with_retry(conn, |c| do_regenerate_priority_offsets(c, &today)).await?;
+
+	info!("Regenerated priority offsets for {} cards", count);
+	Ok(())
+}
+
+/// Transaction-body worker that actually regenerates every card's
+/// `priority_offset` to a random value in [-0.05, 0.05] and bumps the
+/// `last_offset_date` marker. The caller must already be inside an
+/// IMMEDIATE transaction so the row updates and the marker write commit
+/// atomically — otherwise a partial failure could leave offsets shuffled
+/// but the marker stale, which would redo the shuffle on the next
+/// request and defeat the once-per-day invariant.
+fn do_regenerate_priority_offsets(
+	conn: &mut SqliteConnection,
+	today: &str,
+) -> Result<usize, diesel::result::Error> {
 	let card_ids: Vec<CardId> = cards::table.select(cards::id).load::<CardId>(conn)?;
 
 	let mut rng = rand::rng();
-
-	// Update each card with a random offset
 	for id in &card_ids {
 		let offset: f32 = rng.random_range(-0.05..=0.05);
 		diesel::update(cards::table.find(id.clone()))
@@ -721,53 +880,109 @@ pub async fn regenerate_priority_offsets(pool: &DbPool) -> Result<()> {
 			.execute(conn)?;
 	}
 
-	// Update the last_offset_date in metadata
-	let today = Utc::now().date_naive().to_string();
 	diesel::replace_into(metadata::table)
 		.values((
 			metadata::key.eq("last_offset_date"),
-			metadata::value.eq(&today),
+			metadata::value.eq(today),
 		))
 		.execute(conn)?;
 
-	info!("Regenerated priority offsets for {} cards", card_ids.len());
-	Ok(())
+	Ok(card_ids.len())
 }
 
-/// Ensures priority offsets are current (regenerates if stale)
+/// True iff the metadata row keyed `key` holds today's date string.
 ///
-/// Checks the last_offset_date in metadata against today's date.
-/// If stale or never set, regenerates all priority offsets.
+/// Used by the ensure functions as their staleness check. Pulled out so
+/// `ensure_daily_state_current`'s fast path can read both daily markers
+/// before deciding whether either ensure has work to do.
+fn is_marker_today(
+	conn: &mut SqliteConnection,
+	key: &str,
+	today: &str,
+) -> Result<bool, diesel::result::Error> {
+	let last_date: Option<String> = metadata::table
+		.find(key)
+		.select(metadata::value)
+		.first::<String>(conn)
+		.optional()?;
+	Ok(matches!(last_date, Some(date) if date == today))
+}
+
+/// Ensures priority offsets are current. Reads the `last_offset_date`
+/// marker and, if stale, regenerates every card's `priority_offset` and
+/// bumps the marker; if today, returns Ok with no DB writes.
 ///
-/// ### Arguments
-///
-/// * `pool` - A reference to the database connection pool
-///
-/// ### Returns
-///
-/// A Result indicating success
-#[instrument(skip(pool))]
-pub async fn ensure_offsets_current(pool: &DbPool) -> Result<()> {
+/// **The caller owns the transaction.** Pass a conn that's already
+/// inside one (typically IMMEDIATE for write paths that mix this with a
+/// guaranteed write, DEFERRED for read paths whose common case is the
+/// fast-path). The marker read, the regen, and the marker write must
+/// commit together with whatever other mutation guards them, otherwise
+/// a partial failure could leave shuffled offsets but a stale marker
+/// (and the next request would re-shuffle, defeating the once-per-day
+/// invariant).
+pub(crate) fn ensure_offsets_current(
+	conn: &mut SqliteConnection,
+) -> Result<(), diesel::result::Error> {
 	let today = Utc::now().date_naive().to_string();
-
-	let is_current = {
-		let conn = &mut pool.get()?;
-		let last_date: Option<String> = metadata::table
-			.find("last_offset_date")
-			.select(metadata::value)
-			.first::<String>(conn)
-			.optional()?;
-
-		matches!(last_date, Some(date) if date == today)
-	};
-
-	if is_current {
+	if is_marker_today(conn, "last_offset_date", &today)? {
 		debug!("Priority offsets are current");
 		Ok(())
 	} else {
 		debug!("Priority offsets are stale, regenerating");
-		regenerate_priority_offsets(pool).await
+		do_regenerate_priority_offsets(conn, &today).map(|_| ())
 	}
+}
+
+/// Ensures sort positions have been cleared today. Reads the
+/// `last_sort_clear_date` marker and, if stale, zeroes every card's
+/// `sort_position` and bumps the marker; if today, returns Ok with no
+/// DB writes.
+///
+/// Same caller-owns-transaction contract as [`ensure_offsets_current`].
+pub(crate) fn ensure_sort_positions_cleared(
+	conn: &mut SqliteConnection,
+) -> Result<(), diesel::result::Error> {
+	let today = Utc::now().date_naive().to_string();
+	if is_marker_today(conn, "last_sort_clear_date", &today)? {
+		debug!("Sort positions already cleared today");
+		Ok(())
+	} else {
+		debug!("Sort positions are stale, clearing all cards");
+		do_clear_all_sort_positions(conn, &today)
+	}
+}
+
+/// Combined daily-state ensure: priority offset regen + sort position
+/// clear, with an up-front fast path.
+///
+/// Reads both `last_offset_date` and `last_sort_clear_date` first; if
+/// both are today, returns Ok without entering either per-component
+/// ensure — that fast path is the whole point of running this from a
+/// DEFERRED transaction in the read path, since it leaves the
+/// connection on SHARED only and lets concurrent readers proceed in
+/// parallel. If either marker is stale, the corresponding ensure runs
+/// (it re-checks its own marker, but those re-checks are cheap and
+/// guarantee correctness if a partially-stale day ever arises).
+///
+/// **The caller owns the transaction.** Same contract as the
+/// per-component ensures.
+pub(crate) fn ensure_daily_state_current(
+	conn: &mut SqliteConnection,
+) -> Result<(), diesel::result::Error> {
+	let today = Utc::now().date_naive().to_string();
+	let offsets_today = is_marker_today(conn, "last_offset_date", &today)?;
+	let sort_today = is_marker_today(conn, "last_sort_clear_date", &today)?;
+	if offsets_today && sort_today {
+		debug!("Daily state already current");
+		return Ok(());
+	}
+	if !offsets_today {
+		ensure_offsets_current(conn)?;
+	}
+	if !sort_today {
+		ensure_sort_positions_cleared(conn)?;
+	}
+	Ok(())
 }
 
 /// Lists all cards in the database
@@ -807,6 +1022,15 @@ pub fn list_all_cards(pool: &DbPool) -> Result<Vec<Card>> {
 /// negative last), tiebroken by effective priority `(priority + priority_offset) DESC`.
 #[instrument(skip(pool, query))]
 pub async fn list_cards(pool: &DbPool, query: &GetQueryDto) -> Result<Vec<Card>, CardFetchError> {
+	// See `get_card` for why DEFERRED + separate conn + drop-before-cache.
+	{
+		let conn = &mut pool
+			.get()
+			.map_err(|e| CardFetchError::Other(anyhow::Error::from(e)))?;
+		deferred_transaction_with_retry(conn, ensure_daily_state_current)
+			.await
+			.map_err(|e| CardFetchError::Other(anyhow::Error::from(e)))?;
+	}
 	card_cache::ensure_list_cards_cache(pool, CacheScope::Query(query)).await?;
 	let conn = &mut pool
 		.get()
@@ -827,6 +1051,15 @@ pub async fn list_cards_by_item(
 	pool: &DbPool,
 	item_id: &ItemId,
 ) -> Result<Vec<Card>, CardFetchError> {
+	// See `get_card` for why DEFERRED + separate conn + drop-before-cache.
+	{
+		let conn = &mut pool
+			.get()
+			.map_err(|e| CardFetchError::Other(anyhow::Error::from(e)))?;
+		deferred_transaction_with_retry(conn, ensure_daily_state_current)
+			.await
+			.map_err(|e| CardFetchError::Other(anyhow::Error::from(e)))?;
+	}
 	card_cache::ensure_list_cards_cache(pool, CacheScope::Item(item_id)).await?;
 	Ok(get_cards_for_item(pool, item_id)?)
 }

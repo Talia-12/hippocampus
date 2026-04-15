@@ -1,3 +1,4 @@
+use diesel::Connection;
 use diesel::RunQueryDsl;
 use diesel::query_dsl::load_dsl::ExecuteDsl;
 use diesel::r2d2::{ConnectionManager, Pool};
@@ -140,6 +141,16 @@ impl<T> ExecuteWithRetry for T where
 
 /// Runs a closure inside an `immediate_transaction` with retry on transient errors.
 ///
+/// `BEGIN IMMEDIATE` takes the RESERVED (write) lock up front, so a closure
+/// that mixes reads and writes never has to upgrade mid-transaction. Use
+/// this when the closure is guaranteed (or very likely) to write — it
+/// trades concurrent-read throughput for predictability under contention.
+///
+/// For closures where writing is unlikely (e.g. a daily-state ensure that
+/// fast-paths once the marker is today), prefer
+/// [`deferred_transaction_with_retry`]: that holds only SHARED on the
+/// no-write path so concurrent readers don't serialize on the write lock.
+///
 /// Uses the same exponential backoff strategy as `ExecuteWithRetry`.
 /// The closure receives a mutable reference to the connection and must return
 /// a `Result<T, diesel::result::Error>`.
@@ -164,6 +175,61 @@ where
 
 	loop {
 		match conn.immediate_transaction(&mut f) {
+			Ok(val) => return Ok(val),
+			Err(e) => {
+				if attempts >= MAX_RETRIES || !is_retryable_error(&e) {
+					return Err(e);
+				}
+				attempts += 1;
+				sleep(delay).await;
+				delay *= 2;
+			}
+		}
+	}
+}
+
+/// Runs a closure inside a DEFERRED `transaction` with retry on transient
+/// errors.
+///
+/// `BEGIN DEFERRED` takes no lock until the closure issues its first
+/// statement: a SELECT acquires SHARED (concurrent readers don't block
+/// each other), and only a write upgrades to RESERVED. That makes this
+/// the right pick for closures that are read-only on the common path —
+/// in steady state the RESERVED lock is never taken, so this path
+/// scales out for concurrent readers in a way [`transaction_with_retry`]
+/// (IMMEDIATE) cannot.
+///
+/// **The trade-off:** if the closure does write, the SHARED→RESERVED
+/// upgrade can fail with `SQLITE_BUSY` when another connection already
+/// holds RESERVED. Diesel rolls the failed transaction back, which
+/// releases SHARED, and we retry. The closure must therefore be
+/// idempotent across retries — which it is for ensures whose first move
+/// is to re-check the staleness marker. There is no deadlock risk: the
+/// rollback on the busy attempt fully releases our locks before the
+/// next attempt begins.
+///
+/// Uses the same exponential backoff as [`transaction_with_retry`].
+///
+/// ### Arguments
+///
+/// * `conn` - A mutable reference to the SQLite connection
+/// * `f` - A closure that performs operations within the transaction
+///
+/// ### Returns
+///
+/// A Result containing the closure's return value on success
+pub async fn deferred_transaction_with_retry<T, F>(
+	conn: &mut SqliteConnection,
+	mut f: F,
+) -> Result<T, DieselError>
+where
+	F: FnMut(&mut SqliteConnection) -> Result<T, DieselError>,
+{
+	let mut attempts = 0;
+	let mut delay = Duration::from_millis(INITIAL_DELAY_MS);
+
+	loop {
+		match conn.transaction(&mut f) {
 			Ok(val) => return Ok(val),
 			Err(e) => {
 				if attempts >= MAX_RETRIES || !is_retryable_error(&e) {
