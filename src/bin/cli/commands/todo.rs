@@ -1,4 +1,4 @@
-use chrono::{TimeZone, Utc};
+use chrono::{Local, TimeZone, Utc};
 use clap::Subcommand;
 use hippocampus::dto::{GetQueryDto, SuspendedFilter};
 use hippocampus::models::{Card, CardId, Item, ItemTypeId, TagId};
@@ -91,17 +91,29 @@ async fn resolve_tag_ids(
 	Ok(ids)
 }
 
-/// Returns the start of tomorrow (midnight UTC)
+/// Returns the start of tomorrow (midnight in the system's local timezone),
+/// expressed as a UTC instant.
 fn tomorrow_midnight() -> chrono::DateTime<Utc> {
-	let today = Utc::now().date_naive();
+	let today = Local::now().date_naive();
 	let tomorrow = today.succ_opt().expect("date overflow");
-	Utc.from_utc_datetime(&tomorrow.and_hms_opt(0, 0, 0).expect("invalid time"))
+	let naive_midnight = tomorrow.and_hms_opt(0, 0, 0).expect("invalid time");
+	Local
+		.from_local_datetime(&naive_midnight)
+		.earliest()
+		.expect("local midnight has no valid representation")
+		.with_timezone(&Utc)
 }
 
-/// Returns the start of today (midnight UTC)
+/// Returns the start of today (midnight in the system's local timezone),
+/// expressed as a UTC instant.
 fn today_midnight() -> chrono::DateTime<Utc> {
-	let today = Utc::now().date_naive();
-	Utc.from_utc_datetime(&today.and_hms_opt(0, 0, 0).expect("invalid time"))
+	let today = Local::now().date_naive();
+	let naive_midnight = today.and_hms_opt(0, 0, 0).expect("invalid time");
+	Local
+		.from_local_datetime(&naive_midnight)
+		.earliest()
+		.expect("local midnight has no valid representation")
+		.with_timezone(&Utc)
 }
 
 /// Fetches items for a list of cards, returning paired results

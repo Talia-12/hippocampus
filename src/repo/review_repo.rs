@@ -188,8 +188,7 @@ fn calculate_next_fsrs_review(
 		}
 	};
 
-	let next_review =
-		Utc::now() + Duration::days(chosen.interval.ceil() as i64) - Duration::hours(1);
+	let next_review = Utc::now() + Duration::days(chosen.interval.ceil() as i64);
 
 	let scheduler_data = JsonValue(json!({
 		"stability": chosen.memory.stability,
@@ -264,7 +263,7 @@ fn calculate_next_incremental_queue_review(
 		_ => return Err(anyhow!("Invalid rating: {}", rating)),
 	};
 
-	let next_review = Utc::now() + Duration::days(new_interval.ceil() as i64) - Duration::hours(1);
+	let next_review = Utc::now() + Duration::days(new_interval.ceil() as i64);
 
 	let scheduler_data = JsonValue(json!({ "interval": new_interval }));
 

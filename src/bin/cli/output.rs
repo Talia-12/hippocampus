@@ -1,6 +1,56 @@
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use clap::ValueEnum;
 use hippocampus::models::{Card, Item, ItemType, Review, Tag};
+
+/// JSON keys whose string values are UTC RFC3339 timestamps that should be
+/// rewritten to local-offset RFC3339 before display.
+const LOCAL_TS_KEYS: &[&str] = &[
+	"created_at",
+	"updated_at",
+	"next_review",
+	"last_review",
+	"suspended",
+	"review_timestamp",
+];
+
+/// Renders a UTC instant as a `DateTime<Local>` for human-readable display.
+fn local(dt: DateTime<Utc>) -> DateTime<Local> {
+	dt.with_timezone(&Local)
+}
+
+/// Recursively walks `value` and rewrites any string under a known datetime
+/// key from UTC RFC3339 into local-offset RFC3339. Non-string and unparseable
+/// values pass through unchanged.
+fn rewrite_timestamps(value: &mut serde_json::Value) {
+	match value {
+		serde_json::Value::Object(map) => {
+			for (k, v) in map.iter_mut() {
+				if LOCAL_TS_KEYS.contains(&k.as_str()) {
+					if let serde_json::Value::String(s) = v {
+						if let Ok(parsed) = DateTime::parse_from_rfc3339(s) {
+							*s = parsed.with_timezone(&Local).to_rfc3339();
+						}
+					}
+				}
+				rewrite_timestamps(v);
+			}
+		}
+		serde_json::Value::Array(arr) => {
+			for v in arr.iter_mut() {
+				rewrite_timestamps(v);
+			}
+		}
+		_ => {}
+	}
+}
+
+/// Serializes `value` to a `serde_json::Value` and rewrites timestamps in place
+/// so that all datetime fields appear in the system's local timezone.
+fn to_local_value<T: serde::Serialize + ?Sized>(value: &T) -> serde_json::Value {
+	let mut v = serde_json::to_value(value).expect("serialization should never fail");
+	rewrite_timestamps(&mut v);
+	v
+}
 
 /// Output format for CLI commands
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -49,10 +99,16 @@ pub fn print_item_types(item_types: &[ItemType], config: &OutputConfig) {
 			}
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(item_types).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string_pretty(&to_local_value(item_types)).unwrap()
+			);
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(item_types).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string(&to_local_value(item_types)).unwrap()
+			);
 		}
 	}
 }
@@ -67,13 +123,19 @@ pub fn print_item_type(item_type: &ItemType, config: &OutputConfig) {
 			}
 			println!("ID:      {}", item_type.get_id());
 			println!("Name:    {}", item_type.get_name());
-			println!("Created: {}", item_type.get_created_at());
+			println!("Created: {}", local(item_type.get_created_at()));
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(item_type).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string_pretty(&to_local_value(item_type)).unwrap()
+			);
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(item_type).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string(&to_local_value(item_type)).unwrap()
+			);
 		}
 	}
 }
@@ -114,10 +176,13 @@ pub fn print_items(items: &[Item], config: &OutputConfig) {
 			}
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(items).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string_pretty(&to_local_value(items)).unwrap()
+			);
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(items).unwrap());
+			println!("{}", serde_json::to_string(&to_local_value(items)).unwrap());
 		}
 	}
 }
@@ -134,14 +199,17 @@ pub fn print_item(item: &Item, config: &OutputConfig) {
 			println!("Type:      {}", item.get_item_type());
 			println!("Title:     {}", item.get_title());
 			println!("Data:      {}", item.get_data().0);
-			println!("Created:   {}", item.get_created_at());
-			println!("Updated:   {}", item.get_updated_at());
+			println!("Created:   {}", local(item.get_created_at()));
+			println!("Updated:   {}", local(item.get_updated_at()));
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(item).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string_pretty(&to_local_value(item)).unwrap()
+			);
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(item).unwrap());
+			println!("{}", serde_json::to_string(&to_local_value(item)).unwrap());
 		}
 	}
 }
@@ -180,7 +248,7 @@ pub fn print_cards(cards: &[Card], config: &OutputConfig) {
 			);
 			for card in cards {
 				let status = match card.get_suspended() {
-					Some(dt) => format!("suspended {}", dt.format("%Y-%m-%d %H:%M")),
+					Some(dt) => format!("suspended {}", local(dt).format("%Y-%m-%d %H:%M")),
 					None => "active".to_string(),
 				};
 				let sort_pos = format!("{:.2}", card.get_sort_position());
@@ -189,7 +257,7 @@ pub fn print_cards(cards: &[Card], config: &OutputConfig) {
 					card.get_id(),
 					card.get_item_id(),
 					card.get_priority(),
-					card.get_next_review().format("%Y-%m-%d %H:%M"),
+					local(card.get_next_review()).format("%Y-%m-%d %H:%M"),
 					sort_pos,
 					status,
 					id_w = max_id,
@@ -198,10 +266,13 @@ pub fn print_cards(cards: &[Card], config: &OutputConfig) {
 			}
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(cards).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string_pretty(&to_local_value(cards)).unwrap()
+			);
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(cards).unwrap());
+			println!("{}", serde_json::to_string(&to_local_value(cards)).unwrap());
 		}
 	}
 }
@@ -218,43 +289,48 @@ pub fn print_card(card: &Card, config: &OutputConfig) {
 			println!("Item ID:     {}", card.get_item_id());
 			println!("Card Index:  {}", card.get_card_index());
 			println!("Priority:    {:.2}", card.get_priority());
-			println!("Next Review: {}", card.get_next_review());
+			println!("Next Review: {}", local(card.get_next_review()));
 			match card.get_last_review() {
-				Some(dt) => println!("Last Review: {}", dt),
+				Some(dt) => println!("Last Review: {}", local(dt)),
 				None => println!("Last Review: never"),
 			}
 			println!("Sort Pos:    {:.2}", card.get_sort_position());
 			match card.get_suspended() {
-				Some(dt) => println!("Suspended:   {}", dt),
+				Some(dt) => println!("Suspended:   {}", local(dt)),
 				None => println!("Suspended:   no"),
 			}
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(card).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string_pretty(&to_local_value(card)).unwrap()
+			);
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(card).unwrap());
+			println!("{}", serde_json::to_string(&to_local_value(card)).unwrap());
 		}
 	}
 }
 
 /// Prints a card from a raw JSON value (used when the server returns transformed card JSON)
 pub fn print_card_json(card: &serde_json::Value, config: &OutputConfig) {
+	let mut local_card = card.clone();
+	rewrite_timestamps(&mut local_card);
 	match config.format {
 		OutputFormat::Human => {
 			if config.quiet {
-				if let Some(id) = card.get("id").and_then(|v| v.as_str()) {
+				if let Some(id) = local_card.get("id").and_then(|v| v.as_str()) {
 					println!("{}", id);
 				}
 				return;
 			}
-			println!("{}", serde_json::to_string_pretty(card).unwrap());
+			println!("{}", serde_json::to_string_pretty(&local_card).unwrap());
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(card).unwrap());
+			println!("{}", serde_json::to_string_pretty(&local_card).unwrap());
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(card).unwrap());
+			println!("{}", serde_json::to_string(&local_card).unwrap());
 		}
 	}
 }
@@ -299,17 +375,23 @@ pub fn print_reviews(reviews: &[Review], config: &OutputConfig) {
 					review.get_id(),
 					review.get_card_id(),
 					review.get_rating(),
-					review.get_review_timestamp().format("%Y-%m-%d %H:%M"),
+					local(review.get_review_timestamp()).format("%Y-%m-%d %H:%M"),
 					id_w = max_id,
 					card_w = max_card,
 				);
 			}
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(reviews).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string_pretty(&to_local_value(reviews)).unwrap()
+			);
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(reviews).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string(&to_local_value(reviews)).unwrap()
+			);
 		}
 	}
 }
@@ -325,13 +407,19 @@ pub fn print_review(review: &Review, config: &OutputConfig) {
 			println!("ID:        {}", review.get_id());
 			println!("Card ID:   {}", review.get_card_id());
 			println!("Rating:    {}", review.get_rating());
-			println!("Timestamp: {}", review.get_review_timestamp());
+			println!("Timestamp: {}", local(review.get_review_timestamp()));
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(review).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string_pretty(&to_local_value(review)).unwrap()
+			);
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(review).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string(&to_local_value(review)).unwrap()
+			);
 		}
 	}
 }
@@ -374,10 +462,13 @@ pub fn print_tags(tags: &[Tag], config: &OutputConfig) {
 			}
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(tags).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string_pretty(&to_local_value(tags)).unwrap()
+			);
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(tags).unwrap());
+			println!("{}", serde_json::to_string(&to_local_value(tags)).unwrap());
 		}
 	}
 }
@@ -393,13 +484,16 @@ pub fn print_tag(tag: &Tag, config: &OutputConfig) {
 			println!("ID:      {}", tag.get_id());
 			println!("Name:    {}", tag.get_name());
 			println!("Visible: {}", tag.get_visible());
-			println!("Created: {}", tag.get_created_at());
+			println!("Created: {}", local(tag.get_created_at()));
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(tag).unwrap());
+			println!(
+				"{}",
+				serde_json::to_string_pretty(&to_local_value(tag)).unwrap()
+			);
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(tag).unwrap());
+			println!("{}", serde_json::to_string(&to_local_value(tag)).unwrap());
 		}
 	}
 }
@@ -421,16 +515,24 @@ pub fn print_next_reviews(
 				println!(
 					"Rating {}: {} ({})",
 					i + 1,
-					dt.format("%Y-%m-%d %H:%M"),
+					local(*dt).format("%Y-%m-%d %H:%M"),
 					data
 				);
 			}
 		}
 		OutputFormat::Json => {
-			println!("{}", serde_json::to_string_pretty(next_reviews).unwrap());
+			let local_reviews: Vec<(DateTime<Local>, &serde_json::Value)> = next_reviews
+				.iter()
+				.map(|(dt, data)| (local(*dt), data))
+				.collect();
+			println!("{}", serde_json::to_string_pretty(&local_reviews).unwrap());
 		}
 		OutputFormat::Waybar => {
-			println!("{}", serde_json::to_string(next_reviews).unwrap());
+			let local_reviews: Vec<(DateTime<Local>, &serde_json::Value)> = next_reviews
+				.iter()
+				.map(|(dt, data)| (local(*dt), data))
+				.collect();
+			println!("{}", serde_json::to_string(&local_reviews).unwrap());
 		}
 	}
 }
@@ -507,7 +609,7 @@ pub fn print_todo_cards(cards_with_items: &[(Card, Option<Item>)], config: &Outp
 					"{:<id_w$}  {:<title_w$}  {:<16}  {:>8.2}  {}",
 					card.get_id(),
 					title,
-					card.get_next_review().format("%Y-%m-%d %H:%M"),
+					local(card.get_next_review()).format("%Y-%m-%d %H:%M"),
 					card.get_priority(),
 					sort_pos,
 					id_w = max_id,
@@ -519,10 +621,12 @@ pub fn print_todo_cards(cards_with_items: &[(Card, Option<Item>)], config: &Outp
 			let data: Vec<serde_json::Value> = cards_with_items
 				.iter()
 				.map(|(card, item)| {
-					serde_json::json!({
+					let mut v = serde_json::json!({
 						"card": card,
 						"item": item,
-					})
+					});
+					rewrite_timestamps(&mut v);
+					v
 				})
 				.collect();
 			println!("{}", serde_json::to_string_pretty(&data).unwrap());
