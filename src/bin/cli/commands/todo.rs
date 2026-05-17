@@ -29,7 +29,17 @@ pub enum TodoCommands {
 		tag: Vec<String>,
 	},
 	/// List recently completed todos (suspended today)
-	Completed,
+	Completed {
+		/// Filter by tag name or ID, can be specified multiple times
+		#[clap(long)]
+		tag: Vec<String>,
+	},
+	/// List every todo in the system, regardless of due date or completion
+	All {
+		/// Filter by tag name or ID, can be specified multiple times
+		#[clap(long)]
+		tag: Vec<String>,
+	},
 	/// Mark a todo as complete (suspend the card)
 	Complete {
 		/// The card ID to complete
@@ -129,6 +139,17 @@ async fn fetch_cards_with_items(
 	Ok(result)
 }
 
+/// Builds a GetQueryDto that returns every todo of the given type, regardless
+/// of due date or completion state.
+fn all_query(item_type_id: ItemTypeId, tag_ids: Vec<TagId>) -> GetQueryDto {
+	GetQueryDto {
+		item_type_id: Some(item_type_id),
+		tag_ids,
+		suspended_filter: SuspendedFilter::Include,
+		..Default::default()
+	}
+}
+
 /// Builds a GetQueryDto for due cards with optional filters
 async fn build_due_query(
 	client: &HippocampusClient,
@@ -178,10 +199,21 @@ pub async fn execute(
 			output::print_todo_cards(&cards_with_items, config);
 		}
 
-		TodoCommands::Completed => {
+		TodoCommands::All { tag } => {
+			let item_type_id = resolve_todo_item_type_id(client).await?;
+			let tag_ids = resolve_tag_ids(client, &tag).await?;
+			let query = all_query(item_type_id, tag_ids);
+			let cards = client.list_cards(&query).await?;
+			let cards_with_items = fetch_cards_with_items(client, cards).await?;
+			output::print_todo_cards(&cards_with_items, config);
+		}
+
+		TodoCommands::Completed { tag } => {
 			let item_type_id = Some(resolve_todo_item_type_id(client).await?);
+			let tag_ids = resolve_tag_ids(client, &tag).await?;
 			let query = GetQueryDto {
 				item_type_id,
+				tag_ids,
 				suspended_filter: SuspendedFilter::Only,
 				suspended_after: Some(today_midnight()),
 				..Default::default()
@@ -208,3 +240,6 @@ pub async fn execute(
 	}
 	Ok(())
 }
+
+#[cfg(test)]
+mod tests;
