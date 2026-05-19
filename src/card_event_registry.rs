@@ -27,7 +27,8 @@ pub enum CardEventError {
 ///
 /// Each function takes the accumulated data, the item, and the card,
 /// and returns the transformed data or a structured `CardEventError`.
-pub type CardEventFn = fn(serde_json::Value, &Item, &Card) -> Result<serde_json::Value, CardEventError>;
+pub type CardEventFn =
+	fn(serde_json::Value, &Item, &Card) -> Result<serde_json::Value, CardEventError>;
 
 /// Errors that can occur when running the card event chain.
 ///

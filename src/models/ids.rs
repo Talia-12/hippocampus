@@ -324,7 +324,18 @@ impl fmt::Display for CardEventFnName {
 /// value that doesn't fit in `u16`: it would indicate either data corruption
 /// or a separate process writing values outside our contract.
 #[derive(
-	Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, AsExpression, FromSqlRow,
+	Debug,
+	Clone,
+	Copy,
+	PartialEq,
+	Eq,
+	PartialOrd,
+	Ord,
+	Hash,
+	Serialize,
+	Deserialize,
+	AsExpression,
+	FromSqlRow,
 )]
 #[diesel(sql_type = Integer)]
 pub struct OrderIndex(pub u16);

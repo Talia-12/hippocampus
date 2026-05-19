@@ -30,8 +30,7 @@ pub type BoxedItemIdQuery<'a> = IntoBoxed<'a, Select<items::table, items::id>, S
 
 /// Boxed SELECT of `reviews::id` matching a query.
 #[allow(dead_code)] // currently only reached via tests — see `reviews_matching`.
-pub type BoxedReviewIdQuery<'a> =
-	IntoBoxed<'a, Select<reviews::table, reviews::id>, Sqlite>;
+pub type BoxedReviewIdQuery<'a> = IntoBoxed<'a, Select<reviews::table, reviews::id>, Sqlite>;
 
 // ---------------------------------------------------------------------------
 // Private helpers — apply one "family" of predicates to a base table.
@@ -52,9 +51,7 @@ pub type BoxedReviewIdQuery<'a> =
 ///
 /// Tag-id deduplication is done in Rust (not SQL) because we want `N` in the
 /// HAVING clause to match `tag_ids.len()` exactly.
-fn item_level_filters_on_items<'a>(
-	query: &'a GetQueryDto,
-) -> IntoBoxed<'a, items::table, Sqlite> {
+fn item_level_filters_on_items<'a>(query: &'a GetQueryDto) -> IntoBoxed<'a, items::table, Sqlite> {
 	let mut q = items::table.into_boxed::<Sqlite>();
 
 	if let Some(ref it) = query.item_type_id {
@@ -112,9 +109,7 @@ fn item_level_filters_on_items<'a>(
 /// `NULL < x` are both `NULL` (neither TRUE nor FALSE), so rows with a NULL
 /// on the compared column are excluded from the result of `.gt()` / `.lt()`.
 /// The proptests in Q3.2, Q4.4, Q4.5 pin this.
-fn card_level_filters_on_cards<'a>(
-	query: &'a GetQueryDto,
-) -> IntoBoxed<'a, cards::table, Sqlite> {
+fn card_level_filters_on_cards<'a>(query: &'a GetQueryDto) -> IntoBoxed<'a, cards::table, Sqlite> {
 	let mut q = cards::table.into_boxed::<Sqlite>();
 
 	if let Some(cutoff) = query.next_review_before {

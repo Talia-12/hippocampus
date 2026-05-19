@@ -36,10 +36,12 @@
             pkgs.openssl
             pkgs.pkg-config
           ];
+
           buildDeps = [
             pkgs.openssl
             pkgs.pkg-config
           ];
+
           devDeps = [
             diesel-cli
             pkgs.rustc.llvmPackages.llvm

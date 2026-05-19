@@ -202,7 +202,11 @@ mod tests {
 		)
 		.await
 		.expect_err("should fail");
-		assert!(matches!(err, ApiError::UnknownCardEventFn(_)), "got {:?}", err);
+		assert!(
+			matches!(err, ApiError::UnknownCardEventFn(_)),
+			"got {:?}",
+			err
+		);
 	}
 
 	#[tokio::test]
@@ -269,7 +273,10 @@ mod tests {
 		)
 		.expect_err("negative order_index must fail");
 		let msg = err.to_string();
-		assert!(msg.contains("invalid") || msg.contains("out of range"), "got: {msg}");
+		assert!(
+			msg.contains("invalid") || msg.contains("out of range"),
+			"got: {msg}"
+		);
 	}
 
 	#[test]
@@ -279,6 +286,9 @@ mod tests {
 		)
 		.expect_err("too-large order_index must fail");
 		let msg = err.to_string();
-		assert!(msg.contains("invalid") || msg.contains("out of range"), "got: {msg}");
+		assert!(
+			msg.contains("invalid") || msg.contains("out of range"),
+			"got: {msg}"
+		);
 	}
 }

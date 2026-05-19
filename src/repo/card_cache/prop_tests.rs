@@ -18,7 +18,10 @@ use proptest::prelude::*;
 /// Bypasses the cache-ensure pass and loads raw cards matching a query —
 /// the test needs to observe the state left by an earlier
 /// `ensure_list_cards_cache` call without triggering a re-ensure.
-fn raw_cards_matching(pool: &crate::db::DbPool, query: &crate::dto::GetQueryDto) -> Vec<crate::models::Card> {
+fn raw_cards_matching(
+	pool: &crate::db::DbPool,
+	query: &crate::dto::GetQueryDto,
+) -> Vec<crate::models::Card> {
 	let conn = &mut pool.get().unwrap();
 	cards::table
 		.filter(cards::id.eq_any(query_repo::cards_matching(query)))
@@ -367,9 +370,12 @@ async fn cc5_1_ensure_list_cards_cache_populates_many() {
 			.unwrap();
 	}
 
-	ensure_list_cards_cache(&pool, CacheScope::Query(&crate::dto::GetQueryDto::default()))
-		.await
-		.unwrap();
+	ensure_list_cards_cache(
+		&pool,
+		CacheScope::Query(&crate::dto::GetQueryDto::default()),
+	)
+	.await
+	.unwrap();
 
 	let cards = repo::list_all_cards(&pool).unwrap();
 	assert!(!cards.is_empty());
@@ -400,11 +406,16 @@ async fn cc5_2_ensure_list_cards_cache_skips_no_events() {
 	};
 	let test_card = setup_card(&pool, params).await;
 
-	ensure_list_cards_cache(&pool, CacheScope::Query(&crate::dto::GetQueryDto::default()))
-		.await
-		.unwrap();
+	ensure_list_cards_cache(
+		&pool,
+		CacheScope::Query(&crate::dto::GetQueryDto::default()),
+	)
+	.await
+	.unwrap();
 
-	let card = get_card_raw(&pool, &test_card.card.get_id()).unwrap().unwrap();
+	let card = get_card_raw(&pool, &test_card.card.get_id())
+		.unwrap()
+		.unwrap();
 	assert!(card.get_cache_updated_at_raw().is_none());
 	assert!(card.get_card_data().is_none());
 }
@@ -421,21 +432,34 @@ async fn cc5_3_ensure_list_cards_cache_mixed_item_types() {
 		.await
 		.unwrap();
 	register_set_title(&pool, &type_a.get_id()).await;
-	let item_a = repo::create_item(&pool, &type_a.get_id(), "title-a".to_owned(), serde_json::json!({}))
-		.await
-		.unwrap();
+	let item_a = repo::create_item(
+		&pool,
+		&type_a.get_id(),
+		"title-a".to_owned(),
+		serde_json::json!({}),
+	)
+	.await
+	.unwrap();
 
 	// Type B: no events.
 	let type_b = repo::create_item_type(&pool, "Test B".to_owned(), "fsrs".to_owned())
 		.await
 		.unwrap();
-	let item_b = repo::create_item(&pool, &type_b.get_id(), "title-b".to_owned(), serde_json::json!({}))
-		.await
-		.unwrap();
+	let item_b = repo::create_item(
+		&pool,
+		&type_b.get_id(),
+		"title-b".to_owned(),
+		serde_json::json!({}),
+	)
+	.await
+	.unwrap();
 
-	ensure_list_cards_cache(&pool, CacheScope::Query(&crate::dto::GetQueryDto::default()))
-		.await
-		.unwrap();
+	ensure_list_cards_cache(
+		&pool,
+		CacheScope::Query(&crate::dto::GetQueryDto::default()),
+	)
+	.await
+	.unwrap();
 
 	let cards_a = raw_cards_matching(
 		&pool,
@@ -445,7 +469,10 @@ async fn cc5_3_ensure_list_cards_cache_mixed_item_types() {
 	);
 	assert!(!cards_a.is_empty());
 	for c in &cards_a {
-		assert!(c.get_cache_updated_at_raw().is_some(), "type-A cache not filled");
+		assert!(
+			c.get_cache_updated_at_raw().is_some(),
+			"type-A cache not filled"
+		);
 	}
 
 	let cards_b = raw_cards_matching(
@@ -456,7 +483,10 @@ async fn cc5_3_ensure_list_cards_cache_mixed_item_types() {
 	);
 	assert!(!cards_b.is_empty());
 	for c in &cards_b {
-		assert!(c.get_cache_updated_at_raw().is_none(), "type-B cache incorrectly filled");
+		assert!(
+			c.get_cache_updated_at_raw().is_none(),
+			"type-B cache incorrectly filled"
+		);
 	}
 
 	// Keep `item_a` / `item_b` alive so we can reason about them.
@@ -505,9 +535,8 @@ async fn ucc1_2_batched_update_writes_all_rows() {
 	)
 	.await
 	.unwrap();
-	let untouched_id = repo::get_cards_for_item(&pool, &untouched_item.get_id())
-		.unwrap()[0]
-		.get_id();
+	let untouched_id =
+		repo::get_cards_for_item(&pool, &untouched_item.get_id()).unwrap()[0].get_id();
 
 	let now = crate::time_utils::now_ms();
 	let updates: Vec<(crate::models::CardId, serde_json::Value)> = target_ids

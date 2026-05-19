@@ -943,7 +943,10 @@ mod tests {
 		assert!(review["id"].is_string());
 
 		// Check that the item was updated with review information
-		let updated_card = repo::get_card(&pool, &card.get_id()).await.unwrap().unwrap();
+		let updated_card = repo::get_card(&pool, &card.get_id())
+			.await
+			.unwrap()
+			.unwrap();
 		assert!(updated_card.get_last_review().is_some());
 		assert!(updated_card.get_next_review() > Utc::now());
 	}

@@ -351,7 +351,9 @@ async fn cfe7_1_orphaned_function_name_surfaces_typed_event_chain_error() {
 
 	let err = crate::repo::get_card(&pool, &card.get_id())
 		.await
-		.expect_err("fetching a card whose item type references an unregistered function should error");
+		.expect_err(
+			"fetching a card whose item type references an unregistered function should error",
+		);
 
 	match err {
 		CardFetchError::EventChain(CardEventChainError::FunctionsNotFound(names)) => {
@@ -446,7 +448,9 @@ async fn cfe8_1_deleting_last_event_clears_cached_card_data() {
 	)
 	.await
 	.unwrap();
-	let after_partial = crate::repo::get_card_raw(&pool, &card.get_id()).unwrap().unwrap();
+	let after_partial = crate::repo::get_card_raw(&pool, &card.get_id())
+		.unwrap()
+		.unwrap();
 	assert!(
 		after_partial.get_card_data().is_some(),
 		"partial event removal should not clear card_data; that's what the \

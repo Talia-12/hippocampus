@@ -71,9 +71,8 @@ async fn test_card_event_chain_failed_response() {
 	// in the in-memory registry. The client sees 500 (this is server-side
 	// misconfiguration, not bad input) with the function name embedded so
 	// operators can identify which row to fix or remove.
-	let chain_err = CardEventChainError::FunctionsNotFound(vec![CardEventFnName(
-		"ghost_function".to_owned(),
-	)]);
+	let chain_err =
+		CardEventChainError::FunctionsNotFound(vec![CardEventFnName("ghost_function".to_owned())]);
 	let error = ApiError::CardEventChainFailed(chain_err);
 	let (status, body) = error_response(error).await;
 	assert_eq!(status, StatusCode::INTERNAL_SERVER_ERROR);

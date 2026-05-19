@@ -142,26 +142,25 @@ pub fn list_events_for_item_type(
 		.get()
 		.map_err(|e| ListEventsForItemTypeError::Other(anyhow::Error::from(e)))?;
 
-	let results: Result<Vec<CardFetchedEvent>, DieselError> =
-		conn.immediate_transaction(|conn| {
-			let exists: bool = item_types::table
-				.find(item_type_id)
-				.count()
-				.get_result::<i64>(conn)?
-				> 0;
-			if !exists {
-				// Signal "item type not found" via a Diesel rollback error we
-				// convert at the boundary. Any other error is a plain DB
-				// failure. Using `Error::NotFound` keeps this a single-variant
-				// return type inside the transaction, which is the shape
-				// `immediate_transaction` wants.
-				return Err(DieselError::NotFound);
-			}
-			card_fetched_events::table
-				.filter(card_fetched_events::item_type_id.eq(item_type_id))
-				.order_by(card_fetched_events::order_index.asc())
-				.load::<CardFetchedEvent>(conn)
-		});
+	let results: Result<Vec<CardFetchedEvent>, DieselError> = conn.immediate_transaction(|conn| {
+		let exists: bool = item_types::table
+			.find(item_type_id)
+			.count()
+			.get_result::<i64>(conn)?
+			> 0;
+		if !exists {
+			// Signal "item type not found" via a Diesel rollback error we
+			// convert at the boundary. Any other error is a plain DB
+			// failure. Using `Error::NotFound` keeps this a single-variant
+			// return type inside the transaction, which is the shape
+			// `immediate_transaction` wants.
+			return Err(DieselError::NotFound);
+		}
+		card_fetched_events::table
+			.filter(card_fetched_events::item_type_id.eq(item_type_id))
+			.order_by(card_fetched_events::order_index.asc())
+			.load::<CardFetchedEvent>(conn)
+	});
 
 	match results {
 		Ok(events) => {
